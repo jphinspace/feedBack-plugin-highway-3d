@@ -1,10 +1,10 @@
 import { T } from '../../core/three.js';
 import { FOG_END, K } from '../../core/constants.js';
-import { _bgEnsureSilhouetteCanvas } from '../backdrop.js';
+import { ensureSilhouetteCanvas } from '../backdrop.js';
 
 export const silhouettes = {
     build(scene, settings) {
-        const canvas = _bgEnsureSilhouetteCanvas();
+        const canvas = ensureSilhouetteCanvas();
         // Inside the visible fog range. Fog far = FOG_END * 1.2
         // from the camera, and cam.position.z is dynamic
         // (camUpdate() sets `dist * 0.75`). renderOrder = -1
@@ -42,7 +42,7 @@ export const silhouettes = {
             return { layers, intensity: settings.intensity };
         } catch (e) {
             // Build threw partway — clean up any per-layer
-            // textures we already created. _bgMountStyle's catch
+            // textures we already created. mountBackgroundStyle's catch
             // disposes the stage tree's meshes, but a partial-
             // build's CanvasTextures aren't reachable from any
             // mesh yet, so this catch owns them.

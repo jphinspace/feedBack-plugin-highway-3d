@@ -1,18 +1,18 @@
 import { K, VENUE_HAZE_STEADY } from '../core/constants.js';
-import { _bgEmitChange } from '../settings/store.js';
+import { emitSettingChange } from '../settings/store.js';
 
 // Venue viz mode: a small-club stage backdrop (static plate + optional
 // crowd video layers + haze) that replaces the normal off/particles/
 // silhouettes/etc background when active. Reached only through the
 // viz-picker Venue flow (window.h3dVenueSceneSetActive), never a
 // user-selectable h3d_bg_style value -- see settings/defaults.js's note on
-// why 'venue' is deliberately absent from BG_STYLE_IDS.
+// why 'venue' is deliberately absent from BACKGROUND_STYLE_IDS.
 //
 // The setters below (h3dVenueSceneSetActive etc.) are named exports bound
 // onto window by src/globals.js, same contract as settings/setters.js.
 //
 // _venueSetSceneAssetsLoaded/_venueSetSceneLoadFailed/_venueSetSceneOverride
-// exist ONLY because src/main.js's BG_STYLES.venue entry (not extracted
+// exist ONLY because src/main.js's BACKGROUND_STYLES.venue entry (not extracted
 // until Stage 6 -- it's the renderer half of this feature, this file is the
 // state/setter half) needs to write this module's state from outside it,
 // which only the declaring module can do directly. Prefer a real setter
@@ -45,7 +45,7 @@ export const _venueCrowdVideos = [null, null];
 export let _venueCrowdMix = 0;
 export let _venueCrowdRev = 0;
 
-export function _bgVenueMoodCoeffs(state) {
+export function venueMoodCoeffs(state) {
     const s = String(state || 'idle').toLowerCase();
     if (s === 'fire' || s === 'strong') {
         return { light: 1.0, crowd: 0, haze: 0.012, warmth: 1.02 };
@@ -234,7 +234,7 @@ export function _venueSwapPlateIfNeeded(s) {
             _venueSceneAssetsLoaded = false;
             console.warn('[venue-scene] failed to load venue bg plate for pov ' + pov);
             _venueSceneOverride = false;
-            _bgEmitChange('venueScene');
+            emitSettingChange('venueScene');
             try {
                 if (typeof window !== 'undefined' && window.v3VenueScene3d &&
                     typeof window.v3VenueScene3d.onAssetsFailed === 'function') {
@@ -253,7 +253,7 @@ export const h3dVenueSceneSetActive = (on) => {
         _venueSceneAssetsLoaded = false;
         _venueSceneLoadFailed = false;
     }
-    _bgEmitChange('venueScene');
+    emitSettingChange('venueScene');
 };
 export const h3dVenueSceneSetMood = (state) => {
     _venueMoodState = String(state || 'idle').toLowerCase();
@@ -276,7 +276,7 @@ export const h3dVenueSceneSetInstrumentPov = (input) => {
     const next = _venueResolvePovFromInput(input);
     if (_venueInstrumentPov === next) return;
     _venueInstrumentPov = next;
-    _bgEmitChange('venueInstrumentPov');
+    emitSettingChange('venueInstrumentPov');
 };
 export const h3dVenueSceneSetMotionMode = (mode) => {
     const next = String(mode || 'subtle').toLowerCase();
@@ -301,7 +301,7 @@ export const h3dVenueSceneGetState = () => {
     };
 };
 
-// See the module doc comment: BG_STYLES.venue (src/main.js) calls these
+// See the module doc comment: BACKGROUND_STYLES.venue (src/main.js) calls these
 // instead of assigning _venueSceneAssetsLoaded/_venueSceneLoadFailed/
 // _venueSceneOverride directly.
 export function _venueSetSceneAssetsLoaded(v) { _venueSceneAssetsLoaded = v; }

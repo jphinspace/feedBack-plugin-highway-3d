@@ -1,4 +1,4 @@
-import { _bcLoadSettings } from './prefs.js';
+import { loadButterchurnSettings } from './prefs.js';
 
 /* ── Butterchurn audio-reactive background ──────────────────────────
  * Mounts a Butterchurn (WebGL MilkDrop) canvas BEHIND the transparent
@@ -6,32 +6,32 @@ import { _bcLoadSettings } from './prefs.js';
  * audio lives in JUCE, not the webview <audio>); in a browser it taps
  * the song <audio> directly.
  * ──────────────────────────────────────────────────────────────────── */
-const BC_VENDOR = '/api/plugins/highway_3d/assets/vendor/';
-const BC_FRAME = 1024;
-const BC_WORKLET = '/api/plugins/highway_3d/assets/viz-worklet.js';
-export const _bcMeters = { gtr: 0, song: 0 }; // live levels shown in the panel readout
-let _bcLoading = null;
-export function _bcLoadLib() {
-    if (_bcLoading) return _bcLoading;
-    _bcLoading = new Promise((resolve, reject) => {
+const VENDOR_BASE_URL = '/api/plugins/highway_3d/assets/vendor/';
+const PCM_FRAME_SIZE = 1024;
+const PCM_WORKLET_URL = '/api/plugins/highway_3d/assets/viz-worklet.js';
+export const audioMeters = { gtr: 0, song: 0 }; // live levels shown in the panel readout
+let libLoadPromise = null;
+export function loadButterchurnLib() {
+    if (libLoadPromise) return libLoadPromise;
+    libLoadPromise = new Promise((resolve, reject) => {
         const add = (url, next) => {
             const s = document.createElement('script');
             s.src = url; s.async = true;
             s.onload = next; s.onerror = () => reject(new Error('load ' + url));
             document.head.appendChild(s);
         };
-        add(BC_VENDOR + 'butterchurn.min.js', () =>
-            add(BC_VENDOR + 'butterchurnPresets.min.js', resolve));
+        add(VENDOR_BASE_URL + 'butterchurn.min.js', () =>
+            add(VENDOR_BASE_URL + 'butterchurnPresets.min.js', resolve));
     });
     // Don't cache a rejected promise: a transient load failure (network
     // hiccup, blocked request) must not permanently disable the feature for
-    // the session. Clearing _bcLoading lets the next mount retry the load.
-    _bcLoading.catch(() => { _bcLoading = null; });
-    return _bcLoading;
+    // the session. Clearing libLoadPromise lets the next mount retry the load.
+    libLoadPromise.catch(() => { libLoadPromise = null; });
+    return libLoadPromise;
 }
-export function _bcResolve() { let b = window.butterchurn; if (b && b.default) b = b.default; return b; }
-export function _bcPresets() { let p = window.butterchurnPresets; if (p && p.default) p = p.default; return p; }
-export function _bcIsDesktop() {
+export function resolveButterchurnGlobal() { let b = window.butterchurn; if (b && b.default) b = b.default; return b; }
+export function resolvePresetsGlobal() { let p = window.butterchurnPresets; if (p && p.default) p = p.default; return p; }
+export function isDesktopAudioHost() {
     const d = window.feedBackDesktop || window.slopsmithDesktop;
     return !!(d && d.isDesktop && d.audio && typeof d.audio.getRawAudioFrame === 'function');
 }
@@ -39,11 +39,11 @@ export function _bcIsDesktop() {
 // Position at the first entry whose time is >= ct (strict <), so an event
 // landing exactly on the seek/loop target time is still fired by the update
 // walkers (which consume `<= ct`) instead of being skipped past here.
-export function _bcFfIdx(arr, ct, key) { if (!arr) return 0; let i = 0; while (i < arr.length && (arr[i][key] || 0) < ct) i++; return i; }
+export function fastForwardIndex(arr, ct, key) { if (!arr) return 0; let i = 0; while (i < arr.length && (arr[i][key] || 0) < ct) i++; return i; }
 // Force-free a canvas's WebGL context so the GPU resources are released
 // immediately instead of lingering until GC — repeated Butterchurn
 // mount/unmount cycles otherwise pile up live contexts toward the browser cap.
-export function _bcReleaseCanvasGL(canvas) {
+export function releaseCanvasGL(canvas) {
     if (!canvas || typeof canvas.getContext !== 'function') return;
     let gl = null;
     try { gl = canvas.getContext('webgl2') || canvas.getContext('webgl'); } catch (e) { gl = null; }
@@ -55,12 +55,12 @@ export function _bcReleaseCanvasGL(canvas) {
 // Butterchurn can tap. Guitar gives spectral texture from your playing; the
 // song's output meter (getLevels) injects an energy pulse so the visuals also
 // react to the backing track (JUCE plays it — there's no song PCM to FFT).
-export function _bcGuitarFeed(actx, onReady) {
-    const latest = new Float32Array(BC_FRAME);
+export function createGuitarPcmFeed(actx, onReady) {
+    const latest = new Float32Array(PCM_FRAME_SIZE);
     let polling = true, songLevel = 0, chartLevel = 0;
     let node = null, sp = null, silent = null;
     const api = (window.feedBackDesktop || window.slopsmithDesktop).audio;
-    const gainNow = () => (_bcLoadSettings().guitarGain) || 6;
+    const gainNow = () => (loadButterchurnSettings().guitarGain) || 6;
 
     // Keep the source node processing (silently — JUCE already monitors the
     // guitar), and hand it to Butterchurn via the onReady callback.
@@ -75,7 +75,7 @@ export function _bcGuitarFeed(actx, onReady) {
         const TWO_PI = Math.PI * 2;
         const oscStep = TWO_PI * (90 / actx.sampleRate);
         const oscStep2 = TWO_PI * (520 / actx.sampleRate);
-        sp = actx.createScriptProcessor(BC_FRAME, 1, 1);
+        sp = actx.createScriptProcessor(PCM_FRAME_SIZE, 1, 1);
         sp.onaudioprocess = (e) => {
             const out = e.outputBuffer.getChannelData(0);
             const n = Math.min(out.length, latest.length);
@@ -96,7 +96,7 @@ export function _bcGuitarFeed(actx, onReady) {
 
     // Preferred path: AudioWorklet (runs off the main thread).
     if (actx.audioWorklet && typeof actx.audioWorklet.addModule === 'function' && typeof AudioWorkletNode === 'function') {
-        actx.audioWorklet.addModule(BC_WORKLET).then(() => {
+        actx.audioWorklet.addModule(PCM_WORKLET_URL).then(() => {
             if (!polling || sp) return;
             node = new AudioWorkletNode(actx, 'viz-feed', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1] });
             attach(node);
@@ -112,12 +112,12 @@ export function _bcGuitarFeed(actx, onReady) {
     // Guitar PCM poll → waveform + level meter (+ pushed to the worklet).
     (function pcmLoop() {
         if (!polling) return;
-        Promise.resolve(api.getRawAudioFrame(BC_FRAME)).then((f) => {
+        Promise.resolve(api.getRawAudioFrame(PCM_FRAME_SIZE)).then((f) => {
             if (f && f.length) {
-                if (f.length >= BC_FRAME) latest.set(f.subarray(0, BC_FRAME));
+                if (f.length >= PCM_FRAME_SIZE) latest.set(f.subarray(0, PCM_FRAME_SIZE));
                 else { latest.fill(0); latest.set(f); }
-                let s = 0; for (let i = 0; i < BC_FRAME; i++) s += latest[i] * latest[i];
-                _bcMeters.gtr = Math.sqrt(s / BC_FRAME) * gainNow();
+                let s = 0; for (let i = 0; i < PCM_FRAME_SIZE; i++) s += latest[i] * latest[i];
+                audioMeters.gtr = Math.sqrt(s / PCM_FRAME_SIZE) * gainNow();
                 if (node) node.port.postMessage({ frame: latest.slice(0), song: songLevel, chart: chartLevel, gain: gainNow() });
             }
         }).catch(() => {}).then(() => { if (polling) setTimeout(pcmLoop, 16); });
@@ -127,8 +127,8 @@ export function _bcGuitarFeed(actx, onReady) {
         if (!polling) return;
         Promise.resolve(api.getLevels && api.getLevels()).then((L) => {
             if (L && typeof L.outputLevel === 'number') {
-                songLevel = Math.min(1, L.outputLevel * ((_bcLoadSettings().songGain) || 1.8));
-                _bcMeters.song = songLevel;
+                songLevel = Math.min(1, L.outputLevel * ((loadButterchurnSettings().songGain) || 1.8));
+                audioMeters.song = songLevel;
                 if (node) node.port.postMessage({ song: songLevel, chart: chartLevel, gain: gainNow() });
             }
         }).catch(() => {}).then(() => { if (polling) setTimeout(levelLoop, 40); });

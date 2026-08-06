@@ -7,8 +7,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-test('_bgReadGlobal reads the global slot, ignoring per-panel overrides', async () => {
-    const { _bgReadSetting: bgReadSetting, _bgReadGlobal: bgReadGlobal, _bgMemFallback: bgMemFallback } =
+test('readGlobalSetting reads the global slot, ignoring per-panel overrides', async () => {
+    const { readSetting: bgReadSetting, readGlobalSetting: bgReadGlobal, settingsMemFallback: bgMemFallback } =
         await import('../src/settings/store.js');
 
     const storage = new Map();
@@ -21,18 +21,18 @@ test('_bgReadGlobal reads the global slot, ignoring per-panel overrides', async 
         // The renderer, reading with a panel key, honours the per-panel override...
         assert.equal(bgReadSetting('panel3', 'style'), 'geometric');
         // ...but the shared control's global read must NOT see it - this is the
-        // whole point of #2 (previously _bgReadSetting(null, ...) relied on
+        // whole point of #2 (previously readSetting(null, ...) relied on
         // 'h3d_bg_null_style' never existing).
         assert.equal(bgReadGlobal('style'), 'lights');
 
         // In-memory staged value wins over the persisted global (matches
-        // _bgReadSetting's precedence). Must be a real BG_STYLE_IDS member
-        // ('butterchurn') since real _bgCoerce is in the loop now.
+        // readSetting's precedence). Must be a real BACKGROUND_STYLE_IDS member
+        // ('butterchurn') since real coerceSetting is in the loop now.
         bgMemFallback.style = 'butterchurn';
         assert.equal(bgReadGlobal('style'), 'butterchurn');
         delete bgMemFallback.style;
 
-        // Nothing stored -> BG_DEFAULTS.
+        // Nothing stored -> SETTING_DEFAULTS.
         assert.equal(bgReadGlobal('style'), 'lights');
         storage.delete('h3d_bg_style');
         assert.equal(bgReadGlobal('style'), 'particles');

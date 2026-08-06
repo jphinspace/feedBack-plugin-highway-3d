@@ -5,7 +5,7 @@ import { PALETTES } from '../../core/palette.js';
 export const lights = {
     build(scene, settings) {
         // Lights count scales 6 → 14 over intensity 0 → 1.
-        // _bgCoerce clamps intensity to [0,1] before it reaches
+        // coerceSetting clamps intensity to [0,1] before it reaches
         // here, so no further clamp is needed.
         const N = Math.floor(6 + 8 * settings.intensity);
         const lights = [];

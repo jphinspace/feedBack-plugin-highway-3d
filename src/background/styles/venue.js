@@ -1,9 +1,9 @@
 import { T } from '../../core/three.js';
 import { FOG_END, K, VENUE_BACKDROP_DISTANCE_MUL, VENUE_HAZE_STEADY } from '../../core/constants.js';
-import { _bgEmitChange } from '../../settings/store.js';
-import { BG_BACKDROP_DISTANCE, _bgCoverCrop, _bgFitBackdropPlane } from '../backdrop.js';
+import { emitSettingChange } from '../../settings/store.js';
+import { BACKDROP_DISTANCE, coverCropTexture, fitBackdropPlane } from '../backdrop.js';
 import {
-    _bgVenueMoodCoeffs, _venueApplyFakeDepthMotion, _venueCrowdMix, _venueCrowdRev,
+    venueMoodCoeffs, _venueApplyFakeDepthMotion, _venueCrowdMix, _venueCrowdRev,
     _venueCrowdVideos, _venueInstrumentPov, _venueLoadPlateForPov, _venueMoodState,
     _venueSetSceneAssetsLoaded, _venueSetSceneLoadFailed, _venueSetSceneOverride,
     _venueSwapPlateIfNeeded, _venueTextureCache,
@@ -14,7 +14,7 @@ import {
 // when Visualization = Venue; does not persist as a user bg style.
 export const venue = {
     build(scene, settings) {
-        const coeffs = _bgVenueMoodCoeffs(_venueMoodState);
+        const coeffs = venueMoodCoeffs(_venueMoodState);
         const state = {
             backdrop: null,
             haze: null,
@@ -47,7 +47,7 @@ export const venue = {
             _venueSetSceneAssetsLoaded(false);
             console.warn('[venue-scene] ' + msg);
             _venueSetSceneOverride(false);
-            _bgEmitChange('venueScene');
+            emitSettingChange('venueScene');
             try {
                 if (typeof window !== 'undefined' && window.v3VenueScene3d &&
                     typeof window.v3VenueScene3d.onAssetsFailed === 'function') {
@@ -60,7 +60,7 @@ export const venue = {
         state.loader = loader;
         const backdrop = {
             mesh: null, geo: null, mat: null, tex: null,
-            cam: settings.cam, distance: BG_BACKDROP_DISTANCE * VENUE_BACKDROP_DISTANCE_MUL,
+            cam: settings.cam, distance: BACKDROP_DISTANCE * VENUE_BACKDROP_DISTANCE_MUL,
             lastAspect: 0, lastVisibleHeight: 0, lastVisibleWidth: 0, loaded: false,
         };
         backdrop.geo = new T.PlaneGeometry(1, 1);
@@ -73,7 +73,7 @@ export const venue = {
         state.backdrop = backdrop;
         backdrop.applyCoverCrop = function () {
             if (!backdrop.tex || !backdrop.tex.image) return;
-            _bgCoverCrop(
+            coverCropTexture(
                 backdrop.tex,
                 backdrop.tex.image.width || 0,
                 backdrop.tex.image.height || 0,
@@ -106,12 +106,12 @@ export const venue = {
             const layer = {
                 mesh, geo, mat, tex: null, videoEl: null,
                 cam: settings.cam,
-                distance: BG_BACKDROP_DISTANCE * (i === 0 ? 1.04 : 1.03),
+                distance: BACKDROP_DISTANCE * (i === 0 ? 1.04 : 1.03),
                 lastAspect: 0, lastVisibleHeight: 0,
             };
             layer.applyCoverCrop = function () {
                 if (!layer.videoEl || !layer.tex) return;
-                _bgCoverCrop(
+                coverCropTexture(
                     layer.tex,
                     layer.videoEl.videoWidth || 0,
                     layer.videoEl.videoHeight || 0,
@@ -140,9 +140,9 @@ export const venue = {
     update(s, bands, dt, t) {
         if (!s || s.failed) return;
         _venueSwapPlateIfNeeded(s);
-        const coeffs = _bgVenueMoodCoeffs(_venueMoodState);
+        const coeffs = venueMoodCoeffs(_venueMoodState);
         if (s.backdrop && s.backdrop.loaded) {
-            _bgFitBackdropPlane(s.backdrop);
+            fitBackdropPlane(s.backdrop);
         }
         const motion = _venueApplyFakeDepthMotion(s, coeffs, t);
         if (s.backdrop && s.backdrop.loaded && s.backdrop.mat && !motion.breathe && !motion.warmthPulse) {
@@ -187,7 +187,7 @@ export const venue = {
                 const ready = !!el && el.videoWidth > 0;
                 // venue-crowd.js swaps src on the same element (loop ↔
                 // stinger); a new intrinsic size needs a fresh
-                // cover-crop, which _bgFitBackdropPlane only reapplies
+                // cover-crop, which fitBackdropPlane only reapplies
                 // on camera aspect changes.
                 if (ready && (layer.lastVidW !== el.videoWidth ||
                               layer.lastVidH !== el.videoHeight)) {
@@ -207,7 +207,7 @@ export const venue = {
                 layer.mesh.visible = ready && opacity > 0.01;
                 if (layer.mesh.visible) {
                     layer.mat.color.setRGB(warm, warm * 0.98, warm * 0.95);
-                    _bgFitBackdropPlane(layer);
+                    fitBackdropPlane(layer);
                 }
             });
         }

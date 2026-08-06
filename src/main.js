@@ -67,19 +67,19 @@ import { _ssActive, _ssIsCanvasFocused } from './core/splitscreen.js';
 import { nextInstanceId } from './core/instance-id.js';
 import { _registerTunerShortcut } from './ui/shortcuts.js';
 import { _aspectPaneKey, _aspectRegisterPane, _resolveTuneFor, nextPaneCounter } from './ui/aspect-panel.js';
-import { BG_DEFAULTS, BG_STYLE_IDS, _bgBackgroundColors, _bgHighwayColors } from './settings/defaults.js';
+import { SETTING_DEFAULTS, BACKGROUND_STYLE_IDS, backgroundAxisColors, highwayAxisColors } from './settings/defaults.js';
 import {
-    _bgEmitChange, _bgHasStored, _bgMemFallback, _bgPanelKey, _bgReadGlobal, _bgReadSetting,
-    _bgSubscribe, _bgUnsubscribe, _freeCamFor,
+    emitSettingChange, hasStoredSetting, settingsMemFallback, settingsPanelKey, readGlobalSetting, readSetting,
+    subscribeToSettings, unsubscribeFromSettings, _freeCamFor,
 } from './settings/store.js';
 import { _venueCrowdVideos, _venueEffectiveMotionMode, _venueSceneOverride, _venueSwapPlateIfNeeded } from './background/venue.js';
 import { _pcAcquire, _pcRelease } from './ui/player-chrome.js';
-import { BG_ZERO_BANDS, _bgGetAnalyser, _bgReadBands, _resetAnalyserBridgeForTest } from './audio/analyser.js';
-import { BG_STYLES } from './background/styles/index.js';
-import { _bcFfIdx, _bcIsDesktop } from './butterchurn/engine.js';
-import { _bcApplyAll, _bcLoadSettings, _bcResetSettingsCache } from './butterchurn/prefs.js';
-import { _bcUpdatePanelPreset } from './butterchurn/panel.js';
-import { _bcCreateController } from './butterchurn/controller.js';
+import { ZERO_AUDIO_BANDS, getAudioAnalyser, readAudioBands, _resetAnalyserBridgeForTest } from './audio/analyser.js';
+import { BACKGROUND_STYLES } from './background/styles/index.js';
+import { fastForwardIndex, isDesktopAudioHost } from './butterchurn/engine.js';
+import { applyButterchurnSettingsToAll, loadButterchurnSettings, resetButterchurnSettingsCache } from './butterchurn/prefs.js';
+import { updatePanelPreset } from './butterchurn/panel.js';
+import { createButterchurnController } from './butterchurn/controller.js';
 import { installGlobals } from './globals.js';
 
 // Restore the persisted fret-spacing mode before anything renders. Must
@@ -95,15 +95,15 @@ installGlobals();
 
 // Live-apply hook for the plugin's settings.html. The visualizer's on/off +
 // slider controls now live in the standard settings panel (settings.html),
-// which persists them into the BC_LS blob and then calls this so a mounted
+// which persists them into the SETTINGS_LS_KEY blob and then calls this so a mounted
 // highway re-reads and applies them immediately. Defined on window at module
 // scope so it's available regardless of whether a highway is mounted yet;
 // settings.html guards the call with `?.` for the not-yet-loaded case.
 window.h3dBcApplySettings = function () {
-    _bcResetSettingsCache();   // drop the cache so the next read reloads from localStorage
-    _bcLoadSettings();
-    _bcApplyAll();
-    try { _bcUpdatePanelPreset(); } catch (e) {}
+    resetButterchurnSettingsCache();   // drop the cache so the next read reloads from localStorage
+    loadButterchurnSettings();
+    applyButterchurnSettingsToAll();
+    try { updatePanelPreset(); } catch (e) {}
 };
 
 // ── 3D preview: lookahead fret bounds + smoothed focal X / span ─────────
@@ -127,7 +127,7 @@ window.h3dSetFretSpacing = mode => {
     // 3D-highway setting.
     setFretUniform(m !== 'logarithmic');
     _recomputeFretSpacingDerived();
-    _bgEmitChange('fretSpacing');
+    emitSettingChange('fretSpacing');
 };
 
 // Camera tgtDist building blocks. Both the dynamic (camera-follow)
@@ -164,7 +164,7 @@ function createFactory() {
     let _ctxLost = false;
     let _onCtxLost = null, _onCtxRestored = null;
     let bcCtrl = null; // Butterchurn audio-reactive background (the 'butterchurn' bg-style)
-    let _chartEnv = 0, _chartPrevT = -1, _bcBeatIdx = 0, _bcNoteIdx = 0, _bcChordIdx = 0, _bcTintTarget = null;
+    let _chartEnv = 0, _chartPrevT = -1, butterchurnBeatIdx = 0, butterchurnNoteIdx = 0, butterchurnChordIdx = 0, butterchurnTintTarget = null;
     let _tintR = 20, _tintG = 24, _tintB = 40; // smoothed instrument-color tint for the bg
     // highway:visibility listener (feedBack#246). Hides the .h3d-wrap
     // overlay when feedBack's canvas is display:none'd (splitscreen
@@ -267,7 +267,7 @@ function createFactory() {
     let _renderScale = 1;
     let lyricsCanvas = null, lyricsCtx = null;
     // FPS counter overlay. EMA-smoothed over ~30 frames so the readout doesn't
-    // jitter every rAF tick. Controlled by the 'fpsVisible' setting (BG_DEFAULTS).
+    // jitter every rAF tick. Controlled by the 'fpsVisible' setting (SETTING_DEFAULTS).
     // Legacy 'h3d_showFps' localStorage key and window.h3dShowFps are no longer
     // consulted — use the Settings → 3D Highway — Camera → Show FPS counter checkbox.
     let _fpsLastT = 0;
@@ -487,7 +487,7 @@ function createFactory() {
     let bgMountedStyleId = null;
     let bgStyleId = 'particles', bgIntensity = 0.5, bgReactive = true;
     // Active scene color theme (background + highway surface). Read in
-    // _bgLoadSettings, applied by _applyBgTheme (clear + fog + board plane).
+    // loadSettings, applied by _applyBgTheme (clear + fog + board plane).
     let bgThemeId = 'default';   // BACKGROUND axis (clear + fog)
     let hwThemeId = 'default';   // HIGHWAY axis (board + lane + laneDim)
     // Board (fretboard/highway-surface) plane material — kept so the theme
@@ -496,18 +496,18 @@ function createFactory() {
     // Per-render opt-out for plugins borrowing the highway as a viz: when the
     // mount bundle sets bgReactive === false, suppress the audio-reactive
     // background for THIS instance only (no shared h3d_bg_* write). Captured
-    // from the bundle in init(); applied in _bgLoadSettings() so it survives
+    // from the bundle in init(); applied in loadSettings() so it survives
     // later setting reloads. See init() for the rationale.
-    let _bgReactiveOptOut = false;
+    let backgroundReactiveOptOut = false;
     // Active palette for this panel (issue #10). Materials and per-
     // frame color reads inside createFactory all consult this rather
     // than the module-level S_COL, so a palette swap re-tints the
     // panel live without touching module-level state.
     let activePalette = PALETTES.default;
     // Content signature of the colors last applied to materials; lets
-    // _bgLoadSettings force a retint when the in-place custom palette
+    // loadSettings force a retint when the in-place custom palette
     // changes values without changing array identity.
-    let _bgPaletteSig = '';
+    let backgroundPaletteSig = '';
     // Fret digits on the board ghost (hollow preview at Z=0), not on
     // flying note bodies — see fretNumberGhostScope for chord-hand vs all.
     let showFretOnNote = false;
@@ -537,7 +537,7 @@ function createFactory() {
     // (furthest). Inactive when the lock isn't engaged.
     let cameraLockZoom = 0.5;
     /** 'steady' = recency-weighted centroid + hysteresis (#34); 'lookahead' = wide preview window + smooth focal. */
-    let cameraMode = BG_DEFAULTS.cameraMode;
+    let cameraMode = SETTING_DEFAULTS.cameraMode;
     // Global text-size multiplier for in-scene text sprites (chord
     // names, fret labels, section banners, technique markers, etc.).
     // Slider is 0..1; mapped to a 0.5..1.5× multiplier with 0.5 = 1.0×
@@ -556,45 +556,45 @@ function createFactory() {
     // _vibrancyIdleOp / _vibrancyProjOp are cached so
     // updateStringHighlights() and drawNote() don't recompute the
     // linear blend every frame.
-    let vibrancy            = BG_DEFAULTS.vibrancy;
-    let glowMul             = BG_DEFAULTS.glow;
-    let _hitFx              = BG_DEFAULTS.hitFx;
-    let _sparks             = BG_DEFAULTS.sparks;
-    let _cinematic          = BG_DEFAULTS.cinematic;
-    let _verdictMarks       = BG_DEFAULTS.verdictMarks;
-    let _timingFx           = BG_DEFAULTS.timingFx;
-    let _streakFx           = BG_DEFAULTS.streakFx;
-    let _bloom              = BG_DEFAULTS.bloom;
+    let vibrancy            = SETTING_DEFAULTS.vibrancy;
+    let glowMul             = SETTING_DEFAULTS.glow;
+    let _hitFx              = SETTING_DEFAULTS.hitFx;
+    let _sparks             = SETTING_DEFAULTS.sparks;
+    let _cinematic          = SETTING_DEFAULTS.cinematic;
+    let _verdictMarks       = SETTING_DEFAULTS.verdictMarks;
+    let _timingFx           = SETTING_DEFAULTS.timingFx;
+    let _streakFx           = SETTING_DEFAULTS.streakFx;
+    let _bloom              = SETTING_DEFAULTS.bloom;
     let _composer = null, _bloomPass = null, _bloomLoad = null, _bloomW = 0, _bloomH = 0;
     let _sparkPts = null, _sparkPos = null, _sparkCol = null, _sparkVel = null, _sparkLife = null;
     const _SPARK_N = 256;
     const _sparkSeen = new Map();     // note-key -> expiry; one burst per hit
     let _juiceLastT = 0;              // frame-dt clock for the juice layer
     let _streakHits = 0, _streakHeat = 0;  // #7 consecutive-hit escalation
-    let fpsVisible           = BG_DEFAULTS.fpsVisible;
-    let fretDividersVisible  = BG_DEFAULTS.fretDividersVisible;
-    let chordDiagramVisible  = BG_DEFAULTS.chordDiagramVisible;
-    let chordDiagramSize     = BG_DEFAULTS.chordDiagramSize;
-    let chordDiagramPosition = BG_DEFAULTS.chordDiagramPosition;
-    let fretColumnMarkerCadence = BG_DEFAULTS.fretColumnMarkerCadence;
-    let inlayLabelsVisible = BG_DEFAULTS.inlayLabelsVisible;
-    let sectionLabelsOnHighway = BG_DEFAULTS.sectionLabelsOnHighway;
-    let sectionHudVisible      = BG_DEFAULTS.sectionHudVisible;
-    let sectionHudPosition     = BG_DEFAULTS.sectionHudPosition;
-    let sectionHudSize         = BG_DEFAULTS.sectionHudSize;
-    let toneHudVisible         = BG_DEFAULTS.toneHudVisible;
-    let toneHudPosition        = BG_DEFAULTS.toneHudPosition;
-    let toneHudSize            = BG_DEFAULTS.toneHudSize;
-    let nutHeadstockVisible    = BG_DEFAULTS.nutHeadstockVisible;
-    let tuningLabelsVisible    = BG_DEFAULTS.tuningLabelsVisible;
-    let nutColor               = BG_DEFAULTS.nutColor;
-    let headstockColor         = BG_DEFAULTS.headstockColor;
-    let projectionVisible      = BG_DEFAULTS.projectionVisible;   // board "note preview" ghost on the fretboard
-    let slideArrowApproachVisible = BG_DEFAULTS.slideArrowApproachVisible; // slide-direction arrow riding with the note/gem
-    let slideArrowNeckVisible      = BG_DEFAULTS.slideArrowNeckVisible;    // slide-direction arrow preview on the neck
-    let slideArrowChainPreviewVisible = BG_DEFAULTS.slideArrowChainPreviewVisible; // early neck preview for chained/multi-leg slides
-    let _vibrancyIdleOp = 0.4  + 0.6  * BG_DEFAULTS.vibrancy;
-    let _vibrancyProjOp = 0.15 + 0.35 * BG_DEFAULTS.vibrancy;
+    let fpsVisible           = SETTING_DEFAULTS.fpsVisible;
+    let fretDividersVisible  = SETTING_DEFAULTS.fretDividersVisible;
+    let chordDiagramVisible  = SETTING_DEFAULTS.chordDiagramVisible;
+    let chordDiagramSize     = SETTING_DEFAULTS.chordDiagramSize;
+    let chordDiagramPosition = SETTING_DEFAULTS.chordDiagramPosition;
+    let fretColumnMarkerCadence = SETTING_DEFAULTS.fretColumnMarkerCadence;
+    let inlayLabelsVisible = SETTING_DEFAULTS.inlayLabelsVisible;
+    let sectionLabelsOnHighway = SETTING_DEFAULTS.sectionLabelsOnHighway;
+    let sectionHudVisible      = SETTING_DEFAULTS.sectionHudVisible;
+    let sectionHudPosition     = SETTING_DEFAULTS.sectionHudPosition;
+    let sectionHudSize         = SETTING_DEFAULTS.sectionHudSize;
+    let toneHudVisible         = SETTING_DEFAULTS.toneHudVisible;
+    let toneHudPosition        = SETTING_DEFAULTS.toneHudPosition;
+    let toneHudSize            = SETTING_DEFAULTS.toneHudSize;
+    let nutHeadstockVisible    = SETTING_DEFAULTS.nutHeadstockVisible;
+    let tuningLabelsVisible    = SETTING_DEFAULTS.tuningLabelsVisible;
+    let nutColor               = SETTING_DEFAULTS.nutColor;
+    let headstockColor         = SETTING_DEFAULTS.headstockColor;
+    let projectionVisible      = SETTING_DEFAULTS.projectionVisible;   // board "note preview" ghost on the fretboard
+    let slideArrowApproachVisible = SETTING_DEFAULTS.slideArrowApproachVisible; // slide-direction arrow riding with the note/gem
+    let slideArrowNeckVisible      = SETTING_DEFAULTS.slideArrowNeckVisible;    // slide-direction arrow preview on the neck
+    let slideArrowChainPreviewVisible = SETTING_DEFAULTS.slideArrowChainPreviewVisible; // early neck preview for chained/multi-leg slides
+    let _vibrancyIdleOp = 0.4  + 0.6  * SETTING_DEFAULTS.vibrancy;
+    let _vibrancyProjOp = 0.15 + 0.35 * SETTING_DEFAULTS.vibrancy;
     // Custom image asset (issue #19). Data URL is the bytes that
     // drive the 'image' bg style's texture; name is display-only
     // metadata that settings.html shows next to the file picker.
@@ -603,10 +603,10 @@ function createFactory() {
     // Custom video asset (issue #19 follow-up). Stores the
     // server-side filename only; bytes live on disk via routes.py.
     // The renderer composes the served URL from this filename in
-    // BG_STYLES.video.build.
+    // BACKGROUND_STYLES.video.build.
     let bgCustomVideoName = '';
-    let _bgListener = null;
-    let _bgLastT = 0;  // ms timestamp for dt
+    let settingsListener = null;
+    let backgroundLastT = 0;  // ms timestamp for dt
 
     // Notedetect feedback (issue #9). Per-panel mark queues populated
     // by two event sources: (a) legacy `notedetect:hit` /
@@ -2969,7 +2969,7 @@ function createFactory() {
         // itself force NVIDIA's utilisation-driven clock ramp on Linux.)
         ren = new T.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', alpha: true });
         _probe = new T.Vector3();
-        ren.setClearColor(0x101820, _bcActive() ? 0 : 1);
+        ren.setClearColor(0x101820, butterchurnModeActive() ? 0 : 1);
         wrap.appendChild(ren.domElement);
 
         // WebGL context-loss recovery (see the _ctxLost declaration). Bound
@@ -4094,7 +4094,7 @@ function createFactory() {
         pBeat.warm(_WARM_BEAT);
         pSec.warm(8);
 
-        _bgLoadSettings();
+        loadSettings();
         buildBoard();
         // Apply the scene color theme now that settings + board exist. Sets
         // the clear color + fog tint (board plane was themed in buildBoard).
@@ -4108,25 +4108,25 @@ function createFactory() {
         // so they propagate without a reload. Manual localStorage
         // edits don't fire the pub-sub and require a reload.
         // Push the freshly-loaded vibrancy/glow values into the
-        // materials. _bgLoadSettings only triggers a palette re-apply
+        // materials. loadSettings only triggers a palette re-apply
         // when the palette ID actually changed, so a fresh-init user
         // on the default palette would otherwise keep the hardcoded
         // construction-time material values until they touched a
         // slider.
         _applyVibrancy();
         _applyGlow();
-        // inlayLabelsVisible was applied before buildBoard() via _bgLoadSettings.
+        // inlayLabelsVisible was applied before buildBoard() via loadSettings.
         bgGroup = new T.Group();
         // Note: renderOrder on a Group is a no-op (Three.js Groups
         // are transforms, not rendered objects, so renderOrder only
-        // affects the actual meshes inside). _bgMountStyle stamps
+        // affects the actual meshes inside). mountBackgroundStyle stamps
         // renderOrder = -1 on every child after build, which IS what
         // forces background to render before gameplay geometry.
         // Combined with the deeper-than-note-range placements below,
         // background never paints over notes.
         scene.add(bgGroup);
-        _bgMountStyle();
-        _bgListener = (changedKey) => {
+        mountBackgroundStyle();
+        settingsListener = (changedKey) => {
             if (changedKey === 'fretSpacing') {
                 // _h3dFretUniform + the fretX-derived scalars were already
                 // updated globally in h3dSetFretSpacing. Rebuild this
@@ -4137,7 +4137,7 @@ function createFactory() {
                 return;
             }
             if (changedKey === 'inlayLabelsVisible') {
-                _bgLoadSettings();
+                loadSettings();
                 // Flip visibility on the already-built sprites; no
                 // need to rebuild the board (cheaper, preserves the
                 // shared materials and avoids palette re-apply churn).
@@ -4145,18 +4145,18 @@ function createFactory() {
                 return;
             }
             if (changedKey === 'nutHeadstockVisible') {
-                _bgLoadSettings();
+                loadSettings();
                 if (nutHeadstockGroup) nutHeadstockGroup.visible = nutHeadstockVisible;
                 return;
             }
             if (changedKey === 'tuningLabelsVisible') {
-                _bgLoadSettings();
+                loadSettings();
                 _lastOpenStringLblSig = '';
                 if (_tuningLabelSprites.length) _disposeOpenStringPitchSprites();
                 return;
             }
             if (changedKey === 'nutColor' || changedKey === 'headstockColor') {
-                _bgLoadSettings();
+                loadSettings();
                 if (fretG) buildBoard();
                 for (const lbl of _inlayLabels) lbl.visible = inlayLabelsVisible;
                 return;
@@ -4186,22 +4186,22 @@ function createFactory() {
                 // (#34), the zoom/tilt smoothing follow-ups, and
                 // cameraLockLow — all read per-frame in update() /
                 // camUpdate().
-                _bgLoadSettings();
+                loadSettings();
                 return;
             }
             if (changedKey === 'vibrancy') {
-                _bgLoadSettings();
+                loadSettings();
                 _applyVibrancy();
                 return;
             }
             if (changedKey === 'glow') {
-                _bgLoadSettings();
+                loadSettings();
                 _applyGlow();
                 return;
             }
             if (changedKey === 'palette') {
                 // Palette change has three effects:
-                //  1. _bgLoadSettings -> _applyPaletteToMaterials
+                //  1. loadSettings -> _applyPaletteToMaterials
                 //     retints the per-instance shared materials
                 //     (notes, glows, sustain trails, projection).
                 //  2. buildBoard rebuilds the fretboard meshes
@@ -4211,11 +4211,11 @@ function createFactory() {
                 //     aren't reachable from _applyPaletteToMaterials.
                 //  3. lights bg style bakes palette colors into
                 //     sprite quads at build time, so it needs a
-                //     full mesh rebuild — fire _bgRebuild when
+                //     full mesh rebuild — fire rebuildBackground when
                 //     that style is active.
-                _bgLoadSettings();
+                loadSettings();
                 if (fretG) buildBoard();
-                if (bgStyleId === 'lights') _bgRebuild();
+                if (bgStyleId === 'lights') rebuildBackground();
                 return;
             }
             if (changedKey === 'bgTheme' || changedKey === 'hwTheme') {
@@ -4225,7 +4225,7 @@ function createFactory() {
                 // is mutated via _boardPlaneMat, the lane via mLaneOdd/Even).
                 // _applyBgTheme reapplies both axes from their own keys, so
                 // changing one dropdown retints only its half.
-                _bgLoadSettings();
+                loadSettings();
                 _applyBgTheme();
                 return;
             }
@@ -4233,13 +4233,13 @@ function createFactory() {
                 // Asset bytes changed. Rebuild only when the image
                 // style is active — otherwise the new bytes will
                 // pick up next time the user picks `image`.
-                _bgLoadSettings();
-                if (bgStyleId === 'image') _bgRebuild();
+                loadSettings();
+                if (bgStyleId === 'image') rebuildBackground();
                 return;
             }
             if (changedKey === 'customImageName') {
                 // Display-only metadata; no mesh rebuild.
-                _bgLoadSettings();
+                loadSettings();
                 return;
             }
             if (changedKey === 'customVideoName') {
@@ -4247,12 +4247,12 @@ function createFactory() {
                 // only when the video style is currently active;
                 // otherwise the new bytes pick up next time the
                 // user picks `video`.
-                _bgLoadSettings();
-                if (bgStyleId === 'video') _bgRebuild();
+                loadSettings();
+                if (bgStyleId === 'video') rebuildBackground();
                 return;
             }
             if (changedKey === 'intensity') {
-                _bgLoadSettings();
+                loadSettings();
                 // Image style reads s.intensity per frame inside
                 // update() to scale the drift speed, so a live
                 // mutation is enough — no need to tear down and
@@ -4264,24 +4264,24 @@ function createFactory() {
                     bgState.intensity = bgIntensity;
                     return;
                 }
-                _bgRebuild();
+                rebuildBackground();
                 return;
             }
             if (changedKey === 'venueScene') {
-                _bgRebuild();
+                rebuildBackground();
                 return;
             }
             if (changedKey === 'venueInstrumentPov') {
-                if (_bgEffectiveStyleId() === 'venue' && bgState) {
+                if (effectiveBackgroundStyleId() === 'venue' && bgState) {
                     _venueSwapPlateIfNeeded(bgState);
                 }
                 return;
             }
             if (!changedKey || changedKey === 'style') {
-                _bgRebuild();
+                rebuildBackground();
             }
         };
-        _bgSubscribe(_bgListener);
+        subscribeToSettings(settingsListener);
 
         // Notedetect feedback (#9). Listen for hit/miss events on
         // window. Notedetect dispatches both globally and on its
@@ -4400,24 +4400,24 @@ function createFactory() {
         return true;
     }
 
-    function _bgLoadSettings() {
-        const panelKey = _bgPanelKey(highwayCanvas);
-        bgStyleId = _bgReadSetting(panelKey, 'style');
-        bgIntensity = _bgReadSetting(panelKey, 'intensity');
-        bgReactive = _bgReadSetting(panelKey, 'reactive');
+    function loadSettings() {
+        const panelKey = settingsPanelKey(highwayCanvas);
+        bgStyleId = readSetting(panelKey, 'style');
+        bgIntensity = readSetting(panelKey, 'intensity');
+        bgReactive = readSetting(panelKey, 'reactive');
         // Per-render opt-out (captured from the mount bundle in init): force
         // the reactive background off for THIS instance, overriding the shared
         // setting without writing it back. Re-applied here so it sticks across
         // setting reloads.
-        if (_bgReactiveOptOut) bgReactive = false;
+        if (backgroundReactiveOptOut) bgReactive = false;
         if (bgStyleId === 'butterchurn') bgReactive = false; // Butterchurn owns the <audio> tap
-        const newPaletteId = _bgReadSetting(panelKey, 'palette');
+        const newPaletteId = readSetting(panelKey, 'palette');
         let newPalette;
         if (newPaletteId === 'custom') {
             // Resolve user colors into the stable _customPalette array,
             // mutated in place so the reference identity is preserved.
             let stored = null;
-            const raw = _bgReadSetting(panelKey, 'customColors');
+            const raw = readSetting(panelKey, 'customColors');
             if (typeof raw === 'string') { try { stored = JSON.parse(raw); } catch (_) { /* corrupt */ } }
             for (let i = 0; i < _customPalette.length; i++) {
                 const v = Array.isArray(stored) ? _h3dHexToInt(stored[i]) : null;
@@ -4429,14 +4429,14 @@ function createFactory() {
         }
         // Signature guards the in-place custom case: when the user edits a
         // color the reference stays === activePalette, so compare contents
-        // too to force a retint. _bgPaletteSig caches the applied colors.
+        // too to force a retint. backgroundPaletteSig caches the applied colors.
         const newSig = newPalette.join(',');
-        if (newPalette !== activePalette || newSig !== _bgPaletteSig) {
+        if (newPalette !== activePalette || newSig !== backgroundPaletteSig) {
             activePalette = newPalette;
-            _bgPaletteSig = newSig;
+            backgroundPaletteSig = newSig;
             _applyPaletteToMaterials();
         }
-        bgThemeId = _bgReadSetting(panelKey, 'bgTheme');
+        bgThemeId = readSetting(panelKey, 'bgTheme');
         // Highway axis. ONE-TIME BACKWARD-COMPAT BACKFILL: the first time we
         // load with no stored hwTheme (pre-split installs, or anyone who only
         // ever touched the old single "Scene colors" control), seed hwTheme
@@ -4446,103 +4446,103 @@ function createFactory() {
         // the two axes truly INDEPENDENT thereafter: once hwTheme is stored,
         // changing the Background dropdown no longer drags the Highway
         // surface along, and the settings UI's Highway value can never
-        // disagree with what's rendered. Written without _bgEmitChange so the
+        // disagree with what's rendered. Written without emitSettingChange so the
         // backfill can't re-enter the change listener.
-        if (_bgHasStored(panelKey, 'hwTheme')) {
-            hwThemeId = _bgReadSetting(panelKey, 'hwTheme');
+        if (hasStoredSetting(panelKey, 'hwTheme')) {
+            hwThemeId = readSetting(panelKey, 'hwTheme');
         } else {
             hwThemeId = bgThemeId;
-            _bgMemFallback.hwTheme = String(bgThemeId);
+            settingsMemFallback.hwTheme = String(bgThemeId);
             try { localStorage.setItem('h3d_bg_hwTheme', String(bgThemeId)); } catch (_) { /* storage blocked — mem fallback still seeds the read */ }
         }
-        showFretOnNote = _bgReadSetting(panelKey, 'showFretOnNote');
-        fretNumberGhostScope = _bgReadSetting(panelKey, 'fretNumberGhostScope');
-        cameraSmoothing = _bgReadSetting(panelKey, 'cameraSmoothing');
+        showFretOnNote = readSetting(panelKey, 'showFretOnNote');
+        fretNumberGhostScope = readSetting(panelKey, 'fretNumberGhostScope');
+        cameraSmoothing = readSetting(panelKey, 'cameraSmoothing');
         // Mirror-at-first-read: zoom + tilt sliders inherit cameraSmoothing
         // when the user has never explicitly written them. Once the user
-        // moves either slider, the corresponding _bgHasStored() flips
+        // moves either slider, the corresponding hasStoredSetting() flips
         // true and the read becomes independent.
-        zoomSmoothing = _bgHasStored(panelKey, 'zoomSmoothing')
-            ? _bgReadSetting(panelKey, 'zoomSmoothing')
+        zoomSmoothing = hasStoredSetting(panelKey, 'zoomSmoothing')
+            ? readSetting(panelKey, 'zoomSmoothing')
             : cameraSmoothing;
-        tiltSmoothing = _bgHasStored(panelKey, 'tiltSmoothing')
-            ? _bgReadSetting(panelKey, 'tiltSmoothing')
+        tiltSmoothing = hasStoredSetting(panelKey, 'tiltSmoothing')
+            ? readSetting(panelKey, 'tiltSmoothing')
             : cameraSmoothing;
-        cameraLockLow = _bgReadSetting(panelKey, 'cameraLockLow');
-        cameraLockZoom = _bgReadSetting(panelKey, 'cameraLockZoom');
-        cameraMode = _bgReadSetting(panelKey, 'cameraMode');
-        textSize             = _bgReadSetting(panelKey, 'textSize');
-        vibrancy             = _bgReadSetting(panelKey, 'vibrancy');
-        glowMul              = _bgReadSetting(panelKey, 'glow');
-        _hitFx               = _bgReadSetting(panelKey, 'hitFx');
-        _sparks              = _bgReadSetting(panelKey, 'sparks');
-        _cinematic           = _bgReadSetting(panelKey, 'cinematic');
-        _verdictMarks        = _bgReadSetting(panelKey, 'verdictMarks');
-        _timingFx            = _bgReadSetting(panelKey, 'timingFx');
-        _streakFx            = _bgReadSetting(panelKey, 'streakFx');
-        _bloom               = _bgReadSetting(panelKey, 'bloom');
+        cameraLockLow = readSetting(panelKey, 'cameraLockLow');
+        cameraLockZoom = readSetting(panelKey, 'cameraLockZoom');
+        cameraMode = readSetting(panelKey, 'cameraMode');
+        textSize             = readSetting(panelKey, 'textSize');
+        vibrancy             = readSetting(panelKey, 'vibrancy');
+        glowMul              = readSetting(panelKey, 'glow');
+        _hitFx               = readSetting(panelKey, 'hitFx');
+        _sparks              = readSetting(panelKey, 'sparks');
+        _cinematic           = readSetting(panelKey, 'cinematic');
+        _verdictMarks        = readSetting(panelKey, 'verdictMarks');
+        _timingFx            = readSetting(panelKey, 'timingFx');
+        _streakFx            = readSetting(panelKey, 'streakFx');
+        _bloom               = readSetting(panelKey, 'bloom');
         _applyCinematic();
-        fpsVisible           = _bgReadSetting(panelKey, 'fpsVisible');
-        fretDividersVisible  = _bgReadSetting(panelKey, 'fretDividersVisible');
-        chordDiagramVisible  = _bgReadSetting(panelKey, 'chordDiagramVisible');
-        chordDiagramSize     = _bgReadSetting(panelKey, 'chordDiagramSize');
-        chordDiagramPosition = _bgReadSetting(panelKey, 'chordDiagramPosition');
-        fretColumnMarkerCadence = _bgReadSetting(panelKey, 'fretColumnMarkerCadence');
-        inlayLabelsVisible = _bgReadSetting(panelKey, 'inlayLabelsVisible');
-        sectionLabelsOnHighway = _bgReadSetting(panelKey, 'sectionLabelsOnHighway');
-        sectionHudVisible      = _bgReadSetting(panelKey, 'sectionHudVisible');
-        sectionHudPosition     = _bgReadSetting(panelKey, 'sectionHudPosition');
-        sectionHudSize         = _bgReadSetting(panelKey, 'sectionHudSize');
-        toneHudVisible         = _bgReadSetting(panelKey, 'toneHudVisible');
-        toneHudPosition        = _bgReadSetting(panelKey, 'toneHudPosition');
-        toneHudSize            = _bgReadSetting(panelKey, 'toneHudSize');
-        nutHeadstockVisible    = _bgReadSetting(panelKey, 'nutHeadstockVisible');
-        tuningLabelsVisible    = _bgReadSetting(panelKey, 'tuningLabelsVisible');
-        nutColor               = _bgReadSetting(panelKey, 'nutColor');
-        headstockColor         = _bgReadSetting(panelKey, 'headstockColor');
-        projectionVisible      = _bgReadSetting(panelKey, 'projectionVisible');
-        slideArrowApproachVisible = _bgReadSetting(panelKey, 'slideArrowApproachVisible');
-        slideArrowNeckVisible     = _bgReadSetting(panelKey, 'slideArrowNeckVisible');
-        slideArrowChainPreviewVisible = _bgReadSetting(panelKey, 'slideArrowChainPreviewVisible');
+        fpsVisible           = readSetting(panelKey, 'fpsVisible');
+        fretDividersVisible  = readSetting(panelKey, 'fretDividersVisible');
+        chordDiagramVisible  = readSetting(panelKey, 'chordDiagramVisible');
+        chordDiagramSize     = readSetting(panelKey, 'chordDiagramSize');
+        chordDiagramPosition = readSetting(panelKey, 'chordDiagramPosition');
+        fretColumnMarkerCadence = readSetting(panelKey, 'fretColumnMarkerCadence');
+        inlayLabelsVisible = readSetting(panelKey, 'inlayLabelsVisible');
+        sectionLabelsOnHighway = readSetting(panelKey, 'sectionLabelsOnHighway');
+        sectionHudVisible      = readSetting(panelKey, 'sectionHudVisible');
+        sectionHudPosition     = readSetting(panelKey, 'sectionHudPosition');
+        sectionHudSize         = readSetting(panelKey, 'sectionHudSize');
+        toneHudVisible         = readSetting(panelKey, 'toneHudVisible');
+        toneHudPosition        = readSetting(panelKey, 'toneHudPosition');
+        toneHudSize            = readSetting(panelKey, 'toneHudSize');
+        nutHeadstockVisible    = readSetting(panelKey, 'nutHeadstockVisible');
+        tuningLabelsVisible    = readSetting(panelKey, 'tuningLabelsVisible');
+        nutColor               = readSetting(panelKey, 'nutColor');
+        headstockColor         = readSetting(panelKey, 'headstockColor');
+        projectionVisible      = readSetting(panelKey, 'projectionVisible');
+        slideArrowApproachVisible = readSetting(panelKey, 'slideArrowApproachVisible');
+        slideArrowNeckVisible     = readSetting(panelKey, 'slideArrowNeckVisible');
+        slideArrowChainPreviewVisible = readSetting(panelKey, 'slideArrowChainPreviewVisible');
         _vibrancyIdleOp = 0.4  + 0.6  * vibrancy;
         _vibrancyProjOp = 0.15 + 0.35 * vibrancy;
         // Custom image asset is a single GLOBAL slot — bytes are
         // shared across panels (per-panel choice is which style
         // each panel renders, not which asset). Reading via
-        // _bgReadSetting would let a stray h3d_bg_panel<idx>_*
+        // readSetting would let a stray h3d_bg_panel<idx>_*
         // override silently re-introduce the per-panel asset
         // duplication this design deliberately avoids (and
         // h3dBgClearCustomImage wouldn't reach those overrides).
         // Read globals directly instead.
         //
         // Precedence: in-memory fallback BEFORE localStorage. The
-        // setter always populates _bgMemFallback (even when the
+        // setter always populates settingsMemFallback (even when the
         // localStorage write fails on quota), so the fallback
         // holds the most-recent staged value. Reading localStorage
         // first would mean a failed write leaves the renderer
         // pointed at the previous asset while settings.html shows
         // a "session-only" warning claiming the new bytes are in
         // effect — UI and renderer would silently disagree.
-        const memDataUrl = _bgMemFallback.customImageDataUrl;
-        const memName    = _bgMemFallback.customImageName;
+        const memDataUrl = settingsMemFallback.customImageDataUrl;
+        const memName    = settingsMemFallback.customImageName;
         try {
             const gDataUrl = (memDataUrl !== undefined) ? memDataUrl : localStorage.getItem('h3d_bg_customImageDataUrl');
             const gName    = (memName    !== undefined) ? memName    : localStorage.getItem('h3d_bg_customImageName');
-            bgCustomImageDataUrl = (gDataUrl != null) ? gDataUrl : BG_DEFAULTS.customImageDataUrl;
-            bgCustomImageName    = (gName    != null) ? gName    : BG_DEFAULTS.customImageName;
+            bgCustomImageDataUrl = (gDataUrl != null) ? gDataUrl : SETTING_DEFAULTS.customImageDataUrl;
+            bgCustomImageName    = (gName    != null) ? gName    : SETTING_DEFAULTS.customImageName;
         } catch (_) {
-            bgCustomImageDataUrl = (memDataUrl !== undefined) ? memDataUrl : BG_DEFAULTS.customImageDataUrl;
-            bgCustomImageName    = (memName    !== undefined) ? memName    : BG_DEFAULTS.customImageName;
+            bgCustomImageDataUrl = (memDataUrl !== undefined) ? memDataUrl : SETTING_DEFAULTS.customImageDataUrl;
+            bgCustomImageName    = (memName    !== undefined) ? memName    : SETTING_DEFAULTS.customImageName;
         }
         // Custom video filename: also a single global slot, same
         // mem-first precedence as the image keys (a quota-failed
-        // setItem leaves _bgMemFallback ahead of localStorage).
-        const memVideoName = _bgMemFallback.customVideoName;
+        // setItem leaves settingsMemFallback ahead of localStorage).
+        const memVideoName = settingsMemFallback.customVideoName;
         try {
             const gVideoName = (memVideoName !== undefined) ? memVideoName : localStorage.getItem('h3d_bg_customVideoName');
-            bgCustomVideoName = (gVideoName != null) ? gVideoName : BG_DEFAULTS.customVideoName;
+            bgCustomVideoName = (gVideoName != null) ? gVideoName : SETTING_DEFAULTS.customVideoName;
         } catch (_) {
-            bgCustomVideoName = (memVideoName !== undefined) ? memVideoName : BG_DEFAULTS.customVideoName;
+            bgCustomVideoName = (memVideoName !== undefined) ? memVideoName : SETTING_DEFAULTS.customVideoName;
         }
     }
     // Live-swap palette by mutating existing materials in place.
@@ -4737,16 +4737,16 @@ function createFactory() {
             if (mAccentHaloFar[si]) mAccentHaloFar[si].opacity = ACCENT_HALO_OP_FAR * g;
         }
     }
-    function _bgEffectiveStyleId() {
+    function effectiveBackgroundStyleId() {
         return _venueSceneOverride ? 'venue' : bgStyleId;
     }
     // The 'butterchurn' bg-style renders a WebGL MilkDrop canvas BEHIND a
-    // transparent highway via the self-contained _bc* controller (top of file),
+    // transparent highway via the self-contained butterchurn/ controller module,
     // NOT a Three.js fog-scenery style (its scenery falls back to 'off'). Mount
-    // is idempotent and driven by the bg-style dropdown through _bgMountStyle.
-    function _bcActive() { return bgStyleId === 'butterchurn'; }
-    function _bcSyncMode() {
-        if (_bcActive()) {
+    // is idempotent and driven by the bg-style dropdown through mountBackgroundStyle.
+    function butterchurnModeActive() { return bgStyleId === 'butterchurn'; }
+    function syncButterchurnMode() {
+        if (butterchurnModeActive()) {
             // Recreate when there's no controller, or the last one died during
             // async init (lib/WebGL failure) — a dead controller self-cleaned,
             // so retry here instead of leaving the style permanently broken.
@@ -4755,7 +4755,7 @@ function createFactory() {
                 // audioProvider reuses this instance's shared analyser (the
                 // fog scenery's #audio / stems tap) so the browser path never
                 // opens a second createMediaElementSource on #audio.
-                try { bcCtrl = _bcCreateController(wrap, () => canvasSize(highwayCanvas), () => { try { return _bgGetAnalyser(); } catch (e) { return null; } }); }
+                try { bcCtrl = createButterchurnController(wrap, () => canvasSize(highwayCanvas), () => { try { return getAudioAnalyser(); } catch (e) { return null; } }); }
                 catch (e) { console.warn('[3D-Hwy] Butterchurn init failed', e); }
             }
             if (ren) ren.setClearColor(0x101820, 0); // transparent so the visualizer shows through
@@ -4765,9 +4765,9 @@ function createFactory() {
             _applyBgTheme(); // restore the opaque themed clear
         }
     }
-    function _bgMountStyle() {
-        const effectiveId = _bgEffectiveStyleId();
-        const style = BG_STYLES[effectiveId] || BG_STYLES.off;
+    function mountBackgroundStyle() {
+        const effectiveId = effectiveBackgroundStyleId();
+        const style = BACKGROUND_STYLES[effectiveId] || BACKGROUND_STYLES.off;
         // Build into a fresh stage group so a partial throw can't
         // orphan meshes inside bgGroup. On success the stage joins
         // bgGroup atomically; on failure the stage and everything
@@ -4784,7 +4784,7 @@ function createFactory() {
             }) || null;
         } catch (e) {
             console.error('[3D-Hwy] bg style build failed', effectiveId, e);
-            _bgDisposeGroupTree(stage);
+            disposeGroupTree(stage);
             bgState = null;
             bgStage = null;
             bgMountedStyleId = null;
@@ -4800,35 +4800,35 @@ function createFactory() {
         bgStage = stage;
         bgState = result;
         bgMountedStyleId = effectiveId;
-        _bcSyncMode();
+        syncButterchurnMode();
     }
-    function _bgUnmountStyle() {
-        const mountedId = bgMountedStyleId || _bgEffectiveStyleId();
-        const style = BG_STYLES[mountedId] || BG_STYLES.off;
+    function unmountBackgroundStyle() {
+        const mountedId = bgMountedStyleId || effectiveBackgroundStyleId();
+        const style = BACKGROUND_STYLES[mountedId] || BACKGROUND_STYLES.off;
         try { style.teardown(bgState); } catch (e) { console.error('[3D-Hwy] bg teardown', e); }
         bgState = null;
         // Belt + suspenders: even if a style's teardown forgets to
         // dispose something, the stage tree dispose mops up.
         if (bgStage) {
             bgStage.parent?.remove(bgStage);
-            _bgDisposeGroupTree(bgStage);
+            disposeGroupTree(bgStage);
             bgStage = null;
         }
         bgMountedStyleId = null;
     }
     // Recursively dispose geometries / materials attached to an
     // Object3D tree, then detach. Used as a safety net during
-    // _bgMountStyle failures and on _bgUnmountStyle.
+    // mountBackgroundStyle failures and on unmountBackgroundStyle.
     //
     // Deliberately does NOT dispose material.map textures — texture
     // lifetime belongs to whoever allocated the texture. The
     // silhouettes style allocates a per-layer CanvasTexture wrapping
-    // the shared _silCanvas bitmap, and disposes those textures in
+    // the shared silhouetteCanvas bitmap, and disposes those textures in
     // its own teardown. Disposing them here would double-dispose,
     // and any future plugin texture sharing across panels (e.g. an
     // upcoming custom-background feature) would break the same way.
     // Style teardown owns texture release.
-    function _bgDisposeGroupTree(obj) {
+    function disposeGroupTree(obj) {
         if (!obj) return;
         obj.traverse((child) => {
             child.geometry?.dispose?.();
@@ -4840,24 +4840,24 @@ function createFactory() {
         });
         obj.parent?.remove(obj);
     }
-    function _bgRebuild() {
+    function rebuildBackground() {
         if (!bgGroup) return;
         // Order matters: teardown must run against the (style id,
         // state) pair that built the meshes, so unmount BEFORE
         // reloading settings. Reload, then mount with the new id.
-        _bgUnmountStyle();
-        _bgLoadSettings();
-        _bgMountStyle();
-        _bgApplyVenueSceneFog(_venueSceneOverride);
+        unmountBackgroundStyle();
+        loadSettings();
+        mountBackgroundStyle();
+        applyVenueSceneFog(_venueSceneOverride);
         // Reset dt accounting so the first frame after a switch
         // doesn't see a huge "since last update" window — that
         // would clamp to 0.1 and visibly snap motion / rotation.
-        _bgLastT = 0;
+        backgroundLastT = 0;
     }
     // Venue-only fog/clear/ambient tuning — darker near field, less
     // washed-out gray haze over the playable highway. Restored when
     // venue deactivates.
-    function _bgApplyVenueSceneFog(active) {
+    function applyVenueSceneFog(active) {
         if (!scene || !scene.fog) return;
         if (active) {
             scene.fog.color.setHex(0x080c12);
@@ -4865,7 +4865,7 @@ function createFactory() {
             scene.fog.far = FOG_END * 0.98;
             // Keep the clear transparent while Butterchurn is active so the
             // venue scene doesn't occlude the visualizer behind the highway.
-            if (ren) ren.setClearColor(0x080c12, _bcActive() ? 0 : 1);
+            if (ren) ren.setClearColor(0x080c12, butterchurnModeActive() ? 0 : 1);
             if (ambLight) ambLight.intensity = 0.68;
         } else {
             // Restore the user's scene-color theme (clear + fog) rather than
@@ -4881,7 +4881,7 @@ function createFactory() {
     // Apply BOTH scene-color axes, each from its own setting key:
     //   • BACKGROUND (bgThemeId): the WebGL clear color + the distance-fog
     //     tint. Skipped while the venue scene is active (venue owns those —
-    //     see _bgApplyVenueSceneFog).
+    //     see applyVenueSceneFog).
     //   • HIGHWAY (hwThemeId): the fretboard/highway-surface plane + the lit
     //     highway lane strip (the bright quad under the gems) + its dimmer
     //     alternating row. Always themed; venue doesn't touch them.
@@ -4896,13 +4896,13 @@ function createFactory() {
     // unchanged). Only colored highway themes opt into a coordinated lane.
     function _applyBgTheme() {
         // --- Background axis: clear + fog ---
-        const bg = _bgBackgroundColors(bgThemeId);
+        const bg = backgroundAxisColors(bgThemeId);
         if (!_venueSceneOverride) {
             if (scene && scene.fog) scene.fog.color.setHex(bg.fog);
-            if (ren) ren.setClearColor(bg.clear, _bcActive() ? 0 : 1);
+            if (ren) ren.setClearColor(bg.clear, butterchurnModeActive() ? 0 : 1);
         }
         // --- Highway axis: board plane + lane ---
-        const hw = _bgHighwayColors(hwThemeId);
+        const hw = highwayAxisColors(hwThemeId);
         if (_boardPlaneMat) _boardPlaneMat.color.setHex(hw.board);
         // Lit lane strip + its dimmer alternating row. Fall back to the
         // hardcoded stock lane colors when the highway theme omits them.
@@ -4918,7 +4918,7 @@ function createFactory() {
 
     /* ── Fretboard (static geometry) ────────────────────────────────── */
     function _h3dHexOrDefault(hexStr, defHex) {
-        const d = defHex || BG_DEFAULTS.nutColor;
+        const d = defHex || SETTING_DEFAULTS.nutColor;
         const s = (typeof hexStr === 'string' && /^#[0-9a-fA-F]{6}$/.test(hexStr.trim()))
             ? hexStr.trim().toLowerCase()
             : d;
@@ -5042,7 +5042,7 @@ function createFactory() {
         // theme (default theme = the original 0x08080e). Kept on
         // _boardPlaneMat so _applyBgTheme can recolor it live without
         // rebuilding the board.
-        const pm = new T.MeshLambertMaterial({ color: _bgHighwayColors(hwThemeId).board, transparent: true, opacity: 0.6 });
+        const pm = new T.MeshLambertMaterial({ color: highwayAxisColors(hwThemeId).board, transparent: true, opacity: 0.6 });
         _boardPlaneMat = pm;
         const p = new T.Mesh(pg, pm);
         p.rotation.x = -Math.PI / 2;
@@ -5110,8 +5110,8 @@ function createFactory() {
             const zBack = -1.38 * K;
             const zJoint = -0.58 * K;
 
-            const nutInt = _h3dHexOrDefault(nutColor, BG_DEFAULTS.nutColor);
-            const hsInt = _h3dHexOrDefault(headstockColor, BG_DEFAULTS.headstockColor);
+            const nutInt = _h3dHexOrDefault(nutColor, SETTING_DEFAULTS.nutColor);
+            const hsInt = _h3dHexOrDefault(headstockColor, SETTING_DEFAULTS.headstockColor);
             const nutBase = new T.Color(nutInt);
             const nutHi = nutBase.clone().lerp(new T.Color(0xffffff), 0.14);
             const nutGro = nutBase.clone().multiplyScalar(0.72);
@@ -11547,7 +11547,7 @@ function createFactory() {
         // Background animations (#13). Drop the listener first so any
         // mid-teardown settings change doesn't try to rebuild a torn-
         // down scene; then dispose the active style's resources.
-        if (_bgListener) { _bgUnsubscribe(_bgListener); _bgListener = null; }
+        if (settingsListener) { unsubscribeFromSettings(settingsListener); settingsListener = null; }
         // WebGL context-loss listeners (bound in initScene on ren.domElement).
         // Remove before ren is disposed below so a torn-down instance can't
         // keep firing them; reset the flag so a reused instance starts clean.
@@ -11590,8 +11590,8 @@ function createFactory() {
         _fxRingMs = _fxBreakMs = -1e9;
         _chordVerdicts = new Map();
         if (bcCtrl) { try { bcCtrl.destroy(); } catch (e) {} bcCtrl = null; }
-        _bgUnmountStyle();
-        bgGroup = null; _bgLastT = 0;
+        unmountBackgroundStyle();
+        bgGroup = null; backgroundLastT = 0;
         _diagChord = null; _diagPrev = null; _diagPrevOpacity = 0; _diagPrevStartOpacity = 0; _diagPrevStartT = null;
         _diagEntranceT = 1.0; _diagLastKey = null; _diagRenderCache.clear();
 
@@ -11601,7 +11601,7 @@ function createFactory() {
             // Don't dispose material.map textures here. Texture
             // lifetime belongs to whoever allocated it; the bg
             // styles' per-layer CanvasTextures (e.g. silhouettes'
-            // wrappers around the shared _silCanvas) are released
+            // wrappers around the shared silhouetteCanvas) are released
             // in their own teardowns. txtCache textures are
             // explicitly disposed below; mStr/mGlow/etc. don't have
             // a .map. Disposing here would either double-free or
@@ -11816,7 +11816,7 @@ function createFactory() {
             // click — which a borrower that never taps <audio> (e.g. a
             // contained-playback practice plugin) inherits for no benefit.
             // Default behavior is unchanged when the field is absent.
-            _bgReactiveOptOut = !!(bundle && bundle.bgReactive === false);
+            backgroundReactiveOptOut = !!(bundle && bundle.bgReactive === false);
 
             if (_ssActive()) {
                 window.feedBackSplitscreen.onFocusChange(_onFocusChange);
@@ -12020,15 +12020,15 @@ function createFactory() {
             // Background animations (#13). Compute frame dt once,
             // read audio bands when reactivity is on, delegate to
             // the active style's update().
-            if (bgGroup && _bgEffectiveStyleId() !== 'off') {
+            if (bgGroup && effectiveBackgroundStyleId() !== 'off') {
                 const nowMs = performance.now();
-                const dt = _bgLastT === 0 ? 1 / 60 : Math.min(0.1, (nowMs - _bgLastT) / 1000);
-                _bgLastT = nowMs;
-                const bands = bgReactive ? _bgReadBands() : BG_ZERO_BANDS;
-                const style = BG_STYLES[_bgEffectiveStyleId()];
+                const dt = backgroundLastT === 0 ? 1 / 60 : Math.min(0.1, (nowMs - backgroundLastT) / 1000);
+                backgroundLastT = nowMs;
+                const bands = bgReactive ? readAudioBands() : ZERO_AUDIO_BANDS;
+                const style = BACKGROUND_STYLES[effectiveBackgroundStyleId()];
                 if (style && bgState) {
                     try { style.update(bgState, bands, dt, nowMs / 1000); }
-                    catch (e) { console.error('[3D-Hwy] bg update threw', _bgEffectiveStyleId(), e); }
+                    catch (e) { console.error('[3D-Hwy] bg update threw', effectiveBackgroundStyleId(), e); }
                 }
             }
 
@@ -12043,9 +12043,9 @@ function createFactory() {
             // don't thrash a controller that's still loading async. Done before
             // the render block so a rebuild this frame just skips one bc frame
             // (bcCtrl goes null) without affecting the highway's own render.
-            if (bcCtrl && !_bcIsDesktop() && bcCtrl.ready && bcCtrl.ready()) {
+            if (bcCtrl && !isDesktopAudioHost() && bcCtrl.ready && bcCtrl.ready()) {
                 let a = null;
-                try { a = _bgGetAnalyser(); } catch (e) { a = null; }
+                try { a = getAudioAnalyser(); } catch (e) { a = null; }
                 const an = a && a.analyser;
                 const bound = bcCtrl.boundAnalyser ? bcCtrl.boundAnalyser() : null;
                 if (an && an !== bound) {
@@ -12054,39 +12054,39 @@ function createFactory() {
                         // proven destroy/create paths so the new context binds.
                         try { bcCtrl.destroy(); } catch (e) {}
                         bcCtrl = null;
-                        _bcSyncMode();
+                        syncButterchurnMode();
                     }
                 }
             }
             if (bcCtrl) {
-                const cfg = _bcLoadSettings();
+                const cfg = loadButterchurnSettings();
                 const _ct = bundle.currentTime || 0;
                 if (cfg.chartAccents) {
                     if (_ct < _chartPrevT - 0.08 || _ct - _chartPrevT > 1.0) {
-                        _bcBeatIdx = _bcFfIdx(bundle.beats, _ct, 'time');
-                        _bcNoteIdx = _bcFfIdx(bundle.notes, _ct, 't');
-                        _bcChordIdx = _bcFfIdx(bundle.chords, _ct, 't');
+                        butterchurnBeatIdx = fastForwardIndex(bundle.beats, _ct, 'time');
+                        butterchurnNoteIdx = fastForwardIndex(bundle.notes, _ct, 't');
+                        butterchurnChordIdx = fastForwardIndex(bundle.chords, _ct, 't');
                     }
                     const _beats = bundle.beats || [];
-                    while (_bcBeatIdx < _beats.length && _beats[_bcBeatIdx].time <= _ct) {
-                        const strong = _beats[_bcBeatIdx].measure !== undefined && _beats[_bcBeatIdx].measure !== -1;
+                    while (butterchurnBeatIdx < _beats.length && _beats[butterchurnBeatIdx].time <= _ct) {
+                        const strong = _beats[butterchurnBeatIdx].measure !== undefined && _beats[butterchurnBeatIdx].measure !== -1;
                         _chartEnv = Math.max(_chartEnv, strong ? 1.0 : 0.6);
-                        _bcBeatIdx++;
+                        butterchurnBeatIdx++;
                     }
                     const _notes = bundle.notes || [];
                     let _tintS = -1;
-                    while (_bcNoteIdx < _notes.length && _notes[_bcNoteIdx].t <= _ct) {
+                    while (butterchurnNoteIdx < _notes.length && _notes[butterchurnNoteIdx].t <= _ct) {
                         _chartEnv = Math.max(_chartEnv, 0.6);
-                        _tintS = _notes[_bcNoteIdx].s;
-                        _bcNoteIdx++;
+                        _tintS = _notes[butterchurnNoteIdx].s;
+                        butterchurnNoteIdx++;
                     }
                     const _chords = bundle.chords || [];
-                    while (_bcChordIdx < _chords.length && _chords[_bcChordIdx].t <= _ct) {
+                    while (butterchurnChordIdx < _chords.length && _chords[butterchurnChordIdx].t <= _ct) {
                         _chartEnv = Math.max(_chartEnv, 0.95);
-                        _bcChordIdx++;
+                        butterchurnChordIdx++;
                     }
                     if (_tintS >= 0 && activePalette && activePalette.length) {
-                        _bcTintTarget = activePalette[((_tintS % activePalette.length) + activePalette.length) % activePalette.length];
+                        butterchurnTintTarget = activePalette[((_tintS % activePalette.length) + activePalette.length) % activePalette.length];
                     }
                     _chartPrevT = _ct;
                     _chartEnv *= 0.86;
@@ -12094,8 +12094,8 @@ function createFactory() {
                 } else {
                     bcCtrl.chart(0);
                 }
-                if (cfg.colorTint && _bcTintTarget != null) {
-                    const tr = (_bcTintTarget >> 16) & 255, tg = (_bcTintTarget >> 8) & 255, tb = _bcTintTarget & 255;
+                if (cfg.colorTint && butterchurnTintTarget != null) {
+                    const tr = (butterchurnTintTarget >> 16) & 255, tg = (butterchurnTintTarget >> 8) & 255, tb = butterchurnTintTarget & 255;
                     _tintR += (tr - _tintR) * 0.06; _tintG += (tg - _tintG) * 0.06; _tintB += (tb - _tintB) * 0.06;
                     bcCtrl.tint((Math.round(_tintR) << 16) | (Math.round(_tintG) << 8) | Math.round(_tintB), cfg.tintStrength != null ? cfg.tintStrength : 0.65);
                 } else {
@@ -12308,13 +12308,13 @@ window.feedBackViz_highway_3d.panelControls = [
         min: 0,
         max: 1,
         step: 0.05,
-        default: BG_DEFAULTS.cameraSmoothing,
+        default: SETTING_DEFAULTS.cameraSmoothing,
     },
     {
         key: 'cameraLockLow',
         label: 'Lock camera at frets 1-12',
         type: 'toggle',
-        default: BG_DEFAULTS.cameraLockLow,
+        default: SETTING_DEFAULTS.cameraLockLow,
     },
     {
         key: 'cameraLockZoom',
@@ -12323,13 +12323,13 @@ window.feedBackViz_highway_3d.panelControls = [
         min: 0,
         max: 1,
         step: 0.05,
-        default: BG_DEFAULTS.cameraLockZoom,
+        default: SETTING_DEFAULTS.cameraLockZoom,
     },
 ];
 // Static metadata exposed on the factory:
 //   panelControls      - optional, host-readable descriptors for a
 //                        curated per-panel control surface. Renderer
-//                        values still flow through _bgLoadSettings().
+//                        values still flow through loadSettings().
 //   contextType        - required canvas context type. highway.js
 //                        replaces the <canvas> element when the
 //                        requested type differs from the current one,
@@ -12345,8 +12345,8 @@ window.feedBackViz_highway_3d.panelControls = [
 //                        picking us on machines without WebGL2.
 window.feedBackViz_highway_3d.contextType = 'webgl2';
 window.feedBackViz_highway_3d.__test = {
-    getAnalyserForBridgeTest: _bgGetAnalyser,
-    readBandsForBridgeTest: _bgReadBands,
+    getAnalyserForBridgeTest: getAudioAnalyser,
+    readBandsForBridgeTest: readAudioBands,
     resetAnalyserBridgeForTest: _resetAnalyserBridgeForTest,
 };
 // Canonical guitar arrangement names (server.py: _ALLOWED_ARRANGEMENT_NAMES)

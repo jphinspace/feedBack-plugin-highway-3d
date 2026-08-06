@@ -1,5 +1,5 @@
-import { BG_STYLE_IDS } from '../settings/defaults.js';
-import { _bgReadGlobal, _bgSubscribe, _bgUnsubscribe } from '../settings/store.js';
+import { BACKGROUND_STYLE_IDS } from '../settings/defaults.js';
+import { readGlobalSetting, subscribeToSettings, unsubscribeFromSettings } from '../settings/store.js';
 import { _venueSceneOverride } from '../background/venue.js';
 
 /* ======================================================================
@@ -11,13 +11,13 @@ import { _venueSceneOverride } from '../background/venue.js';
  * It writes through the SAME global setters settings.html uses
  * (h3dBgSetStyle / SetReactive / SetIntensity), so the existing pub-sub
  * rebuilds the mounted style live and both UIs stay agreed. Nothing extra
- * is persisted here, and the option list is generated from BG_STYLE_IDS —
+ * is persisted here, and the option list is generated from BACKGROUND_STYLE_IDS —
  * add a style there and it shows up in both places automatically.
  *
  * MOUNTED ONCE, REFCOUNTED. Under splitscreen there are N renderer
  * instances but these settings are global — a panel may set a per-panel
  * override, but this single shared control only ever reads/writes the
- * global slot (via _bgReadGlobal), so N copies would be N ways to set
+ * global slot (via readGlobalSetting), so N copies would be N ways to set
  * one value. init() acquires, destroy() releases,
  * and the last release unmounts — so the control disappears when the user
  * switches to a non-3D renderer instead of lingering as a dead knob.
@@ -37,15 +37,15 @@ export const _PC_LABELS = {
 // Which settings each background style actually consumes, so a control
 // that would do nothing is greyed out instead of lying.
 //
-// Derived by reading the BG_STYLES bodies: a style uses `intensity` if its
+// Derived by reading the BACKGROUND_STYLES bodies: a style uses `intensity` if its
 // build() reads settings.intensity, and uses `reactive` if its update()
 // dereferences the `bands` argument. 'butterchurn' is a mode, not a
-// BG_STYLES fog-scenery entry: _bcSyncMode owns its controller, which
+// BACKGROUND_STYLES fog-scenery entry: syncButterchurnMode owns its controller, which
 // drives its own audio tap and canvas opacity (only the fog-scenery half
-// falls through to BG_STYLES.off). So neither knob here reaches it - both
+// falls through to BACKGROUND_STYLES.off). So neither knob here reaches it - both
 // are false, and the tooltip points at Butterchurn's own controls.
 //
-// KEEP IN STEP WITH BG_STYLES. If a style starts reading bands or intensity
+// KEEP IN STEP WITH BACKGROUND_STYLES. If a style starts reading bands or intensity
 // and its row is not updated, the control stays greyed out and lies the
 // other way. An id missing from this table defaults to both-enabled, which
 // is the safe direction: a new style is assumed to use its settings.
@@ -58,7 +58,7 @@ export const _PC_USES = {
     image:       { intensity: true,  reactive: false, why: 'This background does not react to audio' },
     video:       { intensity: false, reactive: false, why: 'The video plays as-is - nothing to adjust here' },
     butterchurn: { intensity: false, reactive: false, why: 'Butterchurn reacts to audio itself - tune it in Settings > 3D Highway, or its Visualizer panel' },
-    // Not in BG_STYLE_IDS, so it never appears in the dropdown - reached
+    // Not in BACKGROUND_STYLE_IDS, so it never appears in the dropdown - reached
     // only via the viz-picker Venue flow (h3dVenueSceneSetActive). While
     // active it is the EFFECTIVE style, so both knobs drive nothing.
     venue:       { intensity: false, reactive: false, why: 'Venue visualization is active - pick a background from the visualization picker' },
@@ -160,13 +160,13 @@ export function _pcSync() {
     // The active style is the EFFECTIVE one, not the stored one: while the
     // Venue scene override is on it is what's mounted, and it ignores the
     // whole Background group - picking a style writes `style` but
-    // _bgMountStyle resolves back to venue, so the dropdown would look
+    // mountBackgroundStyle resolves back to venue, so the dropdown would look
     // broken. So under Venue the ENTIRE group goes inert (dropdown too),
     // and the user exits Venue from the visualization picker where they
     // entered it. An unknown id enables everything rather than disabling
     // it, so a style added without a _PC_USES row is merely unhelpful.
     const venue = !!_venueSceneOverride;
-    const effectiveStyle = venue ? 'venue' : _bgReadGlobal('style');
+    const effectiveStyle = venue ? 'venue' : readGlobalSetting('style');
     const uses = _PC_USES[effectiveStyle] || { intensity: true, reactive: true };
     const why = uses.why || 'This background style ignores this setting';
     if (_pcReason) _pcReason.textContent = why;
@@ -186,9 +186,9 @@ export function _pcSync() {
         // same rule settings.html applies.
         const img = _pcSel.querySelector('option[value="image"]');
         const vid = _pcSel.querySelector('option[value="video"]');
-        if (img) img.disabled = !_bgReadGlobal('customImageDataUrl');
-        if (vid) vid.disabled = !_bgReadGlobal('customVideoName');
-        _pcSel.value = _bgReadGlobal('style');
+        if (img) img.disabled = !readGlobalSetting('customImageDataUrl');
+        if (vid) vid.disabled = !readGlobalSetting('customVideoName');
+        _pcSel.value = readGlobalSetting('style');
         // The dropdown still SHOWS the stored style (venue has no option),
         // but it's inert while Venue owns the scene.
         _pcSel.disabled = venue;
@@ -201,7 +201,7 @@ export function _pcSync() {
         _pcSel.title = venue ? why : 'Background style';
     }
     if (_pcReactive) {
-        _pcPaint(_pcReactive, !!_bgReadGlobal('reactive'), !uses.reactive,
+        _pcPaint(_pcReactive, !!readGlobalSetting('reactive'), !uses.reactive,
             uses.reactive ? 'React to the audio' : why);
     }
     // The reason shows via the wrapper (see _pcReactiveWrap); empty when
@@ -211,7 +211,7 @@ export function _pcSync() {
         _pcReactiveWrap.style.cursor = uses.reactive ? '' : 'not-allowed';
     }
     if (_pcIntensity) {
-        _pcIntensity.value = String(_bgReadGlobal('intensity'));
+        _pcIntensity.value = String(readGlobalSetting('intensity'));
         _pcIntensity.disabled = !uses.intensity;
         _pcIntensity.setAttribute('aria-disabled', uses.intensity ? 'false' : 'true');
         _pcIntensity.style.pointerEvents = uses.intensity ? '' : 'none';
@@ -238,10 +238,10 @@ export function _pcSync() {
 export function _pcSyncSettingsPanel() {
     try {
         const st = document.getElementById('h3d-bg-style');
-        if (st) st.value = _bgReadGlobal('style');
+        if (st) st.value = readGlobalSetting('style');
         const re = document.getElementById('h3d-bg-reactive');
-        if (re) re.checked = !!_bgReadGlobal('reactive');
-        const inten = _bgReadGlobal('intensity');
+        if (re) re.checked = !!readGlobalSetting('reactive');
+        const inten = readGlobalSetting('intensity');
         const ie = document.getElementById('h3d-bg-intensity');
         if (ie) ie.value = String(inten);
         // The panel prints the numeric value beside the slider; keep its
@@ -283,7 +283,7 @@ export function _pcMount() {
     _pcSel.style.cssText = 'width:100%;padding:.375rem .5rem;border:0;border-radius:.5rem;'
         + 'font-size:.75rem;line-height:1rem;cursor:pointer;'
         + 'background-color:' + _PC_C.idle + ';color:' + _PC_C.text + ';';
-    for (const id of BG_STYLE_IDS) {
+    for (const id of BACKGROUND_STYLE_IDS) {
         const o = document.createElement('option');
         o.value = id;
         o.textContent = _PC_LABELS[id] || id;
@@ -319,7 +319,7 @@ export function _pcMount() {
     _pcIntensity.setAttribute('aria-label', 'Background intensity');
     _pcIntensity.style.cssText = 'width:100%;accent-color:#4080e0;';
     // 'change' (fires on release), NOT 'input'. Every write goes through
-    // _bgWriteGlobal -> _bgEmitChange -> _bgRebuild(), which tears the
+    // writeGlobalSetting -> emitSettingChange -> rebuildBackground(), which tears the
     // background style down and re-runs build(). On 'input' a single drag
     // across the range would trigger ~20 full scene rebuilds on the main
     // thread mid-playback. settings.html's slider makes the same choice:
@@ -345,11 +345,11 @@ export function _pcMount() {
             _pcSyncSettingsPanel();
         }
     };
-    _bgSubscribe(_pcListener);
+    subscribeToSettings(_pcListener);
     return true;
 }
 export function _pcTeardownDom() {
-    if (_pcListener) { _bgUnsubscribe(_pcListener); _pcListener = null; }
+    if (_pcListener) { unsubscribeFromSettings(_pcListener); _pcListener = null; }
     if (_pcEl && _pcEl.parentNode) _pcEl.parentNode.removeChild(_pcEl);
     _pcEl = null; _pcSel = null; _pcReactive = null; _pcIntensity = null;
     _pcReactiveWrap = null; _pcIntensityWrap = null; _pcReason = null;

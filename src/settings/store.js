@@ -1,17 +1,17 @@
 import {
-    BG_DEFAULTS, BG_STYLE_IDS, BG_THEME_IDS, CAMERA_MODE_IDS, FRET_NUMBER_GHOST_SCOPE_IDS,
+    SETTING_DEFAULTS, BACKGROUND_STYLE_IDS, SCENE_THEME_IDS, CAMERA_MODE_IDS, FRET_NUMBER_GHOST_SCOPE_IDS,
 } from './defaults.js';
 import { PALETTE_IDS } from '../core/palette.js';
 import { CHORD_DIAG_POSITION_IDS } from '../core/constants.js';
 
 // Per-panel/global localStorage settings read/write, value coercion, and a
-// pub-sub bus (_bgSubscribe/_bgEmitChange) so settings.html and every live
+// pub-sub bus (subscribeToSettings/emitSettingChange) so settings.html and every live
 // renderer panel stay in sync when a setting changes.
 //
-// _bgMemFallback and _bgListeners are deliberate module singletons: a
+// settingsMemFallback and settingsListeners are deliberate module singletons: a
 // single in-memory shadow and a single subscriber set shared by every
-// renderer instance, not per-instance state. _bgWriteGlobal stages to
-// _bgMemFallback BEFORE localStorage.setItem so _bgReadSetting's "memory
+// renderer instance, not per-instance state. writeGlobalSetting stages to
+// settingsMemFallback BEFORE localStorage.setItem so readSetting's "memory
 // beats persisted" precedence holds even if the localStorage write throws
 // partway through (quota exceeded, private-mode restrictions, etc.).
 
@@ -27,7 +27,7 @@ import { CHORD_DIAG_POSITION_IDS } from '../core/constants.js';
  * @param {HTMLCanvasElement} canvas this renderer's highway canvas
  * @returns {string} 'main' or 'panel<index>'
  */
-export function _bgPanelKey(canvas) {
+export function settingsPanelKey(canvas) {
     const ss = window.feedBackSplitscreen || window.slopsmithSplitscreen;
     let idx = null;
     if (ss && typeof ss.panelIndexFor === 'function') {
@@ -42,7 +42,7 @@ export function _bgPanelKey(canvas) {
  * single global (window.__h3dCamCtl); returns null when Camera Director is
  * absent → 100% stock framing. Defensive on the splitscreen global-name rename
  * in flight (feedBackSplitscreen vs slopsmithSplitscreen); throw-safe on
- * panelIndexFor. Mirrors the panel resolution in _bgPanelKey.
+ * panelIndexFor. Mirrors the panel resolution in settingsPanelKey.
  * @param {HTMLCanvasElement} canvas this renderer's highway canvas
  * @returns {object|null} the resolved free-camera bridge, or null
  */
@@ -54,7 +54,7 @@ export function _freeCamFor(canvas) {
             try {
                 const i = ss.panelIndexFor(canvas);
                 // Only a non-negative integer indexes the map (same hardening
-                // as _bgPanelKey) — a non-int / negative / string index must not
+                // as settingsPanelKey) — a non-int / negative / string index must not
                 // resolve an unintended/inherited property; fall through then.
                 if (Number.isInteger(i) && i >= 0 && map[i]) return map[i];
             } catch (e) { /* ignore */ }
@@ -63,15 +63,15 @@ export function _freeCamFor(canvas) {
     return window.__h3dCamCtl || null;
 }
 // In-memory fallback for when localStorage is blocked (private mode,
-// sandboxed iframes, some test runners). _bgWriteGlobal stages the
+// sandboxed iframes, some test runners). writeGlobalSetting stages the
 // value here unconditionally, so it always reflects the most recent
-// in-session intent — _bgReadSetting prefers it over the global
+// in-session intent — readSetting prefers it over the global
 // localStorage slot to avoid serving a stale persisted value when
 // a write failed silently (quota exceeded, etc.). Per-panel
 // localStorage overrides still win because they're an explicit
 // per-instance opt-out and shouldn't be shadowed by a global edit.
-export const _bgMemFallback = Object.create(null);
-export function _bgReadSetting(panelKey, key) {
+export const settingsMemFallback = Object.create(null);
+export function readSetting(panelKey, key) {
     let panelVal = null;
     let globalVal = null;
     try {
@@ -79,43 +79,43 @@ export function _bgReadSetting(panelKey, key) {
         // control was removed in favour of the global "Highway String Colors"
         // UI, so a panel must never be shadowed by a stale per-panel override
         // (h3d_bg_panel<idx>_palette / _customColors). Neither is a
-        // BG_DEFAULTS key, so per-panel scoping never applied to them.
+        // SETTING_DEFAULTS key, so per-panel scoping never applied to them.
         if (key !== 'palette' && key !== 'customColors') {
             panelVal = localStorage.getItem('h3d_bg_' + panelKey + '_' + key);
         }
         globalVal = localStorage.getItem('h3d_bg_' + key);
     } catch (_) { /* storage blocked — both stay null */ }
-    if (panelVal !== null && panelVal !== undefined) return _bgCoerce(key, panelVal);
+    if (panelVal !== null && panelVal !== undefined) return coerceSetting(key, panelVal);
     // Prefer the in-memory staged value over the persisted global slot.
-    // _bgWriteGlobal always writes to _bgMemFallback first, so the
+    // writeGlobalSetting always writes to settingsMemFallback first, so the
     // memory value is at least as fresh as the persisted one.
-    if (key in _bgMemFallback) return _bgCoerce(key, _bgMemFallback[key]);
-    if (globalVal !== null && globalVal !== undefined) return _bgCoerce(key, globalVal);
-    return BG_DEFAULTS[key];
+    if (key in settingsMemFallback) return coerceSetting(key, settingsMemFallback[key]);
+    if (globalVal !== null && globalVal !== undefined) return coerceSetting(key, globalVal);
+    return SETTING_DEFAULTS[key];
 }
 // Read a setting's GLOBAL value, ignoring any per-panel override. The
 // player-chrome control is a single shared instance, so it must always
 // read (and write) the global slot. Passing null as a panelKey to
-// _bgReadSetting happened to work only because 'h3d_bg_null_<key>' never
+// readSetting happened to work only because 'h3d_bg_null_<key>' never
 // exists; this states the intent directly and can't be shadowed if a
 // panelKey of null is ever used deliberately. Mirrors the global half of
-// _bgReadSetting exactly (mem-fallback precedence, then persisted, then
+// readSetting exactly (mem-fallback precedence, then persisted, then
 // default).
-export function _bgReadGlobal(key) {
+export function readGlobalSetting(key) {
     let globalVal = null;
     try { globalVal = localStorage.getItem('h3d_bg_' + key); } catch (_) { /* storage blocked */ }
-    if (key in _bgMemFallback) return _bgCoerce(key, _bgMemFallback[key]);
-    if (globalVal !== null && globalVal !== undefined) return _bgCoerce(key, globalVal);
-    return BG_DEFAULTS[key];
+    if (key in settingsMemFallback) return coerceSetting(key, settingsMemFallback[key]);
+    if (globalVal !== null && globalVal !== undefined) return coerceSetting(key, globalVal);
+    return SETTING_DEFAULTS[key];
 }
 // Shared "stored string -> bool" coercion for every boolean
 // setting. Mirrors settings.html's coerceBool so the renderer and
 // the UI hydration always agree on what a corrupted/unknown value
 // means (fall back to default rather than silently flipping to
-// false). Add new boolean keys to BG_DEFAULTS and they pick this
+// false). Add new boolean keys to SETTING_DEFAULTS and they pick this
 // up via the dispatch below.
-export const _BG_BOOL_KEYS = new Set(['reactive', 'showFretOnNote', 'cameraLockLow', 'inlayLabelsVisible', 'sectionLabelsOnHighway', 'sectionHudVisible', 'nutHeadstockVisible', 'tuningLabelsVisible', 'projectionVisible', 'chordDiagramVisible', 'fpsVisible', 'toneHudVisible', 'fretDividersVisible', 'slideArrowApproachVisible', 'slideArrowNeckVisible', 'slideArrowChainPreviewVisible', 'sparks', 'cinematic', 'verdictMarks', 'timingFx', 'streakFx', 'bloom']);
-export function _bgCoerceBool(val, fallback) {
+export const BOOL_SETTING_KEYS = new Set(['reactive', 'showFretOnNote', 'cameraLockLow', 'inlayLabelsVisible', 'sectionLabelsOnHighway', 'sectionHudVisible', 'nutHeadstockVisible', 'tuningLabelsVisible', 'projectionVisible', 'chordDiagramVisible', 'fpsVisible', 'toneHudVisible', 'fretDividersVisible', 'slideArrowApproachVisible', 'slideArrowNeckVisible', 'slideArrowChainPreviewVisible', 'sparks', 'cinematic', 'verdictMarks', 'timingFx', 'streakFx', 'bloom']);
+export function coerceBoolSetting(val, fallback) {
     if (val === 'true' || val === '1') return true;
     if (val === 'false' || val === '0') return false;
     return fallback;
@@ -124,39 +124,39 @@ export function _bgCoerceBool(val, fallback) {
 // hysteresis; zoomSmoothing the zoom dead zone; tiltSmoothing the
 // vertical-tilt deadband + correction strength. All three slider-
 // shaped settings share the same parse + clamp behaviour.
-export const _BG_FLOAT_KEYS = new Set(['intensity', 'cameraSmoothing', 'zoomSmoothing', 'tiltSmoothing', 'cameraLockZoom', 'textSize', 'vibrancy', 'glow', 'chordDiagramSize', 'sectionHudSize', 'toneHudSize', 'hitFx']);
-export function _bgCoerce(key, val) {
-    if (_BG_FLOAT_KEYS.has(key)) {
+export const FLOAT_SETTING_KEYS = new Set(['intensity', 'cameraSmoothing', 'zoomSmoothing', 'tiltSmoothing', 'cameraLockZoom', 'textSize', 'vibrancy', 'glow', 'chordDiagramSize', 'sectionHudSize', 'toneHudSize', 'hitFx']);
+export function coerceSetting(key, val) {
+    if (FLOAT_SETTING_KEYS.has(key)) {
         const n = parseFloat(val);
-        return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : BG_DEFAULTS[key];
+        return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : SETTING_DEFAULTS[key];
     }
-    if (_BG_BOOL_KEYS.has(key)) return _bgCoerceBool(val, BG_DEFAULTS[key]);
-    if (key === 'style') return BG_STYLE_IDS.includes(val) ? val : BG_DEFAULTS.style;
-    if (key === 'palette') return (PALETTE_IDS.includes(val) || val === 'custom') ? val : BG_DEFAULTS.palette;
-    if (key === 'bgTheme') return BG_THEME_IDS.includes(val) ? val : BG_DEFAULTS.bgTheme;
+    if (BOOL_SETTING_KEYS.has(key)) return coerceBoolSetting(val, SETTING_DEFAULTS[key]);
+    if (key === 'style') return BACKGROUND_STYLE_IDS.includes(val) ? val : SETTING_DEFAULTS.style;
+    if (key === 'palette') return (PALETTE_IDS.includes(val) || val === 'custom') ? val : SETTING_DEFAULTS.palette;
+    if (key === 'bgTheme') return SCENE_THEME_IDS.includes(val) ? val : SETTING_DEFAULTS.bgTheme;
     // Highway axis shares the same id-set as the background axis.
-    if (key === 'hwTheme') return BG_THEME_IDS.includes(val) ? val : BG_DEFAULTS.hwTheme;
+    if (key === 'hwTheme') return SCENE_THEME_IDS.includes(val) ? val : SETTING_DEFAULTS.hwTheme;
     if (key === 'chordDiagramPosition')
-        return CHORD_DIAG_POSITION_IDS.includes(val) ? val : BG_DEFAULTS.chordDiagramPosition;
+        return CHORD_DIAG_POSITION_IDS.includes(val) ? val : SETTING_DEFAULTS.chordDiagramPosition;
     if (key === 'sectionHudPosition')
-        return ['tl', 'tr', 'bl', 'br'].includes(val) ? val : BG_DEFAULTS.sectionHudPosition;
+        return ['tl', 'tr', 'bl', 'br'].includes(val) ? val : SETTING_DEFAULTS.sectionHudPosition;
     if (key === 'toneHudPosition')
-        return ['tl', 'tr', 'bl', 'br'].includes(val) ? val : BG_DEFAULTS.toneHudPosition;
+        return ['tl', 'tr', 'bl', 'br'].includes(val) ? val : SETTING_DEFAULTS.toneHudPosition;
     if (key === 'cameraMode') {
         if (val === 'classic') val = 'steady';
-        return CAMERA_MODE_IDS.includes(val) ? val : BG_DEFAULTS.cameraMode;
+        return CAMERA_MODE_IDS.includes(val) ? val : SETTING_DEFAULTS.cameraMode;
     }
     if (key === 'fretNumberGhostScope')
-        return FRET_NUMBER_GHOST_SCOPE_IDS.includes(val) ? val : BG_DEFAULTS.fretNumberGhostScope;
+        return FRET_NUMBER_GHOST_SCOPE_IDS.includes(val) ? val : SETTING_DEFAULTS.fretNumberGhostScope;
     if (key === 'nutColor' || key === 'headstockColor') {
-        if (typeof val !== 'string') return BG_DEFAULTS[key];
+        if (typeof val !== 'string') return SETTING_DEFAULTS[key];
         const t = val.trim();
         if (/^#[0-9a-fA-F]{6}$/.test(t)) return t.toLowerCase();
-        return BG_DEFAULTS[key];
+        return SETTING_DEFAULTS[key];
     }
     if (key === 'fretColumnMarkerCadence') {
         const n = parseInt(val, 10);
-        if (!Number.isFinite(n)) return BG_DEFAULTS.fretColumnMarkerCadence;
+        if (!Number.isFinite(n)) return SETTING_DEFAULTS.fretColumnMarkerCadence;
         return Math.max(0, Math.min(16, n));
     }
     return val;
@@ -168,35 +168,35 @@ export function _bgCoerce(key, val) {
 // zoomSmoothing / tiltSmoothing which inherit cameraSmoothing's
 // value the first time they're read so existing users who calmed
 // the camera don't lose calmness on the new axes by default.
-export function _bgHasStored(panelKey, key) {
+export function hasStoredSetting(panelKey, key) {
     try {
         if (localStorage.getItem('h3d_bg_' + panelKey + '_' + key) != null) return true;
     } catch (_) {}
-    if (key in _bgMemFallback) return true;
+    if (key in settingsMemFallback) return true;
     try {
         if (localStorage.getItem('h3d_bg_' + key) != null) return true;
     } catch (_) {}
     return false;
 }
-export function _bgWriteGlobal(key, val) {
+export function writeGlobalSetting(key, val) {
     const s = String(val);
-    // Stage in memory FIRST so _bgReadSetting's "memory beats global
+    // Stage in memory FIRST so readSetting's "memory beats global
     // localStorage" precedence has a true freshness guarantee even
     // if localStorage.setItem throws partway through. Without this
     // ordering, a quota exception thrown after the persisted slot
     // was already mutated would leave a stale value in localStorage
-    // that's newer than _bgMemFallback.
-    _bgMemFallback[key] = s;
+    // that's newer than settingsMemFallback.
+    settingsMemFallback[key] = s;
     try { localStorage.setItem('h3d_bg_' + key, s); } catch (_) { /* storage blocked */ }
-    _bgEmitChange(key);
+    emitSettingChange(key);
 }
 
 // Pub-sub so settings.html can update live across all panel instances.
-export const _bgListeners = new Set();
-export function _bgSubscribe(fn) { _bgListeners.add(fn); }
-export function _bgUnsubscribe(fn) { _bgListeners.delete(fn); }
-export function _bgEmitChange(key) {
-    for (const fn of _bgListeners) {
+export const settingsListeners = new Set();
+export function subscribeToSettings(fn) { settingsListeners.add(fn); }
+export function unsubscribeFromSettings(fn) { settingsListeners.delete(fn); }
+export function emitSettingChange(key) {
+    for (const fn of settingsListeners) {
         try { fn(key); } catch (e) { console.error('[3D-Hwy] bg listener threw', e); }
     }
 }

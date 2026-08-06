@@ -117,7 +117,7 @@ export function _recomputeFretSpacingDerived() {
 }
 
 // Same reasoning as _recomputeFretSpacingDerived: h3dSetFretSpacing (still
-// in src/main.js, since it also needs _bgEmitChange) sets the spacing mode
+// in src/main.js, since it also needs emitSettingChange) sets the spacing mode
 // by calling this rather than reassigning _h3dFretUniform directly, because
 // an importer can never reassign another module's `let` binding.
 export function setFretUniform(isUniform) {

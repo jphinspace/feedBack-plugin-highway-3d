@@ -18,7 +18,7 @@
 // The control now lives in src/ui/player-chrome.js (moved out of the
 // screen.js -> src/ module split, Stage 3b) and is real-imported here rather
 // than sliced out of source text and evaluated in a vm sandbox. Its
-// collaborators (BG_STYLE_IDS, _bgReadGlobal/_bgSubscribe/_bgUnsubscribe,
+// collaborators (BACKGROUND_STYLE_IDS, readGlobalSetting/subscribeToSettings/unsubscribeFromSettings,
 // _venueSceneOverride) are real imports too — src/settings/store.js and
 // src/background/venue.js are genuinely side-effect-free at import time, so there is
 // no reason to fake them.
@@ -31,24 +31,24 @@
 //   - store.js/venue.js are genuine app-wide singletons (by design — see
 //     their own file comments) shared across every import of player-chrome.js,
 //     including across tests. `load()` resets their mutable state
-//     (_bgMemFallback, _bgListeners, _venueSceneOverride) at the top of every
+//     (settingsMemFallback, settingsListeners, _venueSceneOverride) at the top of every
 //     test instead.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { BG_STYLE_IDS } from '../src/settings/defaults.js';
-import { _bgMemFallback, _bgListeners, _bgEmitChange, _bgReadGlobal } from '../src/settings/store.js';
+import { BACKGROUND_STYLE_IDS } from '../src/settings/defaults.js';
+import { settingsMemFallback, settingsListeners, emitSettingChange, readGlobalSetting } from '../src/settings/store.js';
 import { _venueSetSceneOverride } from '../src/background/venue.js';
 
-// What each style is expected to consume, derived by reading the BG_STYLES
+// What each style is expected to consume, derived by reading the BACKGROUND_STYLES
 // bodies in src/main.js — deliberately NOT read from the plugin's own
 // _PC_USES table, which would only assert that the table equals itself.
 //   intensity: true  => the style's build() reads settings.intensity
 //   reactive:  true  => the style's update() dereferences its `bands` argument
-// 'butterchurn' is a mode, not a BG_STYLES fog-scenery entry: _bcSyncMode
+// 'butterchurn' is a mode, not a BACKGROUND_STYLES fog-scenery entry: syncButterchurnMode
 // owns its controller and drives its own audio tap + canvas opacity (only
-// the fog-scenery half falls through to BG_STYLES.off), so both are false.
+// the fog-scenery half falls through to BACKGROUND_STYLES.off), so both are false.
 const EXPECTED_USES = {
     off: { intensity: false, reactive: false },
     particles: { intensity: true, reactive: true },
@@ -125,8 +125,8 @@ async function load({ store: initialStore } = {}) {
     // not (by design: see their own file comments on why they must stay
     // process-wide singletons in production).
     fakeStorage.clear();
-    for (const k of Object.keys(_bgMemFallback)) delete _bgMemFallback[k];
-    _bgListeners.clear();
+    for (const k of Object.keys(settingsMemFallback)) delete settingsMemFallback[k];
+    settingsListeners.clear();
     _venueSetSceneOverride(false);
 
     const dom = makeDom();
@@ -137,9 +137,9 @@ async function load({ store: initialStore } = {}) {
         customImageDataUrl: '',
         customVideoName: '',
     }, initialStore);
-    // Mirrors _bgWriteGlobal: stage the STRING form, same as a real setter
-    // would, so real _bgCoerce (bool/float parsing) reads it back correctly.
-    for (const [k, v] of Object.entries(initial)) _bgMemFallback[k] = String(v);
+    // Mirrors writeGlobalSetting: stage the STRING form, same as a real setter
+    // would, so real coerceSetting (bool/float parsing) reads it back correctly.
+    for (const [k, v] of Object.entries(initial)) settingsMemFallback[k] = String(v);
 
     const bus = {};
     const writes = [];
@@ -160,9 +160,9 @@ async function load({ store: initialStore } = {}) {
                 if (i >= 0) l.splice(i, 1);
             },
         },
-        h3dBgSetStyle: (v) => { writes.push(['style', v]); _bgMemFallback.style = String(v); _bgEmitChange('style'); },
-        h3dBgSetReactive: (v) => { writes.push(['reactive', v]); _bgMemFallback.reactive = String(v); _bgEmitChange('reactive'); },
-        h3dBgSetIntensity: (v) => { writes.push(['intensity', v]); _bgMemFallback.intensity = String(v); _bgEmitChange('intensity'); },
+        h3dBgSetStyle: (v) => { writes.push(['style', v]); settingsMemFallback.style = String(v); emitSettingChange('style'); },
+        h3dBgSetReactive: (v) => { writes.push(['reactive', v]); settingsMemFallback.reactive = String(v); emitSettingChange('reactive'); },
+        h3dBgSetIntensity: (v) => { writes.push(['intensity', v]); settingsMemFallback.intensity = String(v); emitSettingChange('intensity'); },
     };
     globalThis.window = win;
     globalThis.document = {
@@ -193,17 +193,17 @@ async function load({ store: initialStore } = {}) {
     const fireScreenChanged = () => (bus['screen:changed'] || []).slice().forEach((fn) => fn());
     const screenHooks = () => (bus['screen:changed'] || []).length;
     // Round-trips through real coercion on both sides, same as a real
-    // setter (_bgWriteGlobal stringifies) + a real reader (_bgReadGlobal
+    // setter (writeGlobalSetting stringifies) + a real reader (readGlobalSetting
     // parses back to a bool/float/enum) would — so a plain
     // `store.reactive = false` here behaves exactly like flipping the
     // control in the browser, not like poking a raw identity-stubbed object.
     const store = new Proxy({}, {
-        get: (_t, key) => _bgReadGlobal(key),
-        set: (_t, key, value) => { _bgMemFallback[key] = String(value); return true; },
+        get: (_t, key) => readGlobalSetting(key),
+        set: (_t, key, value) => { settingsMemFallback[key] = String(value); return true; },
     });
     return {
-        api, pc, dom, store, emit: _bgEmitChange, writes, timers, sandbox,
-        listenerCount: () => _bgListeners.size, fireScreenChanged, screenHooks,
+        api, pc, dom, store, emit: emitSettingChange, writes, timers, sandbox,
+        listenerCount: () => settingsListeners.size, fireScreenChanged, screenHooks,
     };
 }
 
@@ -212,7 +212,7 @@ test('mounts one control into the player-control slot', async () => {
     api._pcAcquire();
     assert.equal(dom.slot.children.length, 1);
     assert.ok(api.sel, 'style dropdown was not created');
-    assert.equal(api.sel.children.length, BG_STYLE_IDS.length, 'one option per style');
+    assert.equal(api.sel.children.length, BACKGROUND_STYLE_IDS.length, 'one option per style');
 });
 
 test('multiple renderer instances share a single control', async () => {
@@ -466,9 +466,9 @@ test('the Venue override greys the whole Background group', async () => {
 });
 
 // A real (coerced) settings value can never actually reach _pcSync outside
-// BG_STYLE_IDS -- _bgReadGlobal/_bgCoerce reject anything not in that list
+// BACKGROUND_STYLE_IDS -- readGlobalSetting/coerceSetting reject anything not in that list
 // and fall back to the default. The scenario this guards is narrower and
-// more realistic: a style gets added to BG_STYLE_IDS (so it can genuinely be
+// more realistic: a style gets added to BACKGROUND_STYLE_IDS (so it can genuinely be
 // the effective style) before its _PC_USES row is written. Exercise that by
 // deleting a real, valid style's row rather than injecting a bogus id.
 test('an unknown style enables both controls (fails open)', async () => {

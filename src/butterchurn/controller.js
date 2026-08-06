@@ -1,21 +1,21 @@
 import {
-    _bcFfIdx, _bcGuitarFeed, _bcIsDesktop, _bcLoadLib, _bcPresets, _bcReleaseCanvasGL, _bcResolve,
+    fastForwardIndex, createGuitarPcmFeed, isDesktopAudioHost, loadButterchurnLib, resolvePresetsGlobal, releaseCanvasGL, resolveButterchurnGlobal,
 } from './engine.js';
 import {
-    _bcBanned, _bcControllers, _bcFavorites, _bcLoadLists, _bcLoadSettings, _bcSaveLists,
+    bannedPresets, butterchurnControllers, favoritePresets, loadPresetLists, loadButterchurnSettings, savePresetLists,
 } from './prefs.js';
-import { _bcEnsurePanel, _bcPrimary, _bcSetPrimary, _bcTeardownPanel, _bcUpdatePanelPreset } from './panel.js';
+import { ensurePresetPanel, primaryController, setPrimaryController, teardownPresetPanel, updatePanelPreset } from './panel.js';
 
 // Browser audio is sourced by REUSING the highway's own shared analyser
 // (the same #audio / stems side-chain tap the fog scenery uses), passed in
-// as `audioProvider` to _bcCreateController. We deliberately do NOT open a
+// as `audioProvider` to createButterchurnController. We deliberately do NOT open a
 // second createMediaElementSource on #audio here: it can only be called
 // once per element (a second tap throws InvalidStateError and permanently
 // disables the other consumer), it would route the song through a fresh,
 // possibly-suspended context and mute playback, and it would miss the stems
 // side-chain that sloppaks expose at window.feedBack.stems.getAnalyser().
 // Create a Butterchurn background controller bound to a wrap element.
-export function _bcCreateController(wrap, sizeProvider, audioProvider) {
+export function createButterchurnController(wrap, sizeProvider, audioProvider) {
     const ctrl = { viz: null, actx: null, guitar: null, map: null, keys: [], cycle: 0, dead: false, lastW: -1, lastH: -1, canvas: null, backdrop: null, scrim: null, tint: null, wrap: wrap };
     // Layered DOM in the wrap, all BEHIND the transparent 3D highway:
     //   backdrop(z-4 dark) → bc canvas(z-3) → tint(z-2 instrument color) → scrim(z-1 lane dim)
@@ -30,7 +30,7 @@ export function _bcCreateController(wrap, sizeProvider, audioProvider) {
     ctrl.canvas = canvas; ctrl.backdrop = backdrop; ctrl.scrim = scrim; ctrl.tint = tint;
 
     ctrl.applySettings = function () {
-        const s = _bcLoadSettings();
+        const s = loadButterchurnSettings();
         canvas.style.display = s.enabled ? '' : 'none';
         canvas.style.opacity = String(s.enabled ? s.opacity : 0);
         if (s.laneDim) {
@@ -45,12 +45,12 @@ export function _bcCreateController(wrap, sizeProvider, audioProvider) {
 
     // ── Preset curation (favorites / bans / cycle mode) ──
     ctrl.curName = null; ctrl.lastManual = 0;
-    ctrl.allList = () => (ctrl.keys || []).filter((k) => !_bcBanned.has(k));
+    ctrl.allList = () => (ctrl.keys || []).filter((k) => !bannedPresets.has(k));
     ctrl.pool = () => {
-        const mode = _bcLoadSettings().cyclePool || 'all';
-        if (mode === 'bans') return (ctrl.keys || []).filter((k) => _bcBanned.has(k));
+        const mode = loadButterchurnSettings().cyclePool || 'all';
+        if (mode === 'bans') return (ctrl.keys || []).filter((k) => bannedPresets.has(k));
         if (mode === 'favorites') {
-            const f = (ctrl.keys || []).filter((k) => _bcFavorites.has(k) && !_bcBanned.has(k));
+            const f = (ctrl.keys || []).filter((k) => favoritePresets.has(k) && !bannedPresets.has(k));
             if (f.length) return f;
         }
         return ctrl.allList();
@@ -59,10 +59,10 @@ export function _bcCreateController(wrap, sizeProvider, audioProvider) {
     ctrl.loadByName = (name, blend) => {
         if (!ctrl.viz || !name || !ctrl.map || !ctrl.map[name]) return;
         try { ctrl.viz.loadPreset(ctrl.map[name], blend || 0); ctrl.curName = name; } catch (e) {}
-        _bcUpdatePanelPreset();
+        updatePanelPreset();
     };
     ctrl.autoTick = () => {
-        if (ctrl.dead || _bcLoadSettings().hold) return;
+        if (ctrl.dead || loadButterchurnSettings().hold) return;
         if (performance.now() - ctrl.lastManual < 8000) return;
         const pool = ctrl.pool();
         if (!pool.length) return;
@@ -80,29 +80,29 @@ export function _bcCreateController(wrap, sizeProvider, audioProvider) {
     };
     ctrl.toggleFav = () => {
         if (!ctrl.curName) return;
-        if (_bcFavorites.has(ctrl.curName)) _bcFavorites.delete(ctrl.curName);
-        else { _bcFavorites.add(ctrl.curName); _bcBanned.delete(ctrl.curName); }
-        _bcSaveLists(); _bcUpdatePanelPreset();
+        if (favoritePresets.has(ctrl.curName)) favoritePresets.delete(ctrl.curName);
+        else { favoritePresets.add(ctrl.curName); bannedPresets.delete(ctrl.curName); }
+        savePresetLists(); updatePanelPreset();
     };
     ctrl.banCur = () => {
         if (!ctrl.curName) return;
-        if (_bcBanned.has(ctrl.curName)) {           // un-ban (two-way) — stay on it
-            _bcBanned.delete(ctrl.curName);
-            _bcSaveLists(); _bcUpdatePanelPreset();
+        if (bannedPresets.has(ctrl.curName)) {           // un-ban (two-way) — stay on it
+            bannedPresets.delete(ctrl.curName);
+            savePresetLists(); updatePanelPreset();
         } else {                                     // ban + advance off it
-            _bcBanned.add(ctrl.curName); _bcFavorites.delete(ctrl.curName);
-            _bcSaveLists(); ctrl.step(1);
+            bannedPresets.add(ctrl.curName); favoritePresets.delete(ctrl.curName);
+            savePresetLists(); ctrl.step(1);
         }
     };
-    _bcSetPrimary(ctrl);
+    setPrimaryController(ctrl);
 
-    _bcControllers.add(ctrl);
-    _bcEnsurePanel(wrap);
+    butterchurnControllers.add(ctrl);
+    ensurePresetPanel(wrap);
     ctrl.applySettings();
 
-    _bcLoadLib().then(() => {
+    loadButterchurnLib().then(() => {
         if (ctrl.dead) return;
-        const bc = _bcResolve();
+        const bc = resolveButterchurnGlobal();
         if (!bc || typeof bc.createVisualizer !== 'function') { console.warn('[viz3d] Butterchurn global missing'); return; }
         const Ctx = window.AudioContext || window.webkitAudioContext;
         const sz = (sizeProvider && sizeProvider()) || { w: 1280, h: 720 };
@@ -112,7 +112,7 @@ export function _bcCreateController(wrap, sizeProvider, audioProvider) {
         // doesn't fail cross-context. Desktop uses its own context fed by the
         // guitar/mic input. `ownsActx` tracks whether WE created the context
         // (so destroy() closes only contexts we own, never the shared one).
-        const fogAudio = _bcIsDesktop() ? null : (audioProvider ? audioProvider() : null);
+        const fogAudio = isDesktopAudioHost() ? null : (audioProvider ? audioProvider() : null);
         ctrl.ownsActx = !(fogAudio && fogAudio.ctx);
         ctrl.actx = (fogAudio && fogAudio.ctx) || new Ctx();
         if (ctrl.actx.state === 'suspended' && ctrl.actx.resume) ctrl.actx.resume().catch(() => {});
@@ -123,17 +123,17 @@ export function _bcCreateController(wrap, sizeProvider, audioProvider) {
         // visualizer into a corner that CSS then stretches across the highway.
         // pixelRatio:1 because DPR is now folded into the reported size, so
         // buffer == viewport == internal texsize (no double-counting).
-        const _bcRatio0 = Math.min(window.devicePixelRatio || 1, 1.5);
-        const _bcW0 = Math.max(1, Math.round((sz.w || 1280) * _bcRatio0));
-        const _bcH0 = Math.max(1, Math.round((sz.h || 720) * _bcRatio0));
-        canvas.width = _bcW0; canvas.height = _bcH0;
+        const ratio0 = Math.min(window.devicePixelRatio || 1, 1.5);
+        const bufferW0 = Math.max(1, Math.round((sz.w || 1280) * ratio0));
+        const bufferH0 = Math.max(1, Math.round((sz.h || 720) * ratio0));
+        canvas.width = bufferW0; canvas.height = bufferH0;
         ctrl.viz = bc.createVisualizer(ctrl.actx, canvas, {
-            width: _bcW0, height: _bcH0,
+            width: bufferW0, height: bufferH0,
             pixelRatio: 1, textureRatio: 1,
         });
-        if (_bcIsDesktop()) {
+        if (isDesktopAudioHost()) {
             try {
-                ctrl.guitar = _bcGuitarFeed(ctrl.actx, (srcNode) => { try { if (ctrl.viz) ctrl.viz.connectAudio(srcNode); } catch (e) {} });
+                ctrl.guitar = createGuitarPcmFeed(ctrl.actx, (srcNode) => { try { if (ctrl.viz) ctrl.viz.connectAudio(srcNode); } catch (e) {} });
                 console.log('[viz3d] bg: feeding GUITAR input into Butterchurn');
             } catch (e) { console.warn('[viz3d] guitar feed failed', e); }
         } else if (fogAudio && fogAudio.analyser) {
@@ -142,8 +142,8 @@ export function _bcCreateController(wrap, sizeProvider, audioProvider) {
             try { ctrl.viz.connectAudio(fogAudio.analyser); console.log('[viz3d] browser: Butterchurn tapping shared analyser (' + (fogAudio.source || 'core') + ')'); }
             catch (e) { console.warn('[viz3d] shared-analyser connect failed', e); }
         }
-        _bcLoadLists();
-        const presets = _bcPresets();
+        loadPresetLists();
+        const presets = resolvePresetsGlobal();
         if (presets && typeof presets.getPresets === 'function') { ctrl.map = presets.getPresets(); ctrl.keys = Object.keys(ctrl.map); }
         const pool0 = ctrl.pool();
         ctrl.loadByName(pool0.length ? pool0[(Math.random() * pool0.length) | 0] : (ctrl.keys[0] || null), 0.0);
@@ -153,15 +153,15 @@ export function _bcCreateController(wrap, sizeProvider, audioProvider) {
     }).catch((e) => {
         // Async init failed (lib load, WebGL/context creation, etc.). Clean up
         // the half-mounted controller so we don't leak an owned AudioContext /
-        // DOM layers, and mark it dead so _bcSyncMode can retry on a later
+        // DOM layers, and mark it dead so syncButterchurnMode can retry on a later
         // mount instead of seeing a live-looking but non-functional bcCtrl.
         console.error('[viz3d] Butterchurn load/init failed', e);
-        try { _bcReleaseCanvasGL(ctrl.canvas); } catch (_) {}
+        try { releaseCanvasGL(ctrl.canvas); } catch (_) {}
         try { if (ctrl.guitar) { ctrl.guitar.stop(); ctrl.guitar = null; } } catch (_) {}
         try { [ctrl.canvas, ctrl.backdrop, ctrl.scrim, ctrl.tint].forEach((el) => { if (el && el.parentNode) el.parentNode.removeChild(el); }); } catch (_) {}
         if (ctrl.ownsActx && ctrl.actx && typeof ctrl.actx.close === 'function') { try { ctrl.actx.close(); } catch (_) {} }
         ctrl.actx = null; ctrl.viz = null; ctrl.dead = true;
-        _bcControllers.delete(ctrl);
+        butterchurnControllers.delete(ctrl);
     });
     // Size the Butterchurn output: set the canvas DRAWING BUFFER to the
     // device-pixel render size AND report that same size, so buffer ==
@@ -169,7 +169,7 @@ export function _bcCreateController(wrap, sizeProvider, audioProvider) {
     // canvas itself; the previous code set only CSS size, leaving the buffer
     // at the 300x150 default -> the viz showed a stretched lower-left corner
     // (worse the larger the panel). Ratio reuses the highway's DPR budget.
-    function _bcApplySize(cssW, cssH) {
+    function applyButterchurnSize(cssW, cssH) {
         if (!(cssW > 0 && cssH > 0)) return;
         ctrl.lastW = cssW; ctrl.lastH = cssH;
         const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
@@ -208,26 +208,26 @@ export function _bcCreateController(wrap, sizeProvider, audioProvider) {
             ctrl.tint.style.background = 'rgba(' + r + ',' + g + ',' + b + ',' + (alpha || 0).toFixed(3) + ')';
         },
         render() {
-            const s = _bcLoadSettings();
+            const s = loadButterchurnSettings();
             if (!ctrl.viz || !s.enabled) return; // skip GPU work when the bg is off
             const sz = sizeProvider && sizeProvider();
             if (sz && sz.w > 0 && sz.h > 0 && (sz.w !== ctrl.lastW || sz.h !== ctrl.lastH)) {
-                _bcApplySize(sz.w, sz.h);
+                applyButterchurnSize(sz.w, sz.h);
             }
             try { ctrl.viz.render(); } catch (e) {}
         },
-        resize(w, h) { _bcApplySize(w, h); },
+        resize(w, h) { applyButterchurnSize(w, h); },
         destroy() {
             ctrl.dead = true;
-            _bcControllers.delete(ctrl);
-            if (_bcPrimary === ctrl) { _bcSetPrimary(_bcControllers.values().next().value || null); _bcUpdatePanelPreset(); }
+            butterchurnControllers.delete(ctrl);
+            if (primaryController === ctrl) { setPrimaryController(butterchurnControllers.values().next().value || null); updatePanelPreset(); }
             if (ctrl.cycle) { clearInterval(ctrl.cycle); ctrl.cycle = 0; }
             if (ctrl.guitar) { ctrl.guitar.stop(); ctrl.guitar = null; }
             // Release the Butterchurn WebGL context deterministically (don't
             // wait for GC) so repeated mounts/toggles can't exhaust the
             // browser's WebGL context cap (~16). Do it before removing the
             // canvas from the DOM.
-            _bcReleaseCanvasGL(ctrl.canvas);
+            releaseCanvasGL(ctrl.canvas);
             [ctrl.canvas, ctrl.backdrop, ctrl.scrim, ctrl.tint].forEach((el) => { if (el && el.parentNode) el.parentNode.removeChild(el); });
             ctrl.viz = null; ctrl.connectedAnalyser = null;
             // Close the AudioContext only if we own it (desktop, or the
@@ -239,18 +239,18 @@ export function _bcCreateController(wrap, sizeProvider, audioProvider) {
                 try { ctrl.actx.close(); } catch (e) {}
             }
             ctrl.actx = null;
-            if (_bcControllers.size === 0) {
-                _bcTeardownPanel();
-            } else if (_bcPrimary && _bcPrimary.wrap) {
+            if (butterchurnControllers.size === 0) {
+                teardownPresetPanel();
+            } else if (primaryController && primaryController.wrap) {
                 // Splitscreen: a controller other than this one is still
                 // alive. The singleton panel was parented to THIS (now
                 // destroyed) wrap, so re-home it onto the surviving primary's
                 // wrap — otherwise the panel is orphaned on the dead wrap and
                 // the surviving highway is left with no visualizer controls
-                // (_bcEnsurePanel only runs at controller creation). It moves
+                // (ensurePresetPanel only runs at controller creation). It moves
                 // the existing panel+pane when connected, or rebuilds them on
                 // the survivor if this wrap was already detached.
-                try { _bcEnsurePanel(_bcPrimary.wrap); _bcUpdatePanelPreset(); } catch (e) {}
+                try { ensurePresetPanel(primaryController.wrap); updatePanelPreset(); } catch (e) {}
             }
         },
     };

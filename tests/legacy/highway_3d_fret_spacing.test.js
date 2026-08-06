@@ -8,7 +8,7 @@
 // The fretX/localStorage-read half moved to src/core/fret-geometry.js in
 // the screen.js -> src/ module split (Stage 2); real-import + exercise it
 // rather than regexing its declaration. window.h3dSetFretSpacing itself
-// stays in src/main.js for now (needs _bgEmitChange, arriving in Stage 4),
+// stays in src/main.js for now (needs emitSettingChange, arriving in Stage 4),
 // so those checks stay source-level.
 
 const { test } = require('node:test');
@@ -82,7 +82,7 @@ test('h3dSetFretSpacing applies the change live, not via a page reload', () => {
     );
     assert.match(
         setter[0],
-        /_bgEmitChange\(\s*'fretSpacing'\s*\)/,
+        /emitSettingChange\(\s*'fretSpacing'\s*\)/,
         'h3dSetFretSpacing must broadcast a live fretSpacing change',
     );
 });

@@ -298,8 +298,8 @@ export const DIAG_SIZE_MIN    = 0.08;
 export const DIAG_SIZE_MAX    = 0.16;
 export const DIAG_CELL_MAX    = 34;
 // 'bl' and 'br' removed — diagram is top-only. Legacy localStorage values
-// that contain 'bl'/'br' will fall back to BG_DEFAULTS.chordDiagramPosition
-// via _bgCoerce (which rejects values not in this list).
+// that contain 'bl'/'br' will fall back to SETTING_DEFAULTS.chordDiagramPosition
+// via coerceSetting (which rejects values not in this list).
 export const CHORD_DIAG_POSITION_IDS = ['tl', 'tr'];
 
 /** Default chord-box rim / fill gradient (teal family). */

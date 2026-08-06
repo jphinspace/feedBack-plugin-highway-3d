@@ -1,5 +1,5 @@
 import { T } from '../../core/three.js';
-import { BG_BACKDROP_DISTANCE, _bgCoverCrop, _bgFitBackdropPlane } from '../backdrop.js';
+import { BACKDROP_DISTANCE, coverCropTexture, fitBackdropPlane } from '../backdrop.js';
 
 // Custom video backdrop (#19 follow-up). User uploads a
 // .mp4/.webm via settings.html; routes.py stores it on disk and
@@ -29,10 +29,10 @@ export const video = {
         const url = '/api/plugins/highway_3d/files/' + filename;
 
         // Track partial allocations so a throw between any of
-        // them can clean up. _bgMountStyle's failure path
+        // them can clean up. mountBackgroundStyle's failure path
         // disposes the stage tree but explicitly does NOT
         // dispose textures (per the comment at
-        // _bgDisposeGroupTree), and the <video> element is
+        // disposeGroupTree), and the <video> element is
         // parented to document.body — not the stage — so
         // neither would be reached without an explicit catch.
         let videoEl = null, tex = null, geo = null, mat = null, mesh = null;
@@ -86,17 +86,17 @@ export const video = {
             scene.add(mesh);
 
             // Full-bleed backdrop: scaled and positioned each
-            // frame in update() via _bgFitBackdropPlane.
+            // frame in update() via fitBackdropPlane.
             // cam + distance + lastAspect / lastVisibleHeight
             // power that helper.
             const state = {
                 videoEl, mesh, geo, mat, tex,
-                cam: settings.cam, distance: BG_BACKDROP_DISTANCE,
+                cam: settings.cam, distance: BACKDROP_DISTANCE,
                 lastAspect: 0, lastVisibleHeight: 0,
             };
             state.applyCoverCrop = function () {
                 if (!state.videoEl) return;
-                _bgCoverCrop(
+                coverCropTexture(
                     state.tex,
                     state.videoEl.videoWidth  || 0,
                     state.videoEl.videoHeight || 0,
@@ -106,7 +106,7 @@ export const video = {
 
             // Cover-crop math runs on loadedmetadata since
             // video dimensions aren't known until then.
-            // _bgFitBackdropPlane will also re-apply when the
+            // fitBackdropPlane will also re-apply when the
             // camera aspect changes.
             videoEl.addEventListener('loadedmetadata', () => {
                 state.applyCoverCrop();
@@ -141,7 +141,7 @@ export const video = {
             });
             // Initial fit so the first frame is correctly
             // sized and positioned even before update() runs.
-            _bgFitBackdropPlane(state);
+            fitBackdropPlane(state);
             return state;
         } catch (err) {
             // Best-effort cleanup of whatever was allocated
@@ -174,7 +174,7 @@ export const video = {
         // busy and compete with playback. The only per-frame
         // work is keeping the plane camera-locked and resized
         // when aspect changes (handled inside the helper).
-        _bgFitBackdropPlane(s);
+        fitBackdropPlane(s);
     },
     teardown(s) {
         if (!s) return;

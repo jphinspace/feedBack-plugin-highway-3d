@@ -5,10 +5,10 @@
 // Ported from feedBack core's tests/js/highway_3d_streak_break_feedback.test.js
 // as part of the tests/legacy/ tripwire scaffold (screen.js -> src/ module
 // split, Stage 0c). All three assertions FAIL against this fork's unmodified
-// screen.js: `_streakFx` is declared as a BG_DEFAULTS setting and read for
+// screen.js: `_streakFx` is declared as a SETTING_DEFAULTS setting and read for
 // the hit-heat escalation multiplier (line ~14633), but the streakBreak
 // red-wash path in `_fxHandle`/`drawScoreFx` ignores it entirely, and
-// `'streakFx'` is missing from the `_bgListener` key list, so toggling the
+// `'streakFx'` is missing from the `settingsListener` key list, so toggling the
 // setting live does nothing until the panel is torn down and rebuilt. This
 // is a genuine pre-existing bug, not something introduced by porting the
 // test — confirmed by grepping screen.js directly. Left as `todo` (not
@@ -58,8 +58,8 @@ test('Streak feedback cancels an in-progress wash at draw time', { todo: 'pre-ex
     );
 });
 
-test('Streak feedback changes refresh renderer state live', { todo: 'pre-existing bug: streakFx missing from _bgListener key list' }, () => {
-    const listener = extractBlock('_bgListener = (changedKey) =>');
+test('Streak feedback changes refresh renderer state live', { todo: 'pre-existing bug: streakFx missing from settingsListener key list' }, () => {
+    const listener = extractBlock('settingsListener = (changedKey) =>');
     assert.match(
         listener,
         /changedKey\s*===\s*['"]streakFx['"]/,
@@ -67,7 +67,7 @@ test('Streak feedback changes refresh renderer state live', { todo: 'pre-existin
     );
     assert.match(
         listener,
-        /_bgLoadSettings\(\)/,
+        /loadSettings\(\)/,
         'the live settings listener must reload _streakFx without requiring a new song',
     );
 });

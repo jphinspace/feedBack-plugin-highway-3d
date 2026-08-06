@@ -1,27 +1,27 @@
 // Settings identifier lists and default values: the enum-shaped id sets
-// settings/store.js's _bgCoerce validates against, plus BG_DEFAULTS (the
-// per-instance settings mirror's shape and fallback values) and BG_THEMES
+// settings/store.js's coerceSetting validates against, plus SETTING_DEFAULTS (the
+// per-instance settings mirror's shape and fallback values) and SCENE_THEMES
 // (the two-axis background/highway color theme table).
 //
 // The 'venue' background style deliberately does NOT appear in
-// BG_STYLE_IDS: it's an internal effective style reached only through the
+// BACKGROUND_STYLE_IDS: it's an internal effective style reached only through the
 // viz-picker Venue flow (see bg/venue.js), never a user-selectable
-// h3d_bg_style value. Don't derive BG_STYLE_IDS from Object.keys(BG_STYLES)
+// h3d_bg_style value. Don't derive BACKGROUND_STYLE_IDS from Object.keys(BACKGROUND_STYLES)
 // once that registry exists (Stage 6) -- the asymmetry is load-bearing.
 
 /** User-selectable via `cameraMode`. Legacy `classic` in storage maps to `steady`. */
 export const CAMERA_MODE_IDS = ['steady', 'lookahead'];
 
-export const BG_DEFAULTS = { style: 'particles', intensity: 0.5, reactive: true, palette: 'default', bgTheme: 'default', hwTheme: 'default', showFretOnNote: true, fretNumberGhostScope: 'chords', cameraSmoothing: 0.5, zoomSmoothing: 0.5, tiltSmoothing: 0.5, cameraLockLow: false, cameraLockZoom: 0.5, cameraMode: 'lookahead', nutHeadstockVisible: true, tuningLabelsVisible: true, nutColor: '#f5f3f0', headstockColor: '#d4b48a', textSize: 0.5, vibrancy: 0.85, glow: 0.25, customImageDataUrl: '', customImageName: '', customVideoName: '', chordDiagramVisible: true, chordDiagramSize: 0.5, chordDiagramPosition: 'tl', fretColumnMarkerCadence: 1, projectionVisible: true, inlayLabelsVisible: false, sectionLabelsOnHighway: false, sectionHudVisible: false, sectionHudPosition: 'tr', sectionHudSize: 0.5, toneHudVisible: false, toneHudPosition: 'tl', toneHudSize: 0.5, fpsVisible: false, fretDividersVisible: true, slideArrowApproachVisible: true, slideArrowNeckVisible: true, slideArrowChainPreviewVisible: true, hitFx: 0.7, sparks: true, cinematic: true, verdictMarks: true, timingFx: true, streakFx: true, bloom: true };
+export const SETTING_DEFAULTS = { style: 'particles', intensity: 0.5, reactive: true, palette: 'default', bgTheme: 'default', hwTheme: 'default', showFretOnNote: true, fretNumberGhostScope: 'chords', cameraSmoothing: 0.5, zoomSmoothing: 0.5, tiltSmoothing: 0.5, cameraLockLow: false, cameraLockZoom: 0.5, cameraMode: 'lookahead', nutHeadstockVisible: true, tuningLabelsVisible: true, nutColor: '#f5f3f0', headstockColor: '#d4b48a', textSize: 0.5, vibrancy: 0.85, glow: 0.25, customImageDataUrl: '', customImageName: '', customVideoName: '', chordDiagramVisible: true, chordDiagramSize: 0.5, chordDiagramPosition: 'tl', fretColumnMarkerCadence: 1, projectionVisible: true, inlayLabelsVisible: false, sectionLabelsOnHighway: false, sectionHudVisible: false, sectionHudPosition: 'tr', sectionHudSize: 0.5, toneHudVisible: false, toneHudPosition: 'tl', toneHudSize: 0.5, fpsVisible: false, fretDividersVisible: true, slideArrowApproachVisible: true, slideArrowNeckVisible: true, slideArrowChainPreviewVisible: true, hitFx: 0.7, sparks: true, cinematic: true, verdictMarks: true, timingFx: true, streakFx: true, bloom: true };
 // User-selectable, persistable bg styles — must mirror settings.html's
 // VALID_STYLES. 'venue' is deliberately NOT here: it is an internal effective
 // style reached only via _venueSceneOverride (the viz-picker Venue flow), so
-// _bgCoerce must reject a stored h3d_bg_style='venue' — otherwise venue could
+// coerceSetting must reject a stored h3d_bg_style='venue' — otherwise venue could
 // mount outside that flow and settings.html (which can't represent 'venue')
-// would be unable to switch back. BG_STYLES still has a 'venue' renderer entry.
-export const BG_STYLE_IDS = ['off', 'particles', 'silhouettes', 'lights', 'geometric', 'butterchurn', 'image', 'video'];
+// would be unable to switch back. BACKGROUND_STYLES still has a 'venue' renderer entry.
+export const BACKGROUND_STYLE_IDS = ['off', 'particles', 'silhouettes', 'lights', 'geometric', 'butterchurn', 'image', 'video'];
 // Scene color themes — TWO INDEPENDENT AXES sharing one palette family.
-// The combined `BG_THEMES` table below is the single source of truth; each
+// The combined `SCENE_THEMES` table below is the single source of truth; each
 // entry carries the colors for BOTH axes, but the two axes are selected and
 // applied SEPARATELY (two dropdowns, two settings keys):
 //   • BACKGROUND axis (setting key `bgTheme`) owns:
@@ -35,11 +35,11 @@ export const BG_STYLE_IDS = ['off', 'particles', 'silhouettes', 'lights', 'geome
 // Because both axes read from the SAME id-set (the keys of this table), ANY
 // background id can mix with ANY highway id (e.g. Deep Focus background +
 // Cathode Green highway); picking the SAME id in both gives the original
-// "matched" combined look. _bgBackgroundColors()/_bgHighwayColors() below
+// "matched" combined look. backgroundAxisColors()/highwayAxisColors() below
 // are the per-axis accessors; both fall back to 'default' for unknown ids.
 // 'default' reproduces the original look byte-for-byte on BOTH axes, so
 // existing users (and anyone who never touches either setting) see no
-// change. A migration in _bgLoadSettings() makes an existing single-`bgTheme`
+// change. A migration in loadSettings() makes an existing single-`bgTheme`
 // pick drive BOTH axes until the user diverges them, so upgrades are
 // visually identical too. All themes keep the board very dark and the
 // background dark so the bright per-string note gems, lane, and labels
@@ -52,7 +52,7 @@ export const BG_STYLE_IDS = ['off', 'particles', 'silhouettes', 'lights', 'geome
 // its own lane so the Highway axis is visibly distinct entry-to-entry — the
 // near-black neutral boards alone aren't separable, so the lane carries it.
 // See _applyBgTheme().
-export const BG_THEMES = {
+export const SCENE_THEMES = {
     default:    { clear: 0x101820, fog: 0x101820, board: 0x08080e },
     // Cool navy surface + a brighter pure-blue lane, so it reads distinct
     // from 'default' (neutral board + stock teal-blue lane) on the Highway axis.
@@ -88,14 +88,14 @@ export const BG_THEMES = {
     // (dRGB ~26 from cathode). Ember-red lane.
     hearth:     { clear: 0x280806, fog: 0x280806, board: 0x1a0606, lane: 0x7a2410, laneDim: 0x3f1409 },
 };
-export const BG_THEME_IDS = Object.keys(BG_THEMES);
+export const SCENE_THEME_IDS = Object.keys(SCENE_THEMES);
 // Shared lookup for the combined entry (both axes are keyed by the same id
 // set, so a single id list / coerce check validates either axis).
-export function _bgThemeColors(id) { return BG_THEMES[id] || BG_THEMES.default; }
+export function sceneThemeColors(id) { return SCENE_THEMES[id] || SCENE_THEMES.default; }
 // Per-axis accessors. Background reads clear/fog; highway reads
 // board/lane/laneDim. They alias the same table — splitting at read-time
 // keeps one source of truth while letting the two dropdowns pick freely.
-export function _bgBackgroundColors(id) { return _bgThemeColors(id); }
-export function _bgHighwayColors(id) { return _bgThemeColors(id); }
+export function backgroundAxisColors(id) { return sceneThemeColors(id); }
+export function highwayAxisColors(id) { return sceneThemeColors(id); }
 
 export const FRET_NUMBER_GHOST_SCOPE_IDS = ['chords', 'all'];

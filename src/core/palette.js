@@ -7,7 +7,7 @@
 // src/main.js as of this module's extraction) so the array's identity never
 // changes. That identity stability is load-bearing: a settings-reload path
 // compares `newPalette !== activePalette` to decide whether a retint is
-// needed, and a content signature (`_bgPaletteSig`) drives the actual
+// needed, and a content signature (`backgroundPaletteSig`) drives the actual
 // re-tint on custom edits. Replacing this with a freshly-allocated array on
 // every settings load would silently break live custom-palette editing.
 

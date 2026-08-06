@@ -18,7 +18,7 @@
 // eagerly). `node --test` runs each test file in its own process, so
 // stubbing globalThis here doesn't leak into other test files.
 //
-// main.js doesn't `export` BG_DEFAULTS (it's an entry script, not a
+// main.js doesn't `export` SETTING_DEFAULTS (it's an entry script, not a
 // library), so this test needs it for the default-value cross-check below.
 // Same technique as the original vm version: inject one `export` line into
 // a COPY of the source (never the real file) right after the factory
@@ -51,7 +51,7 @@ async function loadHighway3dStatics() {
         1,
         'expected exactly one factory-registration anchor in src/main.js',
     );
-    const instrumented = src.replace(ANCHOR, `${ANCHOR}\nexport { BG_DEFAULTS };`);
+    const instrumented = src.replace(ANCHOR, `${ANCHOR}\nexport { SETTING_DEFAULTS };`);
     assert.notEqual(instrumented, src, 'test export injection anchor not found in src/main.js');
 
     fs.writeFileSync(TMP_MAIN_JS, instrumented);
@@ -64,8 +64,8 @@ async function loadHighway3dStatics() {
     try {
         // Cache-bust: a bare re-import of the same URL would hit Node's
         // module cache and return the previous test run's instance.
-        const { BG_DEFAULTS } = await import(pathToFileURL(TMP_MAIN_JS).href + `?t=${Date.now()}`);
-        globalThis.window.__h3dTestExports = { BG_DEFAULTS };
+        const { SETTING_DEFAULTS } = await import(pathToFileURL(TMP_MAIN_JS).href + `?t=${Date.now()}`);
+        globalThis.window.__h3dTestExports = { SETTING_DEFAULTS };
         return globalThis.window;
     } finally {
         fs.unlinkSync(TMP_MAIN_JS);
@@ -105,7 +105,7 @@ test('3D Highway exposes static panelControls descriptors for per-panel hosts', 
     assert.ok(Array.isArray(factory.panelControls), 'panelControls must be an array');
 
     const controls = cloneJson(factory.panelControls);
-    const defaults = cloneJson(window.__h3dTestExports.BG_DEFAULTS);
+    const defaults = cloneJson(window.__h3dTestExports.SETTING_DEFAULTS);
     const keys = controls.map((control) => control && control.key);
     assert.deepEqual(keys, REQUIRED_KEYS, 'panelControls must expose exactly the issue #247 control set');
     const duplicateKeys = keys.filter((key, index) => keys.indexOf(key) !== index);
@@ -120,7 +120,7 @@ test('3D Highway exposes static panelControls descriptors for per-panel hosts', 
             'each panel control must be a plain descriptor object',
         );
         assert.equal(typeof control.key, 'string', 'descriptor.key must be a string');
-        assert.match(control.key, /^[A-Za-z][A-Za-z0-9]*$/, 'descriptor.key must be a BG_DEFAULTS-style key');
+        assert.match(control.key, /^[A-Za-z][A-Za-z0-9]*$/, 'descriptor.key must be a SETTING_DEFAULTS-style key');
         assert.equal(typeof control.label, 'string', `${control.key}.label must be a string`);
         assert.ok(control.label.trim().length > 0, `${control.key}.label must not be blank`);
         assert.equal(typeof control.type, 'string', `${control.key}.type must be a string`);
@@ -128,9 +128,9 @@ test('3D Highway exposes static panelControls descriptors for per-panel hosts', 
         assert.ok(Object.prototype.hasOwnProperty.call(control, 'default'), `${control.key} must declare a default`);
         assert.ok(
             Object.prototype.hasOwnProperty.call(defaults, control.key),
-            `${control.key} must map to a BG_DEFAULTS entry`,
+            `${control.key} must map to a SETTING_DEFAULTS entry`,
         );
-        assert.deepEqual(control.default, defaults[control.key], `${control.key}.default must match BG_DEFAULTS`);
+        assert.deepEqual(control.default, defaults[control.key], `${control.key}.default must match SETTING_DEFAULTS`);
         assert.ok(!controlsByKey.has(control.key), `${control.key} appears more than once in panelControls`);
         controlsByKey.set(control.key, control);
 

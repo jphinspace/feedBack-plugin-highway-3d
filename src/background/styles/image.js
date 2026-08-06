@@ -1,5 +1,5 @@
 import { T } from '../../core/three.js';
-import { BG_BACKDROP_DISTANCE, _bgCoverCrop, _bgFitBackdropPlane } from '../backdrop.js';
+import { BACKDROP_DISTANCE, coverCropTexture, fitBackdropPlane } from '../backdrop.js';
 
 // Custom image backdrop (#19). User uploads a JPG/PNG/WebP
 // through settings.html; the bytes are persisted as a base64
@@ -44,22 +44,22 @@ export const image = {
         const MAX_IMAGE_DIM = 4096;
         const MAX_IMAGE_PIXELS = 16 * 1024 * 1024;
         // Full-bleed backdrop: unit plane, scaled per frame in
-        // _bgFitBackdropPlane to fill the camera's view at
-        // BG_BACKDROP_DISTANCE. fog: false so the backdrop
+        // fitBackdropPlane to fill the camera's view at
+        // BACKDROP_DISTANCE. fog: false so the backdrop
         // shows in full color; notes drawn on top still pick
         // up atmospheric fog as before.
         const state = {
             mesh: null, geo: null, mat: null, tex: null,
             drift: 0.5, intensity: settings.intensity, loaded: false,
-            cam: settings.cam, distance: BG_BACKDROP_DISTANCE,
+            cam: settings.cam, distance: BACKDROP_DISTANCE,
             lastAspect: 0, lastVisibleHeight: 0,
         };
         // Helper closure for cover-crop refresh — called both
-        // on async decode (initial) and from _bgFitBackdropPlane
+        // on async decode (initial) and from fitBackdropPlane
         // when the camera aspect changes (resize).
         state.applyCoverCrop = function () {
             if (!state.tex || !state.tex.image) return;
-            _bgCoverCrop(
+            coverCropTexture(
                 state.tex,
                 state.tex.image.width  || 0,
                 state.tex.image.height || 0,
@@ -132,7 +132,7 @@ export const image = {
         state.tex  = tex;
         // Initial fit so the first frame is correctly sized
         // and positioned, even if update() hasn't run yet.
-        _bgFitBackdropPlane(state);
+        fitBackdropPlane(state);
         return state;
     },
     update(s, bands, dt) {
@@ -140,8 +140,8 @@ export const image = {
         // Track camera position / aspect every frame. The
         // helper resizes the plane and refreshes cover-crop
         // when aspect changes, and re-positions the plane to
-        // stay BG_BACKDROP_DISTANCE in front of the camera.
-        _bgFitBackdropPlane(s);
+        // stay BACKDROP_DISTANCE in front of the camera.
+        fitBackdropPlane(s);
         // Skip drift advance until the texture has finished
         // decoding. Without this guard, drift accumulates
         // during the async load while repeat.x is still 1
@@ -175,7 +175,7 @@ export const image = {
         s.geo.dispose();
         s.mat.dispose();
         // This style owns the texture lifecycle (per the comment
-        // at _bgDisposeGroupTree: tree dispose does NOT touch
+        // at disposeGroupTree: tree dispose does NOT touch
         // material.map textures).
         s.tex.dispose();
     },
