@@ -2,7 +2,7 @@ import {
     BG_DEFAULTS, BG_STYLE_IDS, BG_THEME_IDS, CAMERA_MODE_IDS, FRET_NUMBER_GHOST_SCOPE_IDS,
 } from './defaults.js';
 import { PALETTE_IDS } from '../core/palette.js';
-import { CHORD_DIAG_POSITION_IDS } from '../core/consts.js';
+import { CHORD_DIAG_POSITION_IDS } from '../core/constants.js';
 
 // Per-panel/global localStorage settings read/write, value coercion, and a
 // pub-sub bus (_bgSubscribe/_bgEmitChange) so settings.html and every live

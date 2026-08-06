@@ -20,7 +20,7 @@
 // than sliced out of source text and evaluated in a vm sandbox. Its
 // collaborators (BG_STYLE_IDS, _bgReadGlobal/_bgSubscribe/_bgUnsubscribe,
 // _venueSceneOverride) are real imports too — src/settings/store.js and
-// src/bg/venue.js are genuinely side-effect-free at import time, so there is
+// src/background/venue.js are genuinely side-effect-free at import time, so there is
 // no reason to fake them.
 //
 // Two different isolation strategies are in play, matched to how each
@@ -39,7 +39,7 @@ import assert from 'node:assert/strict';
 
 import { BG_STYLE_IDS } from '../src/settings/defaults.js';
 import { _bgMemFallback, _bgListeners, _bgEmitChange, _bgReadGlobal } from '../src/settings/store.js';
-import { _venueSetSceneOverride } from '../src/bg/venue.js';
+import { _venueSetSceneOverride } from '../src/background/venue.js';
 
 // What each style is expected to consume, derived by reading the BG_STYLES
 // bodies in src/main.js — deliberately NOT read from the plugin's own

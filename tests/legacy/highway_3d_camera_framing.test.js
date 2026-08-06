@@ -28,9 +28,9 @@ const src = fs.readFileSync(SCREEN_JS, 'utf8');
 // ── Zoom-dependent framing ──────────────────────────────────────────────────
 
 test('framing NEAR/FAR multiplier constants are defined', async () => {
-    // These moved to src/core/consts.js in the screen.js -> src/ module split
+    // These moved to src/core/constants.js in the screen.js -> src/ module split
     // (Stage 1); real-import them rather than regexing their declarations.
-    const consts = await import('../../src/core/consts.js');
+    const consts = await import('../../src/core/constants.js');
     for (const name of [
         'CAM_FRAME_DIST_NEAR', 'CAM_FRAME_DIST_FAR',
         'CAM_FRAME_H_NEAR', 'CAM_FRAME_H_FAR',
@@ -79,7 +79,7 @@ test('framing multipliers are a clamped zoom-distance interpolation', () => {
 // ── Measure-based lookahead window ──────────────────────────────────────────
 
 test('lookahead window is expressed in measures with a seconds fallback', async () => {
-    const { CAM_LOOKAHEAD_MEASURES, CAM_LOOKAHEAD_SEC } = await import('../../src/core/consts.js');
+    const { CAM_LOOKAHEAD_MEASURES, CAM_LOOKAHEAD_SEC } = await import('../../src/core/constants.js');
     assert.strictEqual(CAM_LOOKAHEAD_MEASURES, 9, 'CAM_LOOKAHEAD_MEASURES must default to 9');
     assert.strictEqual(CAM_LOOKAHEAD_SEC, 3.0, 'CAM_LOOKAHEAD_SEC must stay as the no-beats fallback');
 });
@@ -137,7 +137,7 @@ test('measure-start cache is invalidated on song change', () => {
 // framing. camUpdate dollies the camera back via a capped, hysteretic boost.
 
 test('fret-row fit guard constants are defined', async () => {
-    const consts = await import('../../src/core/consts.js');
+    const consts = await import('../../src/core/constants.js');
     for (const name of [
         'FRET_ROW_FIT_NDC_MIN', 'FRET_ROW_FIT_DEADBAND', 'FRET_ROW_FIT_BOOST_MAX',
     ]) {

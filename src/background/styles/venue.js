@@ -1,5 +1,5 @@
 import { T } from '../../core/three.js';
-import { FOG_END, K, VENUE_BACKDROP_DISTANCE_MUL, VENUE_HAZE_STEADY } from '../../core/consts.js';
+import { FOG_END, K, VENUE_BACKDROP_DISTANCE_MUL, VENUE_HAZE_STEADY } from '../../core/constants.js';
 import { _bgEmitChange } from '../../settings/store.js';
 import { BG_BACKDROP_DISTANCE, _bgCoverCrop, _bgFitBackdropPlane } from '../backdrop.js';
 import {

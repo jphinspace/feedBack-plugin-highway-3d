@@ -1,4 +1,4 @@
-import { K, GHOST_FRET_LBL_FADE_S } from './consts.js';
+import { K, GHOST_FRET_LBL_FADE_S } from './constants.js';
 
 export const RENDER_ORDER_LAYER_STACK = Object.freeze([
     'CHORD_FILL',

@@ -44,7 +44,7 @@ import {
     REF_ASPECT, SCALE, SINGLE_SUS_OFFSETS, STR_THICK, S_BASE, S_GAP, TREMOLO_BUMP_S, TS,
     VENUE_BACKDROP_DISTANCE_MUL, VENUE_GEM_EMISSIVE_MUL, VENUE_HAZE_STEADY,
     VENUE_LANE_OP_BOOST, VIBRATO_HALF_WAVE_S, _ND_UNMATCHED_LATCH_AFTER
-} from './core/consts.js';
+} from './core/constants.js';
 import {
     DEFAULT_GEM_GRADIENTS, PALETTES, PALETTE_IDS, S_COL, _customPalette, _darkenInt,
     _h3dHexToInt, _lightenInt
@@ -53,7 +53,7 @@ import {
     RENDER_ORDER_LAYER_STACK, hwyPostHitTailFadeMul, renderOrderForLayerAtZ
 } from './core/render-order.js';
 import { SLIDE_RIBBON_INDICES_ARR, SLIDE_RIBBON_SAMPLES } from './core/slide-ribbon.js';
-import { _makeGaussTex } from './core/tex.js';
+import { _makeGaussTex } from './core/texture.js';
 import {
     FRET_WIDTH_MID, _recomputeFretSpacingDerived, dZ, fretLabelScaleForFret, fretMid, fretX,
     initFretSpacing, setFretUniform, slideOffsetWorldX, slideTrailEnd
@@ -72,14 +72,14 @@ import {
     _bgEmitChange, _bgHasStored, _bgMemFallback, _bgPanelKey, _bgReadGlobal, _bgReadSetting,
     _bgSubscribe, _bgUnsubscribe, _freeCamFor,
 } from './settings/store.js';
-import { _venueCrowdVideos, _venueEffectiveMotionMode, _venueSceneOverride, _venueSwapPlateIfNeeded } from './bg/venue.js';
+import { _venueCrowdVideos, _venueEffectiveMotionMode, _venueSceneOverride, _venueSwapPlateIfNeeded } from './background/venue.js';
 import { _pcAcquire, _pcRelease } from './ui/player-chrome.js';
 import { BG_ZERO_BANDS, _bgGetAnalyser, _bgReadBands, _resetAnalyserBridgeForTest } from './audio/analyser.js';
-import { BG_STYLES } from './bg/styles/index.js';
-import { _bcFfIdx, _bcIsDesktop } from './bc/engine.js';
-import { _bcApplyAll, _bcLoadSettings, _bcResetSettingsCache } from './bc/prefs.js';
-import { _bcUpdatePanelPreset } from './bc/panel.js';
-import { _bcCreateController } from './bc/controller.js';
+import { BG_STYLES } from './background/styles/index.js';
+import { _bcFfIdx, _bcIsDesktop } from './butterchurn/engine.js';
+import { _bcApplyAll, _bcLoadSettings, _bcResetSettingsCache } from './butterchurn/prefs.js';
+import { _bcUpdatePanelPreset } from './butterchurn/panel.js';
+import { _bcCreateController } from './butterchurn/controller.js';
 import { installGlobals } from './globals.js';
 
 // Restore the persisted fret-spacing mode before anything renders. Must

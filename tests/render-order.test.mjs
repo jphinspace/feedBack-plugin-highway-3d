@@ -57,7 +57,7 @@ import {
     RENDER_ORDER_FAR_CLAMP,
     renderOrderForLayerAtZ,
 } from '../src/core/render-order.js';
-import { K, FRET_WIRE_IDLE_HEX, FRET_WIRE_ACTIVE_HEX } from '../src/core/consts.js';
+import { K, FRET_WIRE_IDLE_HEX, FRET_WIRE_ACTIVE_HEX } from '../src/core/constants.js';
 
 const MAIN_JS = new URL('../src/main.js', import.meta.url);
 

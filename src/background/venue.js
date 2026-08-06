@@ -1,4 +1,4 @@
-import { K, VENUE_HAZE_STEADY } from '../core/consts.js';
+import { K, VENUE_HAZE_STEADY } from '../core/constants.js';
 import { _bgEmitChange } from '../settings/store.js';
 
 // Venue viz mode: a small-club stage backdrop (static plate + optional

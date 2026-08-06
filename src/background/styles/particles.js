@@ -1,5 +1,5 @@
 import { T } from '../../core/three.js';
-import { FOG_END, FOG_START, K } from '../../core/consts.js';
+import { FOG_END, FOG_START, K } from '../../core/constants.js';
 
 export const particles = {
     build(scene, settings) {

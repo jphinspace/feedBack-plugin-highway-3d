@@ -1,4 +1,4 @@
-import { FRET_SCALE, FRET_SPACING_ANCHOR_F, FRET_SPACING_STRETCH_ABOVE12, NFRETS, K, TS } from './consts.js';
+import { FRET_SCALE, FRET_SPACING_ANCHOR_F, FRET_SPACING_STRETCH_ABOVE12, NFRETS, K, TS } from './constants.js';
 
 // Fret X positioning, in world units, plus the technique helpers (slide
 // trail/offset) that derive their geometry from it.

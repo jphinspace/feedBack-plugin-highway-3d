@@ -1,5 +1,5 @@
 import { T } from '../core/three.js';
-import { FOG_END } from '../core/consts.js';
+import { FOG_END } from '../core/constants.js';
 
 // Procedural silhouette bitmap, drawn once and shared across panels.
 // The Canvas2D bitmap is module-level (cheap, CPU-only); each layer

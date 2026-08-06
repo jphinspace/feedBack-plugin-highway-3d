@@ -1,5 +1,5 @@
 import { T } from '../../core/three.js';
-import { FOG_END, K } from '../../core/consts.js';
+import { FOG_END, K } from '../../core/constants.js';
 
 export const geometric = {
     build(scene, settings) {

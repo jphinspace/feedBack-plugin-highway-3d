@@ -1,6 +1,6 @@
 import { _bgWriteGlobal } from './store.js';
 import { BG_DEFAULTS, BG_THEME_IDS, FRET_NUMBER_GHOST_SCOPE_IDS } from './defaults.js';
-import { MAX_RENDER_STRINGS } from '../core/consts.js';
+import { MAX_RENDER_STRINGS } from '../core/constants.js';
 import { _h3dHexToInt } from '../core/palette.js';
 
 // The h3dBgSet* setter wall. These are the ONLY way any code (settings.html,

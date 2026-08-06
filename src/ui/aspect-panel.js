@@ -1,4 +1,4 @@
-import { BASE_VFOV, HORPLUS_MIN_VFOV } from '../core/consts.js';
+import { BASE_VFOV, HORPLUS_MIN_VFOV } from '../core/constants.js';
 
 // Talks to the rest of the renderer only through window.__h3dAspectTune /
 // __h3dAspectPanes / __h3dAspectPanelOpen / __h3dAspectReadout -- the

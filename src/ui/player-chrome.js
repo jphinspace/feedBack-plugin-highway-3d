@@ -1,6 +1,6 @@
 import { BG_STYLE_IDS } from '../settings/defaults.js';
 import { _bgReadGlobal, _bgSubscribe, _bgUnsubscribe } from '../settings/store.js';
-import { _venueSceneOverride } from '../bg/venue.js';
+import { _venueSceneOverride } from '../background/venue.js';
 
 /* ======================================================================
  *  Player-chrome background control

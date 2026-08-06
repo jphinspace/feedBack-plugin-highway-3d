@@ -3,7 +3,7 @@
 // markers, chart-time binary search, arrangement <anchor> lookups, and BPM
 // estimation.
 
-import { MAX_RENDER_STRINGS, NSTR, NFRETS, DOTS } from './consts.js';
+import { MAX_RENDER_STRINGS, NSTR, NFRETS, DOTS } from './constants.js';
 
 export function resolveStringCount(bundle) {
     const sc = bundle && bundle.stringCount;

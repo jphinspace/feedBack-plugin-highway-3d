@@ -19,7 +19,7 @@ import {
     h3dVenueSceneSetActive, h3dVenueSceneSetMood, h3dVenueBackdropSetVideo,
     h3dVenueBackdropSetMix, h3dVenueSceneSetInstrumentPov, h3dVenueSceneSetMotionMode,
     h3dVenueSceneGetState,
-} from './bg/venue.js';
+} from './background/venue.js';
 
 // THE ONLY FILE THAT WRITES window.* -- every renderer module exports
 // plain functions/values; this file is the sole place they get bound onto
