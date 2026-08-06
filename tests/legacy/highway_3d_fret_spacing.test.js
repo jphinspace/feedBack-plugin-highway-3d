@@ -1,11 +1,15 @@
-// Pins the fret-spacing setting in plugins/highway_3d/screen.js (PR #329).
+// Pins the fret-spacing setting in the 3D highway renderer.
 // The board can render fret columns either Uniform (equal width, the chart
 // Remastered style) or Logarithmic (real instrument geometry), switchable at
 // runtime via window.h3dSetFretSpacing and persisted in localStorage. A
 // refactor that renames the storage key, drops the uniform/log branch in
 // fretX, or stops validating the mode would silently regress the setting.
 //
-// Source-level only — same strategy as the other tests/js/ files.
+// The fretX/localStorage-read half moved to src/core/fret-geometry.js in
+// the screen.js -> src/ module split (Stage 2); real-import + exercise it
+// rather than regexing its declaration. window.h3dSetFretSpacing itself
+// stays in src/main.js for now (needs _bgEmitChange, arriving in Stage 4),
+// so those checks stay source-level.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -14,22 +18,41 @@ const path = require('node:path');
 
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 
-test('fret-spacing mode is read from the highway_3d.fretSpacing localStorage key', () => {
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
-    assert.match(
-        src,
-        /_h3dFretUniform\s*=\s*localStorage\.getItem\(\s*'highway_3d\.fretSpacing'\s*\)\s*!==\s*'logarithmic'/,
-        'startup must read highway_3d.fretSpacing and treat anything but "logarithmic" as uniform',
-    );
+test('fret-spacing mode is read from the highway_3d.fretSpacing localStorage key via initFretSpacing()', async () => {
+    const { initFretSpacing, fretX } = await import('../../src/core/fret-geometry.js');
+    const calls = [];
+    const realGetItem = globalThis.localStorage?.getItem;
+    globalThis.localStorage = {
+        getItem: (k) => { calls.push(k); return 'logarithmic'; },
+        setItem: () => {},
+    };
+    try {
+        const beforeUniform = fretX(12);
+        initFretSpacing();
+        const afterLogarithmic = fretX(12);
+        assert.deepEqual(calls, ['highway_3d.fretSpacing'], 'initFretSpacing must read the highway_3d.fretSpacing key');
+        assert.notEqual(afterLogarithmic, beforeUniform, 'a stored "logarithmic" value must actually change fretX');
+    } finally {
+        // Restore uniform (the default) so later tests/imports of this
+        // already-cached module in the same process see the expected mode.
+        globalThis.localStorage = { getItem: () => null, setItem: () => {} };
+        initFretSpacing();
+        if (realGetItem) globalThis.localStorage.getItem = realGetItem;
+    }
 });
 
-test('fretX switches between the uniform and logarithmic implementations', () => {
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
-    assert.match(
-        src,
-        /const\s+fretX\s*=\s*f\s*=>\s*_h3dFretUniform\s*\?\s*_fretXUni\(f\)\s*:\s*_fretXLog\(f\)/,
-        'fretX must pick _fretXUni when _h3dFretUniform else _fretXLog',
-    );
+test('fretX switches between the uniform and logarithmic implementations', async () => {
+    globalThis.localStorage = { getItem: () => null, setItem: () => {} };
+    const { initFretSpacing, fretX } = await import('../../src/core/fret-geometry.js');
+    initFretSpacing();
+    const uniform12 = fretX(12);
+    globalThis.localStorage = { getItem: () => 'logarithmic', setItem: () => {} };
+    initFretSpacing();
+    const log12 = fretX(12);
+    assert.notEqual(uniform12, log12, 'fretX must pick a different implementation for uniform vs logarithmic');
+    // Restore uniform for any later test in this process.
+    globalThis.localStorage = { getItem: () => null, setItem: () => {} };
+    initFretSpacing();
 });
 
 test('h3dSetFretSpacing validates the mode against the two supported values', () => {

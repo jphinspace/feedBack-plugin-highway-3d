@@ -1,16 +1,27 @@
-// Regression coverage for the first-chart-data camera bootstrap in
-// plugins/highway_3d/screen.js.
+// Regression coverage for the first-chart-data camera bootstrap in the 3D
+// highway renderer.
 //
 // The event selector is pure and tested behaviourally. The renderer lifecycle
 // wiring remains source-level, matching the existing highway_3d camera tests:
 // constructing a full Three.js renderer in Node would test a large fake DOM/GL
 // harness rather than the bootstrap contract itself.
+//
+// hwyFirstRelevantFrettedTime moved to src/core/chart-util.js in the
+// screen.js -> src/ module split (Stage 2); real-import it rather than
+// eval'ing its extracted source text. camUpdate and the camera-bootstrap
+// call site inside update() haven't moved yet, so those stay source-level
+// (extractFn/sourceBetween against src/main.js's raw text) -- converting
+// this whole file to .mjs (from .test.js) is what makes the real import
+// possible: CommonJS can't use top-level await.
 
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { hwyFirstRelevantFrettedTime } from '../../src/core/chart-util.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 const src = fs.readFileSync(SCREEN_JS, 'utf8');
 
@@ -33,12 +44,6 @@ function sourceBetween(startText, endText) {
     assert.ok(end > start, `missing source end anchor: ${endText}`);
     return src.slice(start, end);
 }
-
-const hwyFirstRelevantFrettedTime = new Function(
-    '"use strict";'
-    + extractFn(src, 'hwyFirstRelevantFrettedTime')
-    + '\nreturn hwyFirstRelevantFrettedTime;',
-)();
 
 test('long intros bootstrap from the earliest future fretted note', () => {
     const notes = [

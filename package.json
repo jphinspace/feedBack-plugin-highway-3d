@@ -5,7 +5,7 @@
   "description": "3D Highway visualization plugin for FeedBack — standalone fork, being split from a single screen.js into an ES-module graph under src/.",
   "license": "AGPL-3.0-only",
   "scripts": {
-    "test:js": "node --test tests/*.test.js tests/*.test.mjs tests/legacy/*.test.js",
+    "test:js": "node --test tests/*.test.js tests/*.test.mjs tests/legacy/*.test.js tests/legacy/*.test.mjs",
     "lint": "eslint ."
   },
   "devDependencies": {
