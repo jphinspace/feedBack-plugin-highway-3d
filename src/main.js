@@ -854,6 +854,11 @@ function createFactory() {
     let gArpBracket = null; // shared 1×1×1 box geometry for pArpBracket; built once, disposed in teardown
     let pSusRibbon = null, pSusRibbonOl = null;
     let pFretColMarker;
+    // Single source of truth for "every pool" — populated once all 33 are
+    // created (end of initScene()'s pool-creation block) and walked by the
+    // reset loop at the top of update(). Centralizes the reset call so a
+    // newly added pool can't be forgotten there (see CLAUDE.md pitfall #1).
+    let POOL_REGISTRY;
     /** Horizontal gradient for chord box interior fill. */
     let chordFrameGradTex = null;
     /** Lavender gradient for arpeggio box interior (cyan × lavender blend — fades back to cyan). */
@@ -2738,6 +2743,14 @@ function createFactory() {
             return _sp;
         });
 
+        POOL_REGISTRY = {
+            pNote, pNoteEdge, pAccentHalo, pSus, pSusOutline, pSusRibbon, pSusRibbonOl,
+            pTapChevron, pLbl, pBeat, pSec, pSusRail, pSusRailBloom, pTechPlane,
+            pFretLbl, pLane, pGhostFretLbl, pLaneDivider, pChordFrameFill, pChordBox,
+            pPMXFill, pFHXFill, pMuteXLines, pFHXLines, pChordLbl, pBarreLine, pArpBracket,
+            pNoteFretLabel, pTeachMarkLbl, pConnectorLine, pDropLine, pFretColMarker, pHaloBar,
+        };
+
         // ── Pre-warm pools (feedBack#226) ─────────────────────────────
         // Dense 7/8-string charts can outrun the lazy-grow path in the
         // first 1-2s of playback, stalling those frames with `new T.Mesh`
@@ -4539,22 +4552,13 @@ function createFactory() {
         }
         _syncOpenStringPitchLabels(bundle);
 
-        pNote.reset(); pNoteEdge.reset(); pSus.reset(); pSusOutline.reset(); pSusRibbon.reset(); pSusRibbonOl.reset(); pTapChevron.reset(); pAccentHalo.reset(); pLbl.reset();
-        pBeat.reset(); pSec.reset();
+        // Single loop over POOL_REGISTRY replaces 33 individually-spelled
+        // .reset() calls — see the registry's declaration comment.
+        for (const p of Object.values(POOL_REGISTRY)) if (p) p.reset();
         if (projMeshArr) for (const arr of projMeshArr) for (const m of arr) m.visible = false;
-        pFretLbl.reset(); pLane.reset(); pLaneDivider.reset();
-        if (pGhostFretLbl) pGhostFretLbl.reset();
         _scrGhostUpcomingCount.fill(0, 0, nStr);
-        pChordBox.reset(); pChordFrameFill.reset(); pChordLbl.reset(); pBarreLine.reset(); pArpBracket.reset(); pHaloBar.reset();
         _imPMTechCount = _imFHTechCount = 0;
         _imPMXFillCount = _imPMXLinesCount = _imFHXFillCount = _imFHXLinesCount = 0;
-        if (pPMXFill) pPMXFill.reset();
-        if (pFHXFill) pFHXFill.reset();
-        if (pMuteXLines) pMuteXLines.reset();
-        if (pFHXLines) pFHXLines.reset();
-        pNoteFretLabel.reset(); pConnectorLine.reset(); pDropLine.reset();
-        pTeachMarkLbl.reset();
-        pFretColMarker.reset(); pSusRail.reset(); pSusRailBloom.reset(); pTechPlane.reset();
         // Clear per-frame queues in-place (avoid reallocating the array object).
         noteDetectLabels.length = 0;
         let hwyLaneArpOuterDividers = false;
