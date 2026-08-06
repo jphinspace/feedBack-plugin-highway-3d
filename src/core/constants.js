@@ -92,20 +92,20 @@ export const NOTEDETECT_GEM_VERDICT_WINDOW = 0.75;
 // in. Must be < NOTEDETECT_GEM_VERDICT_WINDOW (the rim's draw life
 // in detect mode); placing it at 0.55 s leaves ~0.2 s of the visible
 // window for the latch to fire and skip subsequent scans.
-export const _ND_UNMATCHED_LATCH_AFTER = 0.55;
+export const NOTEDETECT_UNMATCHED_LATCH_AFTER = 0.55;
 // Sample approach offsets dt in [0, AHEAD] into strips. Lane quads use
 // z = dZ(dt) + TS*BEHIND = TS*(BEHIND - dt), while notes use z = dZ(n.t-now).
 // So note hit line (z=0) aligns with dt=BEHIND, not dt=0. Chart time at
 // lane parameter dt is now + dt - BEHIND (same z as a note at that time).
 // Each strip’s <anchor> uses that chart time so the blue lane doesn’t
 // switch ~BEHIND seconds before the XML <anchor time="…"/>.
-export const HWY_LANE_TIME_SLICES = 96;
+export const HIGHWAY_LANE_TIME_SLICES = 96;
 /** Odd columns (1st/3rd/…) darker teal; even columns brighter blue. */
-export const HWY_LANE_STRIPE_ODD_HEX  = 0x103B5C;
-export const HWY_LANE_STRIPE_EVEN_HEX = 0x08283C;
+export const HIGHWAY_LANE_STRIPE_ODD_HEX  = 0x103B5C;
+export const HIGHWAY_LANE_STRIPE_EVEN_HEX = 0x08283C;
 /** Lane quad alpha: base + highwayIntensity * scale (readable on dark floor). */
-export const HWY_LANE_STRIPE_OP_BASE = 1.0;
-export const HWY_LANE_STRIPE_OP_INT  = 0;
+export const HIGHWAY_LANE_STRIPE_OP_BASE = 1.0;
+export const HIGHWAY_LANE_STRIPE_OP_INT  = 0;
 /** Venue mode: slight near-lane contrast boost (visual only). */
 export const VENUE_LANE_OP_BOOST = 1.1;
 /** Venue mode: gem emissive pop (~12%, visual only). */

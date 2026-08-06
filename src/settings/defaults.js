@@ -47,7 +47,7 @@ export const BACKGROUND_STYLE_IDS = ['off', 'particles', 'silhouettes', 'lights'
 // VALID_BG_THEMES set (shared by both dropdowns) — keep them in sync.
 // Optional `lane` / `laneDim` fields retint the lit highway lane strip + its
 // dimmer alternating row. A theme that omits them falls back to the stock
-// blue lane (HWY_LANE_STRIPE_ODD_HEX / _EVEN_HEX); only 'default' relies on
+// blue lane (HIGHWAY_LANE_STRIPE_ODD_HEX / _EVEN_HEX); only 'default' relies on
 // that fallback (so its output stays byte-identical). Every other theme sets
 // its own lane so the Highway axis is visibly distinct entry-to-entry — the
 // near-black neutral boards alone aren't separable, so the lane carries it.

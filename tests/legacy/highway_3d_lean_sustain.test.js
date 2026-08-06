@@ -62,7 +62,7 @@ test('the trail + ribbon outline always draw and use the hit/miss-aware material
     // -> bright, otherwise the default mSusOutline white border.
     assert.match(
         src,
-        /_susOlMat\s*=\s*_ndState\s*===\s*'miss'\s*\?\s*mMissOutline[\s\S]*?:\s*mSusOutline\s*;/,
+        /_susOlMat\s*=\s*noteDetectState\s*===\s*'miss'\s*\?\s*mMissOutline[\s\S]*?:\s*mSusOutline\s*;/,
         '_susOlMat must remain hit/miss aware so the tail border colours track note state',
     );
     // Box trail: the outline (trOut, pSusOutline) is drawn and fed _susOlMat,

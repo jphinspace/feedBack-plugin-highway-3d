@@ -133,7 +133,7 @@ test('applySize caches the pane aspect for camUpdate', () => {
 test('camUpdate resolves a per-pane tune and respects splitOnly', () => {
     assert.match(
         src,
-        /const\s+_aspTune\s*=\s*_resolveTuneFor\(\s*_paneKey\s*\)\s*;[\s\S]*?_aspTune\.splitOnly\s*&&\s*!_ssActive\(\)/,
+        /const\s+_aspTune\s*=\s*_resolveTuneFor\(\s*_paneKey\s*\)\s*;[\s\S]*?_aspTune\.splitOnly\s*&&\s*!splitscreenActive\(\)/,
         'camUpdate must resolve the tune per pane via _resolveTuneFor(_paneKey) and gate splitOnly',
     );
 });

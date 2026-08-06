@@ -26,7 +26,7 @@
 // Two different isolation strategies are in play, matched to how each
 // dependency is scoped:
 //   - player-chrome.js itself is re-imported PER TEST with a cache-busting
-//     query string, so its module-level state (_pcRefs, _pcEl, ...) starts
+//     query string, so its module-level state (controlRefCount, controlEl, ...) starts
 //     fresh every time — same guarantee the old vm-per-test sandbox gave.
 //   - store.js/venue.js are genuine app-wide singletons (by design — see
 //     their own file comments) shared across every import of player-chrome.js,
@@ -43,7 +43,7 @@ import { _venueSetSceneOverride } from '../src/background/venue.js';
 
 // What each style is expected to consume, derived by reading the BACKGROUND_STYLES
 // bodies in src/main.js — deliberately NOT read from the plugin's own
-// _PC_USES table, which would only assert that the table equals itself.
+// STYLE_SETTING_USES table, which would only assert that the table equals itself.
 //   intensity: true  => the style's build() reads settings.intensity
 //   reactive:  true  => the style's update() dereferences its `bands` argument
 // 'butterchurn' is a mode, not a BACKGROUND_STYLES fog-scenery entry: syncButterchurnMode
@@ -147,7 +147,7 @@ async function load({ store: initialStore } = {}) {
 
     const win = {
         feedBack: {
-            uiVersion: 'v3',   // _pcSlot gates on this (docs/plugin-v3-ui.md)
+            uiVersion: 'v3',   // resolvePlayerControlSlot gates on this (docs/plugin-v3-ui.md)
             ui: { playerControlSlot: () => dom.slot },
             // The real bus is an EventTarget wrapper exposing on/off. Modelled
             // here so the screen:changed subscription — and its removal — are
@@ -176,14 +176,14 @@ async function load({ store: initialStore } = {}) {
     const pc = await import(`../src/ui/player-chrome.js?instance=${_pcInstanceCounter++}`);
 
     const api = {
-        _pcAcquire: pc._pcAcquire,
-        _pcRelease: pc._pcRelease,
-        get el() { return pc._pcEl; },
-        get sel() { return pc._pcSel; },
-        get react() { return pc._pcReactive; },
-        get intens() { return pc._pcIntensity; },
-        get reason() { return pc._pcReason; },
-        get refs() { return pc._pcRefs; },
+        acquireBackgroundControl: pc.acquireBackgroundControl,
+        releaseBackgroundControl: pc.releaseBackgroundControl,
+        get el() { return pc.controlEl; },
+        get sel() { return pc.styleSelectEl; },
+        get react() { return pc.reactiveBtn; },
+        get intens() { return pc.intensitySlider; },
+        get reason() { return pc.reasonEl; },
+        get refs() { return pc.controlRefCount; },
     };
 
     const sandbox = {
@@ -209,7 +209,7 @@ async function load({ store: initialStore } = {}) {
 
 test('mounts one control into the player-control slot', async () => {
     const { api, dom } = await load();
-    api._pcAcquire();
+    api.acquireBackgroundControl();
     assert.equal(dom.slot.children.length, 1);
     assert.ok(api.sel, 'style dropdown was not created');
     assert.equal(api.sel.children.length, BACKGROUND_STYLE_IDS.length, 'one option per style');
@@ -217,18 +217,18 @@ test('mounts one control into the player-control slot', async () => {
 
 test('multiple renderer instances share a single control', async () => {
     const { api, dom } = await load();
-    api._pcAcquire();
-    api._pcAcquire();
-    api._pcAcquire();
-    api._pcAcquire();
+    api.acquireBackgroundControl();
+    api.acquireBackgroundControl();
+    api.acquireBackgroundControl();
+    api.acquireBackgroundControl();
     assert.equal(dom.slot.children.length, 1, 'four instances must not mount four controls');
     assert.equal(api.refs, 4);
 
-    api._pcRelease();
-    api._pcRelease();
-    api._pcRelease();
+    api.releaseBackgroundControl();
+    api.releaseBackgroundControl();
+    api.releaseBackgroundControl();
     assert.equal(dom.slot.children.length, 1, 'still held by the last instance');
-    api._pcRelease();
+    api.releaseBackgroundControl();
     assert.equal(dom.slot.children.length, 0, 'last release must unmount');
     assert.equal(api.el, null);
 });
@@ -242,7 +242,7 @@ test('binds the screen hook on a retry when the bus was not ready at acquire', a
     delete ctl.sandbox.window.feedBack.on;
     ctl.sandbox.window.feedBack.ui = {};   // no playerControlSlot -> mount fails
 
-    ctl.api._pcAcquire();
+    ctl.api.acquireBackgroundControl();
     assert.equal(ctl.screenHooks(), 0, 'nothing to bind to yet');
     assert.equal(ctl.api.el, null, 'no slot yet, so nothing mounted');
 
@@ -253,40 +253,40 @@ test('binds the screen hook on a retry when the bus was not ready at acquire', a
 
     assert.equal(ctl.screenHooks(), 1, 'the retry tick failed to bind the screen hook');
     assert.ok(ctl.api.el, 'and it should have mounted too');
-    ctl.api._pcRelease();
+    ctl.api.releaseBackgroundControl();
 });
 
 test('the last release unbinds the screen:changed hook', async () => {
     const ctl = await load();
-    ctl.api._pcAcquire();
+    ctl.api.acquireBackgroundControl();
     assert.equal(ctl.screenHooks(), 1, 'acquire should subscribe once');
 
-    ctl.api._pcAcquire();
-    ctl.api._pcRelease();
+    ctl.api.acquireBackgroundControl();
+    ctl.api.releaseBackgroundControl();
     assert.equal(ctl.screenHooks(), 1, 'a partial release must keep the hook');
 
-    ctl.api._pcRelease();
+    ctl.api.releaseBackgroundControl();
     assert.equal(ctl.screenHooks(), 0, 'the hook outlived the control');
 
     // And re-acquiring must re-subscribe exactly once, not zero times (the
-    // bind is guarded on _pcScreenHook, so failing to null it would leave the
+    // bind is guarded on screenChangedHook, so failing to null it would leave the
     // control permanently deaf to chrome rebuilds).
-    ctl.api._pcAcquire();
+    ctl.api.acquireBackgroundControl();
     assert.equal(ctl.screenHooks(), 1, 're-acquire did not re-subscribe');
-    ctl.api._pcRelease();
+    ctl.api.releaseBackgroundControl();
 });
 
 test('teardown unsubscribes from the settings bus', async () => {
     const ctl = await load();
-    ctl.api._pcAcquire();
+    ctl.api.acquireBackgroundControl();
     assert.equal(ctl.listenerCount(), 1);
-    ctl.api._pcRelease();
+    ctl.api.releaseBackgroundControl();
     assert.equal(ctl.listenerCount(), 0, 'listener leaked after unmount');
 });
 
 test('tracks changes made from the Settings page', async () => {
     const { api, store, emit } = await load();
-    api._pcAcquire();
+    api.acquireBackgroundControl();
     store.style = 'lights';
     emit('style');
     assert.equal(api.sel.value, 'lights');
@@ -294,7 +294,7 @@ test('tracks changes made from the Settings page', async () => {
 
 test('custom media options stay disabled until something is uploaded', async () => {
     const { api, store, emit } = await load();
-    api._pcAcquire();
+    api.acquireBackgroundControl();
     assert.equal(api.sel.querySelector('option[value="image"]').disabled, true);
     store.customImageDataUrl = 'data:image/png;base64,AAAA';
     emit('customImageDataUrl');
@@ -304,7 +304,7 @@ test('custom media options stay disabled until something is uploaded', async () 
 
 test('re-mounts into a fresh slot when the player chrome is rebuilt', async () => {
     const { api, dom, sandbox, listenerCount } = await load();
-    api._pcAcquire();
+    api.acquireBackgroundControl();
     const first = api.el;
 
     dom.root.removeChild(dom.slot);
@@ -312,7 +312,7 @@ test('re-mounts into a fresh slot when the player chrome is rebuilt', async () =
     dom.root.appendChild(fresh);
     sandbox.window.feedBack.ui.playerControlSlot = () => fresh;
 
-    api._pcAcquire();
+    api.acquireBackgroundControl();
     assert.equal(fresh.children.length, 1, 'did not remount into the new slot');
     assert.notEqual(api.el, first, 'stale node was reused');
     assert.equal(listenerCount(), 1, 'remount must not double-subscribe');
@@ -321,19 +321,19 @@ test('re-mounts into a fresh slot when the player chrome is rebuilt', async () =
 test('a non-v3 host mounts nothing (uiVersion gate)', async () => {
     const ctl = await load();
     ctl.sandbox.window.feedBack.uiVersion = 'v2';   // pre-v3 shell
-    ctl.api._pcAcquire();
+    ctl.api.acquireBackgroundControl();
     assert.equal(ctl.api.el, null, 'must not mount when uiVersion is not v3');
     assert.equal(ctl.dom.slot.children.length, 0);
     // A non-v3 shell has no slot and never will, so no retry should be scheduled
     // at all — the loop is for a not-yet-built v3 slot, not for polling v2.
     assert.equal(ctl.timers.length, 0, 'a non-v3 host must not schedule the retry loop');
-    ctl.api._pcRelease();
+    ctl.api.releaseBackgroundControl();
 });
 
 test('a host with no player-control slot mounts nothing and does not throw', async () => {
     const { api, dom, sandbox, timers } = await load();
     sandbox.window.feedBack.ui = {};
-    api._pcAcquire();
+    api.acquireBackgroundControl();
     assert.equal(api.el, null);
     assert.equal(dom.slot.children.length, 0);
 
@@ -344,7 +344,7 @@ test('a host with no player-control slot mounts nothing and does not throw', asy
 
 test('intensity writes once on release, not on every drag step', async () => {
     const { api, writes } = await load();
-    api._pcAcquire();
+    api.acquireBackgroundControl();
     for (const v of ['0.10', '0.20', '0.30', '0.40', '0.50']) {
         api.intens.value = v;
         api.intens.fire('input');
@@ -358,7 +358,7 @@ test('intensity writes once on release, not on every drag step', async () => {
 
 test('the dropdown and Reactive pill drive the real setters', async () => {
     const { api, store, writes } = await load();
-    api._pcAcquire();
+    api.acquireBackgroundControl();
     api.sel.value = 'geometric';
     api.sel.fire('change');
     assert.equal(store.style, 'geometric');
@@ -371,7 +371,7 @@ test('the dropdown and Reactive pill drive the real setters', async () => {
 
 test('exposes state and reasons to assistive tech', async () => {
     const ctl = await load({ store: { style: 'image', reactive: true } });   // image: reactive inert
-    ctl.api._pcAcquire();
+    ctl.api.acquireBackgroundControl();
 
     // The reason live-region must be a REAL mounted element with the id the
     // controls reference - not a dangling pointer. Assert resolution, not a
@@ -409,12 +409,12 @@ test('exposes state and reasons to assistive tech', async () => {
     // Accessible names on the non-label controls.
     assert.equal(ctl.api.sel['aria-label'], 'Background style');
     assert.equal(ctl.api.intens['aria-label'], 'Background intensity');
-    ctl.api._pcRelease();
+    ctl.api.releaseBackgroundControl();
 });
 
 test('greys out exactly the controls each style ignores', async () => {
     const { api, store, emit } = await load();
-    api._pcAcquire();
+    api.acquireBackgroundControl();
     for (const [style, want] of Object.entries(EXPECTED_USES)) {
         store.style = style;
         emit('style');
@@ -425,7 +425,7 @@ test('greys out exactly the controls each style ignores', async () => {
 
 test('the Venue override greys the whole Background group', async () => {
     const ctl = await load({ store: { style: 'particles' } });   // a style that uses both
-    ctl.api._pcAcquire();
+    ctl.api.acquireBackgroundControl();
     assert.equal(ctl.api.intens.disabled, false, 'precondition: both enabled off-venue');
     assert.equal(ctl.api.react.disabled, false);
 
@@ -462,33 +462,33 @@ test('the Venue override greys the whole Background group', async () => {
     assert.equal(ctl.api.sel.title, 'Background style', 'the base tooltip must come back, not blank');
     assert.equal(ctl.api.sel['aria-describedby'], undefined, 'select drops the reason off-Venue');
     assert.equal(ctl.api.intens['aria-describedby'], undefined, 'intensity drops the reason off-Venue');
-    ctl.api._pcRelease();
+    ctl.api.releaseBackgroundControl();
 });
 
-// A real (coerced) settings value can never actually reach _pcSync outside
+// A real (coerced) settings value can never actually reach syncControls outside
 // BACKGROUND_STYLE_IDS -- readGlobalSetting/coerceSetting reject anything not in that list
 // and fall back to the default. The scenario this guards is narrower and
 // more realistic: a style gets added to BACKGROUND_STYLE_IDS (so it can genuinely be
-// the effective style) before its _PC_USES row is written. Exercise that by
+// the effective style) before its STYLE_SETTING_USES row is written. Exercise that by
 // deleting a real, valid style's row rather than injecting a bogus id.
 test('an unknown style enables both controls (fails open)', async () => {
     const { api, pc, store, emit } = await load();
-    api._pcAcquire();
-    const saved = pc._PC_USES.particles;
-    delete pc._PC_USES.particles;
+    api.acquireBackgroundControl();
+    const saved = pc.STYLE_SETTING_USES.particles;
+    delete pc.STYLE_SETTING_USES.particles;
     try {
         store.style = 'particles';
         emit('style');
         assert.equal(api.intens.disabled, false);
         assert.equal(api.react.disabled, false);
     } finally {
-        pc._PC_USES.particles = saved;
+        pc.STYLE_SETTING_USES.particles = saved;
     }
 });
 
 test('greyed-out controls cannot reach the setters', async () => {
     const { api, store, emit, writes } = await load();
-    api._pcAcquire();
+    api.acquireBackgroundControl();
     store.style = 'video';           // uses neither setting
     emit('style');
     const before = writes.length;
@@ -499,7 +499,7 @@ test('greyed-out controls cannot reach the setters', async () => {
 
 test('greyed-out controls explain themselves on hover', async () => {
     const { api, store, emit } = await load();
-    api._pcAcquire();
+    api.acquireBackgroundControl();
     store.style = 'butterchurn';
     emit('style');
     assert.match(api.react.title, /butterchurn/i);
@@ -513,7 +513,7 @@ test('greyed-out controls explain themselves on hover', async () => {
 // dead in the browser while these tests pass on the swallowed control title.
 test('the greyed-out reason reaches a hoverable wrapper', async () => {
     const { api, store, emit } = await load();
-    api._pcAcquire();
+    api.acquireBackgroundControl();
     store.style = 'video';           // uses neither setting
     emit('style');
 

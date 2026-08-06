@@ -27,7 +27,7 @@ import { _venueSceneOverride } from '../background/venue.js';
 // Wording is kept verbatim in sync with settings.html's <option> text so
 // the same style is not named two different things in two UIs that sit
 // two clicks apart. An id with no entry here falls back to the raw id.
-export const _PC_LABELS = {
+export const STYLE_LABELS = {
     off: 'Off', particles: 'Particles (drifting)',
     silhouettes: 'Silhouettes (parallax)', lights: 'Lights (stage glows)',
     geometric: 'Geometric (rotating shapes)',
@@ -49,7 +49,7 @@ export const _PC_LABELS = {
 // and its row is not updated, the control stays greyed out and lies the
 // other way. An id missing from this table defaults to both-enabled, which
 // is the safe direction: a new style is assumed to use its settings.
-export const _PC_USES = {
+export const STYLE_SETTING_USES = {
     off:         { intensity: false, reactive: false, why: 'No background to adjust' },
     particles:   { intensity: true,  reactive: true },
     silhouettes: { intensity: true,  reactive: true },
@@ -63,19 +63,19 @@ export const _PC_USES = {
     // active it is the EFFECTIVE style, so both knobs drive nothing.
     venue:       { intensity: false, reactive: false, why: 'Venue visualization is active - pick a background from the visualization picker' },
 };
-export let _pcRefs = 0, _pcEl = null, _pcSel = null, _pcReactive = null, _pcIntensity = null;
+export let controlRefCount = 0, controlEl = null, styleSelectEl = null, reactiveBtn = null, intensitySlider = null;
 // Non-disabled wrappers around the two greyable controls. A native-disabled
 // <button>/<input> receives no pointer events, so its `title` tooltip never
 // shows on hover — the whole "greyed out, says why on hover" affordance
 // would be dead. The reason lives on these wrappers instead, and the
 // disabled control gets pointer-events:none so the hover reaches them.
-export let _pcReactiveWrap = null, _pcIntensityWrap = null, _pcReason = null;
-export let _pcListener = null, _pcRetry = 0, _pcRetryTimer = 0;
+export let reactiveWrapEl = null, intensityWrapEl = null, reasonEl = null;
+export let settingsBusListener = null, mountRetryCount = 0, mountRetryTimer = 0;
 
 // The player chrome exposes this slot once it has initialised. A host
 // that does not provide it gets no control (and no error) - the Settings
 // page remains the way in.
-export function _pcSlot() {
+export function resolvePlayerControlSlot() {
     try {
         // Gate on the v3 shell per docs/plugin-v3-ui.md (matches the tuner
         // precedent). The playerControlSlot typeof check below already
@@ -98,7 +98,7 @@ export function _pcSlot() {
 // manifest version. The values below are the resolved tokens from
 // tailwind.config.js (dark-600 #181830, dark-500 #1e1e3a, gray-300
 // #d1d5db), so the result matches without the build step.
-export const _PC_C = {
+export const CONTROL_COLORS = {
     idle: '#181830',              // bg-dark-600
     hover: '#1e1e3a',             // bg-dark-500
     text: '#d1d5db',              // text-gray-300
@@ -106,47 +106,47 @@ export const _PC_C = {
     onBg: 'rgba(20,83,45,0.5)',   // bg-green-900/50
     onText: '#86efac',            // text-green-300
 };
-export const _PC_PILL = 'padding:.375rem .75rem;border:0;border-radius:.5rem;'
+export const PILL_CSS = 'padding:.375rem .75rem;border:0;border-radius:.5rem;'
     + 'font-size:.75rem;line-height:1rem;cursor:pointer;'
     + 'transition:background-color .15s,color .15s;';
-export function _pcPill(label, title) {
+export function makePill(label, title) {
     const b = document.createElement('button');
     b.type = 'button';
     b.textContent = label;
     if (title) b.title = title;
-    b.style.cssText = _PC_PILL;
+    b.style.cssText = PILL_CSS;
     // Hover is a pseudo-class we cannot express inline; these two
     // listeners reproduce hover:bg-dark-500 for non-active pills only
     // (an active pill keeps its tint on hover, as the other plugins do).
-    b.addEventListener('mouseenter', () => { if (!b._on) b.style.backgroundColor = _PC_C.hover; });
-    b.addEventListener('mouseleave', () => { if (!b._on) b.style.backgroundColor = _PC_C.idle; });
+    b.addEventListener('mouseenter', () => { if (!b._on) b.style.backgroundColor = CONTROL_COLORS.hover; });
+    b.addEventListener('mouseleave', () => { if (!b._on) b.style.backgroundColor = CONTROL_COLORS.idle; });
     return b;
 }
 // Paint a pill's on/off state, optionally greyed out. `disabled` is used
 // when the active background style ignores the setting entirely (see
-// _pcSync and _PC_USES) - the pill stays visible so the layout
+// syncControls and STYLE_SETTING_USES) - the pill stays visible so the layout
 // does not jump, but it is inert and says why on hover.
-export function _pcPaint(btn, on, disabled, reason) {
+export function paintPill(btn, on, disabled, reason) {
     btn._on = !!on && !disabled;
     btn.disabled = !!disabled;
     btn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
     // A toggle button must expose its state, not just its label.
     btn.setAttribute('aria-pressed', btn._on ? 'true' : 'false');
-    // pointer-events:none lets the hover fall through to _pcReactiveWrap,
+    // pointer-events:none lets the hover fall through to reactiveWrapEl,
     // which carries the reason a disabled button's own title can't show.
     btn.style.pointerEvents = disabled ? 'none' : '';
     btn.style.cursor = disabled ? 'not-allowed' : 'pointer';
     btn.style.opacity = disabled ? '.45' : '1';
     btn.title = reason || 'React to the audio';
     if (disabled) {
-        btn.style.backgroundColor = _PC_C.idle;
-        btn.style.color = _PC_C.textDim;
+        btn.style.backgroundColor = CONTROL_COLORS.idle;
+        btn.style.color = CONTROL_COLORS.textDim;
         return;
     }
-    btn.style.backgroundColor = on ? _PC_C.onBg : _PC_C.idle;
-    btn.style.color = on ? _PC_C.onText : _PC_C.text;
+    btn.style.backgroundColor = on ? CONTROL_COLORS.onBg : CONTROL_COLORS.idle;
+    btn.style.color = on ? CONTROL_COLORS.onText : CONTROL_COLORS.text;
 }
-export function _pcGroupLabel(text) {
+export function makeGroupLabel(text) {
     const el = document.createElement('div');
     el.textContent = text;
     el.style.cssText = 'font-size:.625rem;letter-spacing:.05em;text-transform:uppercase;'
@@ -156,7 +156,7 @@ export function _pcGroupLabel(text) {
 // Pull every control back to what is actually stored. Runs on mount and
 // whenever the settings bus reports one of our keys changed, so editing
 // from the Settings page updates this control and vice-versa.
-export function _pcSync() {
+export function syncControls() {
     // The active style is the EFFECTIVE one, not the stored one: while the
     // Venue scene override is on it is what's mounted, and it ignores the
     // whole Background group - picking a style writes `style` but
@@ -164,64 +164,64 @@ export function _pcSync() {
     // broken. So under Venue the ENTIRE group goes inert (dropdown too),
     // and the user exits Venue from the visualization picker where they
     // entered it. An unknown id enables everything rather than disabling
-    // it, so a style added without a _PC_USES row is merely unhelpful.
+    // it, so a style added without a STYLE_SETTING_USES row is merely unhelpful.
     const venue = !!_venueSceneOverride;
     const effectiveStyle = venue ? 'venue' : readGlobalSetting('style');
-    const uses = _PC_USES[effectiveStyle] || { intensity: true, reactive: true };
+    const uses = STYLE_SETTING_USES[effectiveStyle] || { intensity: true, reactive: true };
     const why = uses.why || 'This background style ignores this setting';
-    if (_pcReason) _pcReason.textContent = why;
+    if (reasonEl) reasonEl.textContent = why;
     // Point a screen reader at the reason, but only while a control is
     // inert - cleared otherwise so an enabled control is not described by a
     // stale reason.
-    const _pcDescribe = (el, inert) => {
+    const describeIfInert = (el, inert) => {
         if (!el) return;
         if (inert) el.setAttribute('aria-describedby', 'h3d-pc-reason');
         else el.removeAttribute('aria-describedby');
     };
-    _pcDescribe(_pcSel, venue);
-    _pcDescribe(_pcReactive, !uses.reactive);
-    _pcDescribe(_pcIntensity, !uses.intensity);
-    if (_pcSel) {
+    describeIfInert(styleSelectEl, venue);
+    describeIfInert(reactiveBtn, !uses.reactive);
+    describeIfInert(intensitySlider, !uses.intensity);
+    if (styleSelectEl) {
         // The custom slots stay unselectable until something is uploaded -
         // same rule settings.html applies.
-        const img = _pcSel.querySelector('option[value="image"]');
-        const vid = _pcSel.querySelector('option[value="video"]');
+        const img = styleSelectEl.querySelector('option[value="image"]');
+        const vid = styleSelectEl.querySelector('option[value="video"]');
         if (img) img.disabled = !readGlobalSetting('customImageDataUrl');
         if (vid) vid.disabled = !readGlobalSetting('customVideoName');
-        _pcSel.value = readGlobalSetting('style');
+        styleSelectEl.value = readGlobalSetting('style');
         // The dropdown still SHOWS the stored style (venue has no option),
         // but it's inert while Venue owns the scene.
-        _pcSel.disabled = venue;
-        _pcSel.setAttribute('aria-disabled', venue ? 'true' : 'false');
-        _pcSel.style.opacity = venue ? '.45' : '1';
-        _pcSel.style.cursor = venue ? 'not-allowed' : '';
+        styleSelectEl.disabled = venue;
+        styleSelectEl.setAttribute('aria-disabled', venue ? 'true' : 'false');
+        styleSelectEl.style.opacity = venue ? '.45' : '1';
+        styleSelectEl.style.cursor = venue ? 'not-allowed' : '';
         // Restore the base tooltip when Venue exits — blanking it would
         // permanently drop the mount-time 'Background style' hint. Matches
         // how the intensity slider and Reactive pill restore theirs.
-        _pcSel.title = venue ? why : 'Background style';
+        styleSelectEl.title = venue ? why : 'Background style';
     }
-    if (_pcReactive) {
-        _pcPaint(_pcReactive, !!readGlobalSetting('reactive'), !uses.reactive,
+    if (reactiveBtn) {
+        paintPill(reactiveBtn, !!readGlobalSetting('reactive'), !uses.reactive,
             uses.reactive ? 'React to the audio' : why);
     }
-    // The reason shows via the wrapper (see _pcReactiveWrap); empty when
+    // The reason shows via the wrapper (see reactiveWrapEl); empty when
     // enabled so the control's own title takes over.
-    if (_pcReactiveWrap) {
-        _pcReactiveWrap.title = uses.reactive ? '' : why;
-        _pcReactiveWrap.style.cursor = uses.reactive ? '' : 'not-allowed';
+    if (reactiveWrapEl) {
+        reactiveWrapEl.title = uses.reactive ? '' : why;
+        reactiveWrapEl.style.cursor = uses.reactive ? '' : 'not-allowed';
     }
-    if (_pcIntensity) {
-        _pcIntensity.value = String(readGlobalSetting('intensity'));
-        _pcIntensity.disabled = !uses.intensity;
-        _pcIntensity.setAttribute('aria-disabled', uses.intensity ? 'false' : 'true');
-        _pcIntensity.style.pointerEvents = uses.intensity ? '' : 'none';
-        _pcIntensity.style.opacity = uses.intensity ? '1' : '.45';
-        _pcIntensity.style.cursor = uses.intensity ? '' : 'not-allowed';
-        _pcIntensity.title = uses.intensity ? 'Background intensity' : why;
+    if (intensitySlider) {
+        intensitySlider.value = String(readGlobalSetting('intensity'));
+        intensitySlider.disabled = !uses.intensity;
+        intensitySlider.setAttribute('aria-disabled', uses.intensity ? 'false' : 'true');
+        intensitySlider.style.pointerEvents = uses.intensity ? '' : 'none';
+        intensitySlider.style.opacity = uses.intensity ? '1' : '.45';
+        intensitySlider.style.cursor = uses.intensity ? '' : 'not-allowed';
+        intensitySlider.title = uses.intensity ? 'Background intensity' : why;
     }
-    if (_pcIntensityWrap) {
-        _pcIntensityWrap.title = uses.intensity ? '' : why;
-        _pcIntensityWrap.style.cursor = uses.intensity ? '' : 'not-allowed';
+    if (intensityWrapEl) {
+        intensityWrapEl.title = uses.intensity ? '' : why;
+        intensityWrapEl.style.cursor = uses.intensity ? '' : 'not-allowed';
     }
 }
 // Mirror the current values into the Settings panel's controls when it's
@@ -235,7 +235,7 @@ export function _pcSync() {
 //
 // Assigning .value / .checked programmatically does NOT fire a 'change'
 // event, so this cannot loop back into the setters.
-export function _pcSyncSettingsPanel() {
+export function syncSettingsPanelMirror() {
     try {
         const st = document.getElementById('h3d-bg-style');
         if (st) st.value = readGlobalSetting('style');
@@ -250,12 +250,12 @@ export function _pcSyncSettingsPanel() {
         if (il) il.textContent = Number(inten).toFixed(2);
     } catch (e) { console.error('[3D-Hwy] settings-panel mirror failed', e); }
 }
-export function _pcMount() {
+export function mountControl() {
     // A screen change can swap the popover out from under us, orphaning
     // the control. Re-resolve only when the cached node is actually gone.
-    if (_pcEl && !_pcEl.isConnected) _pcTeardownDom();
-    if (_pcEl) return true;
-    const slot = _pcSlot();
+    if (controlEl && !controlEl.isConnected) teardownControlDom();
+    if (controlEl) return true;
+    const slot = resolvePlayerControlSlot();
     if (!slot) return false;
 
     const box = document.createElement('div');
@@ -266,99 +266,99 @@ export function _pcMount() {
     // is announced unreliably and never on touch. One span suffices - every
     // greyed control shares the same reason (derived from the single
     // effective style).
-    _pcReason = document.createElement('span');
-    _pcReason.id = 'h3d-pc-reason';
-    _pcReason.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;'
+    reasonEl = document.createElement('span');
+    reasonEl.id = 'h3d-pc-reason';
+    reasonEl.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;'
         + 'margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;';
-    box.appendChild(_pcReason);
+    box.appendChild(reasonEl);
 
-    box.appendChild(_pcGroupLabel('Background'));
+    box.appendChild(makeGroupLabel('Background'));
     // A dropdown, not pills: the style list is 8 entries and growing, and
     // a pill per style dominated a popover whose other controls are single
     // toggles. Styled to match the surrounding pills rather than left as a
     // raw <select>.
-    _pcSel = document.createElement('select');
-    _pcSel.title = 'Background style';
-    _pcSel.setAttribute('aria-label', 'Background style');
-    _pcSel.style.cssText = 'width:100%;padding:.375rem .5rem;border:0;border-radius:.5rem;'
+    styleSelectEl = document.createElement('select');
+    styleSelectEl.title = 'Background style';
+    styleSelectEl.setAttribute('aria-label', 'Background style');
+    styleSelectEl.style.cssText = 'width:100%;padding:.375rem .5rem;border:0;border-radius:.5rem;'
         + 'font-size:.75rem;line-height:1rem;cursor:pointer;'
-        + 'background-color:' + _PC_C.idle + ';color:' + _PC_C.text + ';';
+        + 'background-color:' + CONTROL_COLORS.idle + ';color:' + CONTROL_COLORS.text + ';';
     for (const id of BACKGROUND_STYLE_IDS) {
         const o = document.createElement('option');
         o.value = id;
-        o.textContent = _PC_LABELS[id] || id;
-        _pcSel.appendChild(o);
+        o.textContent = STYLE_LABELS[id] || id;
+        styleSelectEl.appendChild(o);
     }
-    _pcSel.addEventListener('change', () => {
-        if (_pcSel.disabled) return;   // inert under the Venue override
-        try { window.h3dBgSetStyle(_pcSel.value); }
+    styleSelectEl.addEventListener('change', () => {
+        if (styleSelectEl.disabled) return;   // inert under the Venue override
+        try { window.h3dBgSetStyle(styleSelectEl.value); }
         catch (e) { console.error('[3D-Hwy] bg style set failed', e); }
     });
-    box.appendChild(_pcSel);
+    box.appendChild(styleSelectEl);
     const optWrap = document.createElement('div');
     optWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:.25rem;margin-top:.375rem;';
-    _pcReactiveWrap = optWrap;   // carries the greyed-out reason on hover
-    _pcReactive = _pcPill('Reactive', 'React to the audio');
-    _pcReactive.addEventListener('click', () => {
-        if (_pcReactive.disabled) return;
-        try { window.h3dBgSetReactive(!_pcReactive._on); }
+    reactiveWrapEl = optWrap;   // carries the greyed-out reason on hover
+    reactiveBtn = makePill('Reactive', 'React to the audio');
+    reactiveBtn.addEventListener('click', () => {
+        if (reactiveBtn.disabled) return;
+        try { window.h3dBgSetReactive(!reactiveBtn._on); }
         catch (e) { console.error('[3D-Hwy] bg reactive set failed', e); }
     });
-    optWrap.appendChild(_pcReactive);
+    optWrap.appendChild(reactiveBtn);
     box.appendChild(optWrap);
 
-    box.appendChild(_pcGroupLabel('Intensity'));
+    box.appendChild(makeGroupLabel('Intensity'));
     // Wrapper carries the reason on hover when the slider is disabled — a
     // native-disabled <input> shows no title of its own.
-    _pcIntensityWrap = document.createElement('div');
-    _pcIntensityWrap.style.cssText = 'width:100%;';
-    _pcIntensity = document.createElement('input');
-    _pcIntensity.type = 'range';
-    _pcIntensity.min = '0'; _pcIntensity.max = '1'; _pcIntensity.step = '0.05';
-    _pcIntensity.title = 'Background intensity';
-    _pcIntensity.setAttribute('aria-label', 'Background intensity');
-    _pcIntensity.style.cssText = 'width:100%;accent-color:#4080e0;';
+    intensityWrapEl = document.createElement('div');
+    intensityWrapEl.style.cssText = 'width:100%;';
+    intensitySlider = document.createElement('input');
+    intensitySlider.type = 'range';
+    intensitySlider.min = '0'; intensitySlider.max = '1'; intensitySlider.step = '0.05';
+    intensitySlider.title = 'Background intensity';
+    intensitySlider.setAttribute('aria-label', 'Background intensity');
+    intensitySlider.style.cssText = 'width:100%;accent-color:#4080e0;';
     // 'change' (fires on release), NOT 'input'. Every write goes through
     // writeGlobalSetting -> emitSettingChange -> rebuildBackground(), which tears the
     // background style down and re-runs build(). On 'input' a single drag
     // across the range would trigger ~20 full scene rebuilds on the main
     // thread mid-playback. settings.html's slider makes the same choice:
     // oninput only repaints its label, onchange calls the setter.
-    _pcIntensity.addEventListener('change', () => {
-        if (_pcIntensity.disabled) return;
-        try { window.h3dBgSetIntensity(parseFloat(_pcIntensity.value)); }
+    intensitySlider.addEventListener('change', () => {
+        if (intensitySlider.disabled) return;
+        try { window.h3dBgSetIntensity(parseFloat(intensitySlider.value)); }
         catch (e) { console.error('[3D-Hwy] bg intensity set failed', e); }
     });
-    _pcIntensityWrap.appendChild(_pcIntensity);
-    box.appendChild(_pcIntensityWrap);
+    intensityWrapEl.appendChild(intensitySlider);
+    box.appendChild(intensityWrapEl);
     slot.appendChild(box);
-    _pcEl = box;
-    _pcSync();
-    _pcListener = (key) => {
+    controlEl = box;
+    syncControls();
+    settingsBusListener = (key) => {
         if (key === 'style' || key === 'reactive' || key === 'intensity'
             || key === 'customImageDataUrl' || key === 'customVideoName'
             || key === 'venueScene') {
             // 'venueScene' has no dropdown/settings widget of its own, but
             // toggling Venue changes the EFFECTIVE style, so the greying
-            // must re-evaluate (see _pcSync's effectiveStyle).
-            _pcSync();
-            _pcSyncSettingsPanel();
+            // must re-evaluate (see syncControls's effectiveStyle).
+            syncControls();
+            syncSettingsPanelMirror();
         }
     };
-    subscribeToSettings(_pcListener);
+    subscribeToSettings(settingsBusListener);
     return true;
 }
-export function _pcTeardownDom() {
-    if (_pcListener) { unsubscribeFromSettings(_pcListener); _pcListener = null; }
-    if (_pcEl && _pcEl.parentNode) _pcEl.parentNode.removeChild(_pcEl);
-    _pcEl = null; _pcSel = null; _pcReactive = null; _pcIntensity = null;
-    _pcReactiveWrap = null; _pcIntensityWrap = null; _pcReason = null;
+export function teardownControlDom() {
+    if (settingsBusListener) { unsubscribeFromSettings(settingsBusListener); settingsBusListener = null; }
+    if (controlEl && controlEl.parentNode) controlEl.parentNode.removeChild(controlEl);
+    controlEl = null; styleSelectEl = null; reactiveBtn = null; intensitySlider = null;
+    reactiveWrapEl = null; intensityWrapEl = null; reasonEl = null;
 }
-export function _pcAcquire() {
-    _pcRefs++;
-    _pcBindScreenHook();
-    if (_pcMount()) return;
-    // A non-v3 shell has no slot and never will — _pcAcquire only runs once
+export function acquireBackgroundControl() {
+    controlRefCount++;
+    bindScreenChangedHook();
+    if (mountControl()) return;
+    // A non-v3 shell has no slot and never will — acquireBackgroundControl only runs once
     // the renderer is viable inside the v3 player chrome, and player-chrome.js
     // sets uiVersion synchronously as it builds that chrome, so a missing 'v3'
     // here means v2, not a not-yet-ready v3. Skip the retry loop rather than
@@ -366,58 +366,58 @@ export function _pcAcquire() {
     if (!window.feedBack || window.feedBack.uiVersion !== 'v3') return;
     // The rail popover may not be built yet on a cold load. Retry a few
     // times, then give up quietly — Settings still works.
-    if (_pcRetryTimer) return;
-    _pcRetry = 0;
+    if (mountRetryTimer) return;
+    mountRetryCount = 0;
     const tick = () => {
-        _pcRetryTimer = 0;
-        if (_pcRefs <= 0) return;          // renderer went away mid-retry
+        mountRetryTimer = 0;
+        if (controlRefCount <= 0) return;          // renderer went away mid-retry
         // Re-attempt the bus subscription too, not just the mount. On a cold
         // load the renderer can init before window.feedBack.on exists; the
-        // first _pcBindScreenHook() then no-ops and, without this, the hook
+        // first bindScreenChangedHook() then no-ops and, without this, the hook
         // never binds and the control goes permanently deaf to screen
-        // changes. Idempotent via the _pcScreenHook guard.
-        _pcBindScreenHook();
-        if (_pcMount()) return;
-        if (++_pcRetry > 12) return;       // ~3s at 250ms
-        _pcRetryTimer = setTimeout(tick, 250);
+        // changes. Idempotent via the screenChangedHook guard.
+        bindScreenChangedHook();
+        if (mountControl()) return;
+        if (++mountRetryCount > 12) return;       // ~3s at 250ms
+        mountRetryTimer = setTimeout(tick, 250);
     };
-    _pcRetryTimer = setTimeout(tick, 250);
+    mountRetryTimer = setTimeout(tick, 250);
 }
 // Re-mount after the player chrome is rebuilt.
 //
-// _pcMount's isConnected check can only run when something calls it, and
+// mountControl's isConnected check can only run when something calls it, and
 // after the first successful mount nothing did - init() and the retry tick
 // are the only callers, and the tick stops on success. So a popover that
 // got swapped out left the control gone until the next song change. This
 // listener gives that check a real trigger.
 //
-// Event-driven and cheap: one _pcMount() call per screen change, and it
+// Event-driven and cheap: one mountControl() call per screen change, and it
 // early-returns immediately when the cached node is still connected.
-export let _pcScreenHook = null;
-export function _pcBindScreenHook() {
-    if (_pcScreenHook) return;
+export let screenChangedHook = null;
+export function bindScreenChangedHook() {
+    if (screenChangedHook) return;
     const bus = window.feedBack;
     if (!bus || typeof bus.on !== 'function') return;
-    _pcScreenHook = () => { if (_pcRefs > 0) _pcMount(); };
-    try { bus.on('screen:changed', _pcScreenHook); }
-    catch (e) { _pcScreenHook = null; }
+    screenChangedHook = () => { if (controlRefCount > 0) mountControl(); };
+    try { bus.on('screen:changed', screenChangedHook); }
+    catch (e) { screenChangedHook = null; }
 }
-export function _pcRelease() {
-    _pcRefs = Math.max(0, _pcRefs - 1);
-    if (_pcRefs > 0) return;
-    if (_pcRetryTimer) { clearTimeout(_pcRetryTimer); _pcRetryTimer = 0; }
+export function releaseBackgroundControl() {
+    controlRefCount = Math.max(0, controlRefCount - 1);
+    if (controlRefCount > 0) return;
+    if (mountRetryTimer) { clearTimeout(mountRetryTimer); mountRetryTimer = 0; }
     // Drop the screen:changed subscription too, not just the DOM. The
     // refcount guard inside the hook makes a stale one harmless, but the
     // listener and its closure would otherwise outlive the control for the
     // page's lifetime — and a plugin re-load (new ?v=) evaluates this file
     // again, binding another hook to the same bus while the old one stays.
-    // _pcBindScreenHook re-binds on the next acquire.
-    if (_pcScreenHook) {
+    // bindScreenChangedHook re-binds on the next acquire.
+    if (screenChangedHook) {
         try {
             const bus = window.feedBack;
-            if (bus && typeof bus.off === 'function') bus.off('screen:changed', _pcScreenHook);
+            if (bus && typeof bus.off === 'function') bus.off('screen:changed', screenChangedHook);
         } catch (e) { /* best-effort: a host without off() just keeps the no-op hook */ }
-        _pcScreenHook = null;
+        screenChangedHook = null;
     }
-    _pcTeardownDom();
+    teardownControlDom();
 }

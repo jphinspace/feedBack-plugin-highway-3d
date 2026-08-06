@@ -2,7 +2,7 @@
 // whether a given canvas is the currently-focused pane. Both are pure
 // window.feedBackSplitscreen probes — no local state.
 
-export function _ssActive() {
+export function splitscreenActive() {
     const ss = window.feedBackSplitscreen;
     if (!ss || typeof ss.isActive !== 'function' || !ss.isActive()) return false;
     return typeof ss.isCanvasFocused === 'function'
@@ -10,9 +10,9 @@ export function _ssActive() {
         && typeof ss.offFocusChange === 'function';
 }
 
-export function _ssIsCanvasFocused(highwayCanvas) {
+export function splitscreenCanvasFocused(highwayCanvas) {
     const ss = window.feedBackSplitscreen;
-    if (!_ssActive()) return true;
+    if (!splitscreenActive()) return true;
     return !!(ss && typeof ss.isCanvasFocused === 'function' &&
         ss.isCanvasFocused(highwayCanvas));
 }

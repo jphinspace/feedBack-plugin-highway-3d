@@ -37,13 +37,13 @@ import {
     FRET_WIRE_ACTIVE_OP, FRET_WIRE_HIT_DECAY, FRET_WIRE_HIT_EMISSIVE, FRET_WIRE_HIT_HEX,
     FRET_WIRE_HIT_INTENSITY, FRET_WIRE_HIT_OP, FRET_WIRE_IDLE_HEX, FRET_WIRE_IDLE_OP,
     GHOST_FRET_LBL_FADE_S, GHOST_HOLD_AFTER_ONSET, GHOST_UPCOMING_WIN, HORPLUS_MIN_VFOV,
-    HORPLUS_START_ASPECT, HWY_LANE_STRIPE_EVEN_HEX, HWY_LANE_STRIPE_ODD_HEX,
-    HWY_LANE_STRIPE_OP_BASE, HWY_LANE_STRIPE_OP_INT, HWY_LANE_TIME_SLICES, INLAY_LABEL_FRETS,
+    HORPLUS_START_ASPECT, HIGHWAY_LANE_STRIPE_EVEN_HEX, HIGHWAY_LANE_STRIPE_ODD_HEX,
+    HIGHWAY_LANE_STRIPE_OP_BASE, HIGHWAY_LANE_STRIPE_OP_INT, HIGHWAY_LANE_TIME_SLICES, INLAY_LABEL_FRETS,
     K, LOOKAHEAD_LOCK_ENGAGE_MAXF, LOOKAHEAD_LOCK_RELEASE_MAXF, MAX_RENDER_STRINGS, ND,
     NEXT_ON_STRING_T_EPS, NFRETS, NH, NOTEDETECT_GEM_VERDICT_WINDOW, NSTR, NW, PROJ_GROW_MIN,
     REF_ASPECT, SCALE, SINGLE_SUS_OFFSETS, STR_THICK, S_BASE, S_GAP, TREMOLO_BUMP_S, TS,
     VENUE_BACKDROP_DISTANCE_MUL, VENUE_GEM_EMISSIVE_MUL, VENUE_HAZE_STEADY,
-    VENUE_LANE_OP_BOOST, VIBRATO_HALF_WAVE_S, _ND_UNMATCHED_LATCH_AFTER
+    VENUE_LANE_OP_BOOST, VIBRATO_HALF_WAVE_S, NOTEDETECT_UNMATCHED_LATCH_AFTER
 } from './core/constants.js';
 import {
     DEFAULT_GEM_GRADIENTS, PALETTES, PALETTE_IDS, S_COL, _customPalette, _darkenInt,
@@ -63,7 +63,7 @@ import {
     computeBPM, fretColumnMarkersForAnchor, getChartAnchorAt, hwyFirstRelevantFrettedTime,
     laneBoundsFromAnchor, lowerBoundT, resolveStringCount
 } from './core/chart-util.js';
-import { _ssActive, _ssIsCanvasFocused } from './core/splitscreen.js';
+import { splitscreenActive, splitscreenCanvasFocused } from './core/splitscreen.js';
 import { nextInstanceId } from './core/instance-id.js';
 import { _registerTunerShortcut } from './ui/shortcuts.js';
 import { _aspectPaneKey, _aspectRegisterPane, _resolveTuneFor, nextPaneCounter } from './ui/aspect-panel.js';
@@ -73,7 +73,7 @@ import {
     subscribeToSettings, unsubscribeFromSettings, _freeCamFor,
 } from './settings/store.js';
 import { _venueCrowdVideos, _venueEffectiveMotionMode, _venueSceneOverride, _venueSwapPlateIfNeeded } from './background/venue.js';
-import { _pcAcquire, _pcRelease } from './ui/player-chrome.js';
+import { acquireBackgroundControl, releaseBackgroundControl } from './ui/player-chrome.js';
 import { ZERO_AUDIO_BANDS, getAudioAnalyser, readAudioBands, _resetAnalyserBridgeForTest } from './audio/analyser.js';
 import { BACKGROUND_STYLES } from './background/styles/index.js';
 import { fastForwardIndex, isDesktopAudioHost } from './butterchurn/engine.js';
@@ -149,7 +149,7 @@ function createFactory() {
     // Whether THIS instance holds a refcount on the shared player-chrome
     // control. Guards the init -> init (no destroy) path so one instance
     // can never take two references and pin the control.
-    let _pcAcquired = false;
+    let backgroundControlAcquired = false;
 
     // ── Per-instance Three.js state ───────────────────────────────────
     let scene = null, cam = null, ren = null;
@@ -237,8 +237,8 @@ function createFactory() {
     // gem brightness tracks how hard the string is actually ringing. Stays
     // at "no provider" (vg = 1, unchanged brightness) for the legacy event
     // path or when note_detect is off.
-    let _ndVerdictMaxAlpha = 0;
-    let _ndVerdictSawAlpha = false;
+    let noteDetectVerdictMaxAlpha = 0;
+    let noteDetectVerdictSawAlpha = false;
     // Magenta-red face fill for miss — see initScene() for construction
     // (uses mMissOutline ×4 + mEdgeTransparent ×2).
     let mMissEdgeArrays = null;
@@ -613,19 +613,19 @@ function createFactory() {
     // `notedetect:miss` window CustomEvents, and (b) FeedBack
     // event-bus `note:hit` / `note:miss` events (subscribed in
     // initScene() when window.feedBack exposes both `on` and `off`).
-    // Both sources feed the same _ndPushMark() helper which dedupes
+    // Both sources feed the same noteDetectPushMark() helper which dedupes
     // dual emissions. drawNote looks up its (s, f, t) against these
     // arrays each frame and swaps the outline material when a match
-    // is current. Marks expire after _ND_TTL_MS so the visual flash
+    // is current. Marks expire after NOTEDETECT_TTL_MS so the visual flash
     // is brief. Marks self-prune unconditionally in the listener and
     // once per frame in update() to keep the arrays small.
-    const _ND_TTL_MS = 500;
-    const _ND_TIME_EPS = 0.01;
-    let _ndHitMarks = [];
-    let _ndMissMarks = [];
-    let _ndOnHit = null, _ndOnMiss = null;
-    let _ndOnBusHit = null, _ndOnBusMiss = null;
-    let _ndLabels = [];
+    const NOTEDETECT_TTL_MS = 500;
+    const NOTEDETECT_TIME_EPS = 0.01;
+    let noteDetectHitMarks = [];
+    let noteDetectMissMarks = [];
+    let noteDetectOnHit = null, noteDetectOnMiss = null;
+    let noteDetectOnBusHit = null, noteDetectOnBusMiss = null;
+    let noteDetectLabels = [];
     // Per-chord-occurrence verdict latch for the chord-frame rim
     // tint. Once a chord is observed all-hit/active during its linger
     // fade we latch 'green' here so subsequent frames can't undo it
@@ -668,7 +668,7 @@ function createFactory() {
     // prune pass for the notedetect mark arrays. drawNote itself
     // no longer reads it — pruning lives once per frame so
     // drawNote's hot path is just the bounded (s, f, t) match.
-    let _ndFrameNowMs = 0;
+    let noteDetectFrameNowMs = 0;
     // feedBack#254 — core's per-note judgment provider, captured
     // from `bundle.getNoteState` at the top of each update(). When
     // present it's authoritative over the event-driven marks above:
@@ -678,9 +678,9 @@ function createFactory() {
     // long as it stays 'active'); 'miss' → red outline (mMissOutline)
     // + suppressed body. null on cores without the API or songs
     // with no scorer registered. Older note_detect builds that only
-    // emit notedetect:hit/miss events still work via _ndHitMarks.
-    let _ndGetNoteState = null;
-    let _ndHasProvider = false;  // true iff a note-state provider is registered (feedBack#254)
+    // emit notedetect:hit/miss events still work via noteDetectHitMarks.
+    let noteDetectGetState = null;
+    let noteDetectHasProvider = false;  // true iff a note-state provider is registered (feedBack#254)
     // Sustain verdict latch — persists a provider's hit/miss verdict for the
     // full duration of a sustained note. Once hitGlowDuration expires the
     // provider stops returning state; the latch re-injects the last verdict
@@ -749,7 +749,7 @@ function createFactory() {
     }
     function _fxSpawnPop(popKey, points, mult, x, y, z) {
         if (_fxSeen.has(popKey)) return;
-        const nowMs = _ndFrameNowMs || performance.now();
+        const nowMs = noteDetectFrameNowMs || performance.now();
         _fxSeen.set(popKey, nowMs + 4000);
         for (let i = 0; i < _fxPops.length; i++) {
             const p = _fxPops[i];
@@ -805,7 +805,7 @@ function createFactory() {
     /** Shared XY plane for ghost fret digits (lies on board like proj, not billboarding). */
     let gGhostFretPlane = null, pGhostFretLbl = null;
     // Anchor-driven lane scratch buffers. Per-frame the loop builds up
-    // to HWY_LANE_TIME_SLICES segments, but consecutive slices that share
+    // to HIGHWAY_LANE_TIME_SLICES segments, but consecutive slices that share
     // an anchor (the common case) collapse into the same entry. Held as
     // four parallel arrays so the per-frame work allocates nothing once
     // the buffers reach their steady-state size.
@@ -1179,7 +1179,7 @@ function createFactory() {
 
     function _updateFocusState() {
         if (_destroyed || !_isReady) return;
-        const focused = _ssIsCanvasFocused(highwayCanvas);
+        const focused = splitscreenCanvasFocused(highwayCanvas);
         if (focused === _isFocused) return;
         _isFocused = focused;
         if (ambLight) ambLight.intensity = focused ? 0.85 : 0.4;
@@ -3501,7 +3501,7 @@ function createFactory() {
         pFretLbl = pool(lblG, () => new T.Sprite(txtMat('0', '#888', false, 'fretRow')));
 
         // Highlight lane plane over active fret range. With the anchor-driven
-        // segmented lanes we render up to fret-count × HWY_LANE_TIME_SLICES (96)
+        // segmented lanes we render up to fret-count × HIGHWAY_LANE_TIME_SLICES (96)
         // pLane meshes per frame, so:
         //   - geometry is a shared PlaneGeometry(1,1) (was per-mesh, never differed)
         //   - 2 shared MeshBasicMaterials (odd / even stripe colour) replace the
@@ -3509,10 +3509,10 @@ function createFactory() {
         //     the materials but is set once outside the inner loop, not per-mesh.
         gLanePlane = new T.PlaneGeometry(1, 1);
         mLaneOdd = new T.MeshBasicMaterial({
-            color: HWY_LANE_STRIPE_ODD_HEX, transparent: true, opacity: 0, depthWrite: false,
+            color: HIGHWAY_LANE_STRIPE_ODD_HEX, transparent: true, opacity: 0, depthWrite: false,
         });
         mLaneEven = new T.MeshBasicMaterial({
-            color: HWY_LANE_STRIPE_EVEN_HEX, transparent: true, opacity: 0, depthWrite: false,
+            color: HIGHWAY_LANE_STRIPE_EVEN_HEX, transparent: true, opacity: 0, depthWrite: false,
         });
         // Tracked for explicit disposal in teardown — these materials may
         // not be reachable via scene.traverse() if no lane was ever rendered.
@@ -4298,9 +4298,9 @@ function createFactory() {
         // arrays. Prune expired marks on every push so the arrays
         // settle back to empty when notedetect stops emitting —
         // drawNote's fast-path short-circuit
-        // (`if (_ndHitMarks.length || _ndMissMarks.length)`) only
+        // (`if (noteDetectHitMarks.length || noteDetectMissMarks.length)`) only
         // works if expired entries don't linger.
-        const _ndNormalizeMark = (d) => {
+        const noteDetectNormalizeMark = (d) => {
             if (!d) return null;
             const note = d.note || d.chartNote;
             if (!note) return null;
@@ -4320,8 +4320,8 @@ function createFactory() {
             }
             return { s: note.s, f: note.f, noteTime: d.noteTime, labels, timingState: d.timingState || null };
         };
-        const _ndPushMark = (arr, d) => {
-            const mark = _ndNormalizeMark(d);
+        const noteDetectPushMark = (arr, d) => {
+            const mark = noteDetectNormalizeMark(d);
             if (!mark) return arr;
             const now = performance.now();
             // Prune expired entries unconditionally. The dedupe path
@@ -4337,27 +4337,27 @@ function createFactory() {
                 if (live.length) arr.push(...live);
             }
             const existing = arr.find(m =>
-                m.s === mark.s && m.f === mark.f && Math.abs(m.noteTime - mark.noteTime) < _ND_TIME_EPS
+                m.s === mark.s && m.f === mark.f && Math.abs(m.noteTime - mark.noteTime) < NOTEDETECT_TIME_EPS
             );
             if (existing) {
                 existing.labels = mark.labels.length ? mark.labels : existing.labels;
-                existing.expiresAt = Math.max(existing.expiresAt, now + _ND_TTL_MS);
+                existing.expiresAt = Math.max(existing.expiresAt, now + NOTEDETECT_TTL_MS);
                 return arr;
             }
-            arr.push({ ...mark, expiresAt: now + _ND_TTL_MS });
+            arr.push({ ...mark, expiresAt: now + NOTEDETECT_TTL_MS });
             return arr;
         };
-        _ndOnHit = (e) => { _ndHitMarks = _ndPushMark(_ndHitMarks, e.detail); };
-        _ndOnMiss = (e) => { _ndMissMarks = _ndPushMark(_ndMissMarks, e.detail); };
-        window.addEventListener('notedetect:hit', _ndOnHit);
-        window.addEventListener('notedetect:miss', _ndOnMiss);
+        noteDetectOnHit = (e) => { noteDetectHitMarks = noteDetectPushMark(noteDetectHitMarks, e.detail); };
+        noteDetectOnMiss = (e) => { noteDetectMissMarks = noteDetectPushMark(noteDetectMissMarks, e.detail); };
+        window.addEventListener('notedetect:hit', noteDetectOnHit);
+        window.addEventListener('notedetect:miss', noteDetectOnMiss);
         if (window.feedBack &&
                 typeof window.feedBack.on  === 'function' &&
                 typeof window.feedBack.off === 'function') {
-            _ndOnBusHit  = (e) => { _ndHitMarks  = _ndPushMark(_ndHitMarks,  e.detail); };
-            _ndOnBusMiss = (e) => { _ndMissMarks = _ndPushMark(_ndMissMarks, e.detail); };
-            window.feedBack.on('note:hit', _ndOnBusHit);
-            window.feedBack.on('note:miss', _ndOnBusMiss);
+            noteDetectOnBusHit  = (e) => { noteDetectHitMarks  = noteDetectPushMark(noteDetectHitMarks,  e.detail); };
+            noteDetectOnBusMiss = (e) => { noteDetectMissMarks = noteDetectPushMark(noteDetectMissMarks, e.detail); };
+            window.feedBack.on('note:hit', noteDetectOnBusHit);
+            window.feedBack.on('note:miss', noteDetectOnBusMiss);
         }
 
         // Score FX (notedetect ≥1.13). notedetect dispatches each fx
@@ -4906,8 +4906,8 @@ function createFactory() {
         if (_boardPlaneMat) _boardPlaneMat.color.setHex(hw.board);
         // Lit lane strip + its dimmer alternating row. Fall back to the
         // hardcoded stock lane colors when the highway theme omits them.
-        const laneLit = (typeof hw.lane === 'number') ? hw.lane : HWY_LANE_STRIPE_ODD_HEX;
-        const laneDim = (typeof hw.laneDim === 'number') ? hw.laneDim : HWY_LANE_STRIPE_EVEN_HEX;
+        const laneLit = (typeof hw.lane === 'number') ? hw.lane : HIGHWAY_LANE_STRIPE_ODD_HEX;
+        const laneDim = (typeof hw.laneDim === 'number') ? hw.laneDim : HIGHWAY_LANE_STRIPE_EVEN_HEX;
         if (mLaneOdd) mLaneOdd.color.setHex(laneLit);
         if (mLaneEven) mLaneEven.color.setHex(laneDim);
         // Keep the (otherwise vestigial) lane target color in sync with the
@@ -6556,14 +6556,14 @@ function createFactory() {
         // and the hit sustain outline) are scaled — never mStrHitOutline,
         // which is the default rim for every fretted note.
         {
-            const vg = _ndVerdictSawAlpha ? _ndVerdictMaxAlpha : 1;
+            const vg = noteDetectVerdictSawAlpha ? noteDetectVerdictMaxAlpha : 1;
             const venueGemMul = _venueSceneOverride ? VENUE_GEM_EMISSIVE_MUL : 1;
             for (let s = 0; s < mHitBright.length; s++) {
                 if (mHitBright[s]) mHitBright[s].emissiveIntensity = 4.0 * glowMul * vg * venueGemMul;
             }
             if (mHitSusOutline) mHitSusOutline.emissiveIntensity = 0.7 * glowMul * vg * venueGemMul;
-            _ndVerdictMaxAlpha = 0;
-            _ndVerdictSawAlpha = false;
+            noteDetectVerdictMaxAlpha = 0;
+            noteDetectVerdictSawAlpha = false;
         }
         // Lean sustain rendering is the default (see declaration above):
         // the trail/ribbon outline always draws; only the additive rail
@@ -6611,7 +6611,7 @@ function createFactory() {
         pTeachMarkLbl.reset();
         pFretColMarker.reset(); pSusRail.reset(); pSusRailBloom.reset(); pTechPlane.reset();
         // Clear per-frame queues in-place (avoid reallocating the array object).
-        _ndLabels.length = 0;
+        noteDetectLabels.length = 0;
         let hwyLaneArpOuterDividers = false;
 
         // Prune expired notedetect marks once per frame instead of
@@ -6620,18 +6620,18 @@ function createFactory() {
         // performance.now() / filter() needed. No arr[0] gate: the
         // dedupe path can refresh any entry's expiresAt, so gating on
         // arr[0] would silently skip expired entries behind it.
-        _ndFrameNowMs = performance.now();
+        noteDetectFrameNowMs = performance.now();
         // In-place prune — avoids allocating a new array every frame.
         // Marks are tiny (0–5 entries typically), so a backwards splice
         // loop is cheap and keeps the existing array object alive.
-        if (_ndHitMarks.length) {
-            for (let _pi = _ndHitMarks.length - 1; _pi >= 0; _pi--) {
-                if (_ndHitMarks[_pi].expiresAt <= _ndFrameNowMs) _ndHitMarks.splice(_pi, 1);
+        if (noteDetectHitMarks.length) {
+            for (let _pi = noteDetectHitMarks.length - 1; _pi >= 0; _pi--) {
+                if (noteDetectHitMarks[_pi].expiresAt <= noteDetectFrameNowMs) noteDetectHitMarks.splice(_pi, 1);
             }
         }
-        if (_ndMissMarks.length) {
-            for (let _pi = _ndMissMarks.length - 1; _pi >= 0; _pi--) {
-                if (_ndMissMarks[_pi].expiresAt <= _ndFrameNowMs) _ndMissMarks.splice(_pi, 1);
+        if (noteDetectMissMarks.length) {
+            for (let _pi = noteDetectMissMarks.length - 1; _pi >= 0; _pi--) {
+                if (noteDetectMissMarks[_pi].expiresAt <= noteDetectFrameNowMs) noteDetectMissMarks.splice(_pi, 1);
             }
         }
         // feedBack#254 — capture core's per-note judgment provider for
@@ -6645,10 +6645,10 @@ function createFactory() {
         // mode. Downlevel hosts without getNoteStateProvider fall
         // back to the existence check, matching pre-PR behavior on
         // those builds.
-        _ndGetNoteState = (bundle && typeof bundle.getNoteState === 'function') ? bundle.getNoteState : null;
-        _ndHasProvider = (bundle && typeof bundle.getNoteStateProvider === 'function')
+        noteDetectGetState = (bundle && typeof bundle.getNoteState === 'function') ? bundle.getNoteState : null;
+        noteDetectHasProvider = (bundle && typeof bundle.getNoteStateProvider === 'function')
             ? bundle.getNoteStateProvider() != null
-            : !!_ndGetNoteState;
+            : !!noteDetectGetState;
 
         const now = smoothNow(bundle);
         const t0 = now - BEHIND;
@@ -6657,7 +6657,7 @@ function createFactory() {
         // in the outer loop past BEHIND so async verdicts (~0.4 s late)
         // still land while drawable; per-note / per-frame culling is
         // tightened back below.
-        const ndVerdictT0 = _ndHasProvider
+        const ndVerdictT0 = noteDetectHasProvider
             ? now - Math.max(BEHIND, NOTEDETECT_GEM_VERDICT_WINDOW)
             : t0;
         // Prune _chordVerdicts latches whose chord has fully scrolled
@@ -6685,7 +6685,7 @@ function createFactory() {
         // leave the now-older later-inserted entries un-pruned. Full
         // scan is O(n) but n is bounded (chord count in the song,
         // ~hundreds) so the per-frame cost is microseconds.
-        if (_ndHasProvider && _chordVerdictsLastNow !== null && now < _chordVerdictsLastNow - 0.25) {
+        if (noteDetectHasProvider && _chordVerdictsLastNow !== null && now < _chordVerdictsLastNow - 0.25) {
             // Backward seek — wipe all verdict latches so notes re-judge
             // from scratch regardless of whether chords were present.
             _chordVerdicts.clear();
@@ -6695,7 +6695,7 @@ function createFactory() {
             // suppress their fresh "+N" pops for up to 4 s.
             _fxSeen.clear();
         }
-        if (_ndHasProvider && _chordVerdicts.size > 0) {
+        if (noteDetectHasProvider && _chordVerdicts.size > 0) {
             if (_chordVerdictsLastNow !== null && now < _chordVerdictsLastNow - 0.25) {
                 // already cleared above
             } else {
@@ -7221,8 +7221,8 @@ function createFactory() {
         }
         if (chords) {
             const _projLo = lowerBoundT(chords, now);
-            for (let _pci = _projLo; _pci < chords.length; _pci++) {
-                const ch = chords[_pci];
+            for (let projChordIdx = _projLo; projChordIdx < chords.length; projChordIdx++) {
+                const ch = chords[projChordIdx];
                 if (!ch.notes || ch.t <= now) continue;
                 const dt = ch.t - now;
                 if (dt >= PROJ_WIN_MERGE) break;
@@ -7693,14 +7693,14 @@ function createFactory() {
             // Prime shape-run tracking from the chord immediately before the window
             // so isRepeat and firstInShapeRun are correct on the first visible chord.
             if (_chordsLoIdx > 0) {
-                const _pc = chords[_chordsLoIdx - 1];
-                if (_pc && _pc.notes) {
-                    const _ps = chordShapeSignature(_pc);
-                    if (_ps !== null) {
-                        runSigPrev = _ps;
-                        prevAnyChordTime = _pc.t;
-                        prevChordSig = _ps;
-                        prevChordTime = _pc.t;
+                const prevChord = chords[_chordsLoIdx - 1];
+                if (prevChord && prevChord.notes) {
+                    const prevShapeSig = chordShapeSignature(prevChord);
+                    if (prevShapeSig !== null) {
+                        runSigPrev = prevShapeSig;
+                        prevAnyChordTime = prevChord.t;
+                        prevChordSig = prevShapeSig;
+                        prevChordTime = prevChord.t;
                     }
                 }
             }
@@ -7974,7 +7974,7 @@ function createFactory() {
                 // right trade: verdict visibility beats the cleaner
                 // approach silhouette. Without detect mode the
                 // original clip still applies.
-                if (_ndHasProvider && chordTailHoldS < NOTEDETECT_GEM_VERDICT_WINDOW) {
+                if (noteDetectHasProvider && chordTailHoldS < NOTEDETECT_GEM_VERDICT_WINDOW) {
                     chordTailHoldS = NOTEDETECT_GEM_VERDICT_WINDOW;
                 }
                 const chordTailFadeS = Math.min(CHORD_HWY_FADE_S, chordTailHoldS);
@@ -8300,7 +8300,7 @@ function createFactory() {
                     // standalone notes judged at their own times, so the
                     // scan's query at `ch.t` finds nothing for them and
                     // the frame keeps its lavender default.
-                    if (chDt <= 0 && _ndHasProvider && !isArpeggioFrame) {
+                    if (chDt <= 0 && noteDetectHasProvider && !isArpeggioFrame) {
                         const latched = _chordVerdicts.get(verdictKey);
                         if (latched === 'green') {
                             rimHex = CHORD_BOX_HIT_BRIGHT_HEX;
@@ -8336,7 +8336,7 @@ function createFactory() {
                             let anyState = false;  // true if any constituent had a non-null state this scan
                             for (const cn of chordNotes) {
                                 let cs = null;
-                                try { cs = _ndGetNoteState(cn, ch.t); } catch (e) { cs = null; }
+                                try { cs = noteDetectGetState(cn, ch.t); } catch (e) { cs = null; }
                                 const st = (cs && typeof cs === 'object') ? cs.state : cs;
                                 if (st === 'hit' || st === 'active') {
                                     anyState = true;
@@ -8362,11 +8362,11 @@ function createFactory() {
                             } else if (allHit) {
                                 _chordVerdicts.set(verdictKey, 'green');
                                 rimHex = CHORD_BOX_HIT_BRIGHT_HEX;
-                            } else if (chDt < -_ND_UNMATCHED_LATCH_AFTER && !anyState) {
+                            } else if (chDt < -NOTEDETECT_UNMATCHED_LATCH_AFTER && !anyState) {
                                 // The engine verdict typically lands
                                 // ~0.4 s after the chord crosses the
                                 // line, so after the
-                                // _ND_UNMATCHED_LATCH_AFTER threshold
+                                // NOTEDETECT_UNMATCHED_LATCH_AFTER threshold
                                 // we've already waited well past the
                                 // verdict-arrival window. If no
                                 // constituent ever returned a non-
@@ -8979,7 +8979,7 @@ function createFactory() {
         const hasChartAnchors = anchors && anchors.length;
         if (hasChartAnchors || activeFrets.size > 0) {
             // Lane tint: one translucent quad per playable fret column, exact
-            // wire→wire span (no horizontal pad) — see HWY_LANE_STRIPE_*.
+            // wire→wire span (no horizontal pad) — see HIGHWAY_LANE_STRIPE_*.
             const boardY = S_BASE - NH / 2 - 2 * K;
 
             if (hasChartAnchors) {
@@ -8993,14 +8993,14 @@ function createFactory() {
                 // lands at dZ(AHEAD) = -AHEAD*TS, aligned with the note horizon.
                 // Using just AHEAD here made the far edge stop at -TS*(AHEAD-BEHIND),
                 // leaving the last BEHIND seconds of notes without a lane underneath.
-                const sliceDt = (AHEAD + BEHIND) / HWY_LANE_TIME_SLICES;
+                const sliceDt = (AHEAD + BEHIND) / HIGHWAY_LANE_TIME_SLICES;
                 // Single-pass build-and-merge into the parallel-array
                 // scratch buffers. Consecutive slices that resolve to the
                 // same anchor bounds collapse into one segment by extending
                 // its z1; otherwise a new entry appends. No per-frame array
                 // or {b,z0,z1} object allocations.
                 _laneSegLen = 0;
-                for (let k = 0; k < HWY_LANE_TIME_SLICES; k++) {
+                for (let k = 0; k < HIGHWAY_LANE_TIME_SLICES; k++) {
                     const dt0 = k * sliceDt;
                     const dt1 = (k + 1) * sliceDt;
                     const tC = now + (dt0 + dt1) * 0.5 - BEHIND;
@@ -9055,7 +9055,7 @@ function createFactory() {
                     }
                 }
                 {
-                    const laneOp = (HWY_LANE_STRIPE_OP_BASE + highwayIntensity * HWY_LANE_STRIPE_OP_INT)
+                    const laneOp = (HIGHWAY_LANE_STRIPE_OP_BASE + highwayIntensity * HIGHWAY_LANE_STRIPE_OP_INT)
                         * (_venueSceneOverride ? VENUE_LANE_OP_BOOST : 1);
                     // 2 shared materials (odd/even); opacity travels via the
                     // material so set it once per frame, not per mesh.
@@ -9141,24 +9141,24 @@ function createFactory() {
                 activeFrets.forEach(f => { if (f > 0) { minF = Math.min(minF, f); maxF = Math.max(maxF, f); } });
                 dMin = minF - 1;
                 dMax = maxF;
-                const HWY_LANE_SPAN = 4;
+                const MIN_LANE_SPAN_FRETS = 4;
                 let span = dMax - dMin;
-                if (span > HWY_LANE_SPAN) {
-                    dMin = Math.round((dMin + dMax - HWY_LANE_SPAN) / 2);
-                    dMax = dMin + HWY_LANE_SPAN;
+                if (span > MIN_LANE_SPAN_FRETS) {
+                    dMin = Math.round((dMin + dMax - MIN_LANE_SPAN_FRETS) / 2);
+                    dMax = dMin + MIN_LANE_SPAN_FRETS;
                     if (dMax > NFRETS) {
                         dMax = NFRETS;
-                        dMin = dMax - HWY_LANE_SPAN;
+                        dMin = dMax - MIN_LANE_SPAN_FRETS;
                     }
                     if (dMin < 0) {
                         dMin = 0;
-                        dMax = HWY_LANE_SPAN;
+                        dMax = MIN_LANE_SPAN_FRETS;
                     }
-                } else if (span < HWY_LANE_SPAN) {
-                    const need = HWY_LANE_SPAN - span;
+                } else if (span < MIN_LANE_SPAN_FRETS) {
+                    const need = MIN_LANE_SPAN_FRETS - span;
                     dMax = Math.min(NFRETS, dMax + need);
-                    if (dMax - dMin < HWY_LANE_SPAN) {
-                        dMin = Math.max(0, dMin - (HWY_LANE_SPAN - (dMax - dMin)));
+                    if (dMax - dMin < MIN_LANE_SPAN_FRETS) {
+                        dMin = Math.max(0, dMin - (MIN_LANE_SPAN_FRETS - (dMax - dMin)));
                     }
                 }
                 if (dMax < dMin) dMax = dMin;
@@ -9174,7 +9174,7 @@ function createFactory() {
                 // +TS*BEHIND; spanning AHEAD alone keeps the same far edge.
                 const laneLen = TS * AHEAD;
                 const zLane = -laneLen / 2;
-                const laneOp = (HWY_LANE_STRIPE_OP_BASE + highwayIntensity * HWY_LANE_STRIPE_OP_INT)
+                const laneOp = (HIGHWAY_LANE_STRIPE_OP_BASE + highwayIntensity * HIGHWAY_LANE_STRIPE_OP_INT)
                     * (_venueSceneOverride ? VENUE_LANE_OP_BOOST : 1);
                 mLaneOdd.opacity = laneOp;
                 mLaneEven.opacity = laneOp;
@@ -9986,12 +9986,12 @@ function createFactory() {
         const arpGhostOnlyMode = arpGhostShouldRun
             && _overLinger && (!hasSus || now > susEnd);
         // Smart cull: keep the gem alive only if a note-state verdict is
-        // available to display. Probe result cached in _ndProbed/_ndProbedState
+        // available to display. Probe result cached in noteDetectProbed/noteDetectProbedState
         // so the later getNoteState query reuses it (avoids two provider calls).
         // arpGhostShouldRun takes precedence — arp ghosts stay alive
         // regardless of verdict state so their board projections persist.
-        let _ndProbed = false;
-        let _ndProbedState = null;
+        let noteDetectProbed = false;
+        let noteDetectProbedState = null;
         if (_overLinger && (!hasSus || now > susEnd) && !arpGhostShouldRun) {
             // Prune the sustain-verdict latch before any cull-path return.
             // The matching delete inside the sustain-render block (line ~9262)
@@ -10001,18 +10001,18 @@ function createFactory() {
             // teardown/seek clears the Map. !hasSus notes never wrote to
             // the latch, so Map.delete is a harmless no-op there.
             if (hasSus) _susVerdictLatch.delete(Math.round(n.t * 1e4) * 10 + n.s);
-            if (!_ndHasProvider || dt < -NOTEDETECT_GEM_VERDICT_WINDOW) return;
-            let _ndProbe = null;
-            try { _ndProbe = _ndGetNoteState(n, n.t); } catch (e) { _ndProbe = null; }
-            _ndProbed = true;
-            _ndProbedState = _ndProbe;
-            const _probeSt = (_ndProbe && typeof _ndProbe === 'object') ? _ndProbe.state : _ndProbe;
+            if (!noteDetectHasProvider || dt < -NOTEDETECT_GEM_VERDICT_WINDOW) return;
+            let noteDetectProbe = null;
+            try { noteDetectProbe = noteDetectGetState(n, n.t); } catch (e) { noteDetectProbe = null; }
+            noteDetectProbed = true;
+            noteDetectProbedState = noteDetectProbe;
+            const _probeSt = (noteDetectProbe && typeof noteDetectProbe === 'object') ? noteDetectProbe.state : noteDetectProbe;
             if (_probeSt !== 'hit' && _probeSt !== 'active' && _probeSt !== 'miss') return;
         }
 
         const sustained = dt < 0 && hasSus && now <= susEnd;
         const hitDist = Math.abs(dt);
-        const hit = hitDist < 0.15 || sustained || (_ndHasProvider && dt < 0);
+        const hit = hitDist < 0.15 || sustained || (noteDetectHasProvider && dt < 0);
         const hitFade = sustained ? 0.7 : (hitDist < 0.15 ? 1 - hitDist / 0.15 : 0);
         // skipBody (slide-target gem suppression) only applies to this
         // note's own pre-hit approach — it exists so the destination's
@@ -10069,33 +10069,33 @@ function createFactory() {
         const projFactorG = Math.max(0, Math.min(1, 1 - Math.max(dt, 0) / effectiveProjWin));
         const inGhostWin = n.f > 0 && isNextOnString && dt > -ghostHold && dt < effectiveProjWin && projFactorG > 0.001;
         // feedBack#254 — query the provider once per note, before both !skipBody
-        // blocks, so _showHit can be a const and _ndGood is available for the
+        // blocks, so _showHit can be a const and noteDetectGood is available for the
         // sustain trail (which renders even when skipBody=true for slide targets).
-        let _ndGood = false;    // true when provider confirms hit/active
+        let noteDetectGood = false;    // true when provider confirms hit/active
         let _hitPunch = 1;      // #3 per-gem scale-punch on a fresh hit
-        let _ndState = null;    // 'hit'|'active'|'miss'|null; null → fall back to proximity heuristic
-        let _ndCs = null;       // raw provider response — truthy when provider returned a verdict
-        let _ndCsIsObj = false; // typeof _ndCs === 'object'
-        let _ndFaceMat = null;  // [mat×4, transparent×2] array for lateral face fill, or null
-        if (_ndGetNoteState) {
+        let noteDetectState = null;    // 'hit'|'active'|'miss'|null; null → fall back to proximity heuristic
+        let noteDetectChordState = null;       // raw provider response — truthy when provider returned a verdict
+        let noteDetectChordStateIsObj = false; // typeof noteDetectChordState === 'object'
+        let noteDetectFaceMat = null;  // [mat×4, transparent×2] array for lateral face fill, or null
+        if (noteDetectGetState) {
             // Reuse the smart-cull probe result if we already called
-            // _ndGetNoteState for this gem above; otherwise probe now.
+            // noteDetectGetState for this gem above; otherwise probe now.
             let _raw = null;
-            if (_ndProbed) {
-                _raw = _ndProbedState;
+            if (noteDetectProbed) {
+                _raw = noteDetectProbedState;
             } else {
-                try { _raw = _ndGetNoteState(n, n.t); } catch (e) { _raw = null; }
+                try { _raw = noteDetectGetState(n, n.t); } catch (e) { _raw = null; }
             }
             if (_raw) {
-                _ndCsIsObj = typeof _raw === 'object';
-                const _st = _ndCsIsObj ? _raw.state : _raw;
+                noteDetectChordStateIsObj = typeof _raw === 'object';
+                const _st = noteDetectChordStateIsObj ? _raw.state : _raw;
                 if (_st === 'miss') {
-                    _ndState = 'miss';
-                    _ndCs = _raw;
+                    noteDetectState = 'miss';
+                    noteDetectChordState = _raw;
                 } else if (_st === 'hit' || _st === 'active') {
-                    _ndState = _st;
-                    _ndGood = true;
-                    _ndCs = _raw;
+                    noteDetectState = _st;
+                    noteDetectGood = true;
+                    noteDetectChordState = _raw;
                 }
             }
         }
@@ -10105,16 +10105,16 @@ function createFactory() {
         // (note_detect returns alpha = live input level for held sustains,
         // and a time-fade for fresh strikes). Only object responses carry an
         // alpha; the latch/legacy string responses leave brightness at full.
-        if (_ndGood && _ndCsIsObj && _ndCs && typeof _ndCs.alpha === 'number') {
-            _ndVerdictSawAlpha = true;
-            if (_ndCs.alpha > _ndVerdictMaxAlpha) _ndVerdictMaxAlpha = _ndCs.alpha;
+        if (noteDetectGood && noteDetectChordStateIsObj && noteDetectChordState && typeof noteDetectChordState.alpha === 'number') {
+            noteDetectVerdictSawAlpha = true;
+            if (noteDetectChordState.alpha > noteDetectVerdictMaxAlpha) noteDetectVerdictMaxAlpha = noteDetectChordState.alpha;
         }
 
         // ── Sustain verdict latch ────────────────────────────────────
         // note_detect's hitGlowDuration (~0.5 s) and the legacy mark
         // TTL (500 ms) both expire before a long chart sustain ends.
         // For any sustained note, latch the verdict from EITHER source
-        // (provider _ndState OR legacy _ndHitMarks / _ndMissMarks) and
+        // (provider noteDetectState OR legacy noteDetectHitMarks / noteDetectMissMarks) and
         // re-inject it so hit/miss color persists for the full hold.
         // Works with both the modern provider path and the legacy event
         // path — vibrato and other long-sustain notes benefit equally.
@@ -10123,19 +10123,19 @@ function createFactory() {
             // Resolve current verdict: provider takes priority, then
             // fall back to scanning the legacy mark arrays so a hit or
             // miss event that arrived this frame can seed the latch.
-            let _lv_cur = _ndState;
-            let _lv_good = _ndGood;
+            let _lv_cur = noteDetectState;
+            let _lv_good = noteDetectGood;
             if (!_lv_cur) {
-                for (let _mi = 0; _mi < _ndHitMarks.length; _mi++) {
-                    const _mm = _ndHitMarks[_mi];
-                    if (_mm.s === n.s && _mm.f === n.f && Math.abs(_mm.noteTime - n.t) < _ND_TIME_EPS) {
+                for (let _mi = 0; _mi < noteDetectHitMarks.length; _mi++) {
+                    const _mm = noteDetectHitMarks[_mi];
+                    if (_mm.s === n.s && _mm.f === n.f && Math.abs(_mm.noteTime - n.t) < NOTEDETECT_TIME_EPS) {
                         _lv_cur = 'hit'; _lv_good = true; break;
                     }
                 }
                 if (!_lv_cur) {
-                    for (let _mi = 0; _mi < _ndMissMarks.length; _mi++) {
-                        const _mm = _ndMissMarks[_mi];
-                        if (_mm.s === n.s && _mm.f === n.f && Math.abs(_mm.noteTime - n.t) < _ND_TIME_EPS) {
+                    for (let _mi = 0; _mi < noteDetectMissMarks.length; _mi++) {
+                        const _mm = noteDetectMissMarks[_mi];
+                        if (_mm.s === n.s && _mm.f === n.f && Math.abs(_mm.noteTime - n.t) < NOTEDETECT_TIME_EPS) {
                             _lv_cur = 'miss'; _lv_good = false; break;
                         }
                     }
@@ -10149,20 +10149,20 @@ function createFactory() {
                 // the provider goes silent (that kept muted sustains lit),
                 // whereas the legacy event path still needs the latch to
                 // bridge its ~0.5 s mark TTL across a long hold.
-                const _live = _ndCsIsObj && _ndCs && _ndCs.live === true;
+                const _live = noteDetectChordStateIsObj && noteDetectChordState && noteDetectChordState.live === true;
                 _susVerdictLatch.set(_sk, _lv_good ? (_live ? 'hit-live' : 'hit') : 'miss');
                 // If the verdict came from a legacy mark (provider was
-                // silent — _ndState was null before the scan), propagate
-                // it to _ndState/_ndGood/_ndCs now so the sustain trail
+                // silent — noteDetectState was null before the scan), propagate
+                // it to noteDetectState/noteDetectGood/noteDetectChordState now so the sustain trail
                 // picks up the same colour this frame instead of waiting
                 // until the mark expires and the latch re-injects it.
-                if (!_ndState) {
+                if (!noteDetectState) {
                     if (_lv_good) {
-                        _ndState = 'active'; _ndGood = true;
-                        _ndCs = 'active'; _ndCsIsObj = false;
+                        noteDetectState = 'active'; noteDetectGood = true;
+                        noteDetectChordState = 'active'; noteDetectChordStateIsObj = false;
                     } else {
-                        _ndState = 'miss';
-                        _ndCs = 'miss'; _ndCsIsObj = false;
+                        noteDetectState = 'miss';
+                        noteDetectChordState = 'miss'; noteDetectChordStateIsObj = false;
                     }
                 }
             } else if (dt < 0 && now < susEnd) {
@@ -10175,8 +10175,8 @@ function createFactory() {
                     // Legacy/brief provider or event-path hit: bridge the
                     // gap across the hold (the mark/glow TTL expires before a
                     // long chart sustain ends).
-                    _ndState = 'active'; _ndGood = true;
-                    _ndCs = 'active'; _ndCsIsObj = false;
+                    noteDetectState = 'active'; noteDetectGood = true;
+                    noteDetectChordState = 'active'; noteDetectChordStateIsObj = false;
                 } else if (_lv === 'hit-live') {
                     // Live provider is authoritative for the active glow: it
                     // returns 'active' only while the string is actually
@@ -10185,15 +10185,15 @@ function createFactory() {
                     // the gem un-lit when the provider is silent; a re-strike
                     // relights it via the provider on the next frame.
                 } else if (_lv === 'miss') {
-                    _ndState = 'miss';
-                    _ndCs = 'miss'; _ndCsIsObj = false;
+                    noteDetectState = 'miss';
+                    noteDetectChordState = 'miss'; noteDetectChordStateIsObj = false;
                 }
             }
             if (now >= susEnd) _susVerdictLatch.delete(_sk);
         }
 
-        const _showHit = (_ndState === 'miss') ? false
-            : (_ndState ? _ndGood
+        const _showHit = (noteDetectState === 'miss') ? false
+            : (noteDetectState ? noteDetectGood
             : (hit || (n.f > 0 && inGhostWin)));
 
         // ── Fret-wire hit flash ───────────────────────────────────────
@@ -10211,11 +10211,11 @@ function createFactory() {
         //           call, so it can't see the span from here: chord hits
         //           accumulate into _fwChordAcc and the flash pass resolves
         //           min/max fret → outer wires once the loop has finished.
-        // Gated on _ndGood, not _showHit: only a scorer's verdict counts,
+        // Gated on noteDetectGood, not _showHit: only a scorer's verdict counts,
         // never the proximity heuristic that merely means "near the line".
-        if (_ndGood) {
-            const _fwA = (_ndCsIsObj && _ndCs && typeof _ndCs.alpha === 'number')
-                ? Math.max(0, Math.min(1, _ndCs.alpha))
+        if (noteDetectGood) {
+            const _fwA = (noteDetectChordStateIsObj && noteDetectChordState && typeof noteDetectChordState.alpha === 'number')
+                ? Math.max(0, Math.min(1, noteDetectChordState.alpha))
                 : 1;
             if (fromChord) {
                 // ch.id can be absent (pitfall #8) — fall back to the chord's
@@ -10259,37 +10259,37 @@ function createFactory() {
             // listener. Hit takes precedence over miss so the user
             // sees the more positive feedback if both happen
             // (shouldn't, but cheap guard).
-            let _ndOutline = (n.f > 0 && mStrHitOutline[s]) ? mStrHitOutline[s] : mWhiteOutline;
+            let noteDetectOutline = (n.f > 0 && mStrHitOutline[s]) ? mStrHitOutline[s] : mWhiteOutline;
             // update() prunes expired marks once per frame and
-            // caches performance.now() in _ndFrameNowMs so the hot
+            // caches performance.now() in noteDetectFrameNowMs so the hot
             // path here just does the bounded match — no extra
             // now() / filter() per note. After update()'s prune,
-            // every entry in the arrays has expiresAt > _ndFrameNowMs,
+            // every entry in the arrays has expiresAt > noteDetectFrameNowMs,
             // so we don't re-validate inside the loop.
-            let _ndMatchedMark = null;
-            let _ndHadHitMark = false;
-            if (_ndHitMarks.length) {
-                for (let i = 0; i < _ndHitMarks.length; i++) {
-                    const m = _ndHitMarks[i];
-                    if (m.s === n.s && m.f === n.f && Math.abs(m.noteTime - n.t) < _ND_TIME_EPS) {
-                        _ndOutline = mHitBright[s] ?? mGlow[s]; _ndFaceMat = mHitBrightArrays[s] ?? null; _ndMatchedMark = m; _ndHadHitMark = true; break;
+            let noteDetectMatchedMark = null;
+            let noteDetectHadHitMark = false;
+            if (noteDetectHitMarks.length) {
+                for (let i = 0; i < noteDetectHitMarks.length; i++) {
+                    const m = noteDetectHitMarks[i];
+                    if (m.s === n.s && m.f === n.f && Math.abs(m.noteTime - n.t) < NOTEDETECT_TIME_EPS) {
+                        noteDetectOutline = mHitBright[s] ?? mGlow[s]; noteDetectFaceMat = mHitBrightArrays[s] ?? null; noteDetectMatchedMark = m; noteDetectHadHitMark = true; break;
                     }
                 }
             }
-            if (!_ndHadHitMark && _ndMissMarks.length) {
-                for (let i = 0; i < _ndMissMarks.length; i++) {
-                    const m = _ndMissMarks[i];
-                    if (m.s === n.s && m.f === n.f && Math.abs(m.noteTime - n.t) < _ND_TIME_EPS) {
-                        _ndOutline = mMissOutline; _ndFaceMat = mMissEdgeArrays; _ndMatchedMark = m; break;
+            if (!noteDetectHadHitMark && noteDetectMissMarks.length) {
+                for (let i = 0; i < noteDetectMissMarks.length; i++) {
+                    const m = noteDetectMissMarks[i];
+                    if (m.s === n.s && m.f === n.f && Math.abs(m.noteTime - n.t) < NOTEDETECT_TIME_EPS) {
+                        noteDetectOutline = mMissOutline; noteDetectFaceMat = mMissEdgeArrays; noteDetectMatchedMark = m; break;
                     }
                 }
             }
-            if (_ndMatchedMark && _ndMatchedMark.labels && _ndMatchedMark.labels.length) {
-                _ndLabels.push({
+            if (noteDetectMatchedMark && noteDetectMatchedMark.labels && noteDetectMatchedMark.labels.length) {
+                noteDetectLabels.push({
                     x,
                     y: y + NH * 1.7,
                     z: noteZ + 0.02,
-                    labels: _ndMatchedMark.labels,
+                    labels: noteDetectMatchedMark.labels,
                 });
             }
             // (approachRot / PROJ_WIN_G / projFactorG / inGhostWin hoisted above)
@@ -10300,24 +10300,24 @@ function createFactory() {
             // feedBack#254 — apply outline + lateral face-fill overrides from provider verdict.
             // hit/active → green outline (mHitBright[s]) + green lateral faces;
             // miss → magenta-red outline (mMissOutline) + dark lateral faces; front/back stay transparent.
-            if (_ndCs) {
-                const _vAlpha = (_ndCsIsObj && typeof _ndCs.alpha === 'number') ? _ndCs.alpha : 1;
-                if (_ndState === 'miss') {
-                    _ndOutline = mMissOutline;
-                    _ndFaceMat = mMissEdgeArrays;
+            if (noteDetectChordState) {
+                const _vAlpha = (noteDetectChordStateIsObj && typeof noteDetectChordState.alpha === 'number') ? noteDetectChordState.alpha : 1;
+                if (noteDetectState === 'miss') {
+                    noteDetectOutline = mMissOutline;
+                    noteDetectFaceMat = mMissEdgeArrays;
                     _streakHits = 0;            // #7 break the streak (heat eases down)
-                    if (_verdictMarks) _ndLabels.push({ x, y: y + NH * 1.7, z: noteZ + 0.02, labels: [{ text: '✗', color: '#ff5a7a' }] });  // #6
-                } else if (_ndGood) {
+                    if (_verdictMarks) noteDetectLabels.push({ x, y: y + NH * 1.7, z: noteZ + 0.02, labels: [{ text: '✗', color: '#ff5a7a' }] });  // #6
+                } else if (noteDetectGood) {
                     // Rim flashes in the string's own colour, wire-fashion
                     // (intensity applied per string in the flash pass).
-                    _ndOutline = mRimFlash[s] ?? mHitBright[s] ?? mGlow[s];
-                    _ndFaceMat = mHitBrightArrays[s] ?? null;
+                    noteDetectOutline = mRimFlash[s] ?? mHitBright[s] ?? mGlow[s];
+                    noteDetectFaceMat = mHitBrightArrays[s] ?? null;
                     // Clamp like the wire path does — a provider returning
                     // alpha > 1 must not over-drive emissiveIntensity.
                     const _rimA = Math.max(0, Math.min(1, _vAlpha));
                     if (_rimA > _rimFlashIn[s]) _rimFlashIn[s] = _rimA;
                     _hitPunch = 1 + 0.22 * _hitFx * _vAlpha;   // #3 scale-punch (biggest at strike, eases)
-                    if (_verdictMarks) { const _tc = _timingHex(_ndMatchedMark && _ndMatchedMark.timingState); _ndLabels.push({ x, y: y + NH * 1.7, z: noteZ + 0.02, labels: [{ text: '✓', color: '#' + _tc.toString(16).padStart(6, '0') }] }); }  // #6 + #5
+                    if (_verdictMarks) { const _tc = _timingHex(noteDetectMatchedMark && noteDetectMatchedMark.timingState); noteDetectLabels.push({ x, y: y + NH * 1.7, z: noteZ + 0.02, labels: [{ text: '✓', color: '#' + _tc.toString(16).padStart(6, '0') }] }); }  // #6 + #5
                     if (_sparks && _hitFx > 0 && _vAlpha > 0.5) {
                         const _spk = s + '|' + n.f + '|' + n.t.toFixed(2);
                         if (!(_sparkSeen.get(_spk) > now)) {
@@ -10325,7 +10325,7 @@ function createFactory() {
                             if (_sparkSeen.size > 600) _sparkSeen.clear();
                             _streakHits++;
                             const _heatMul = _streakFx ? (1 + 0.85 * _streakHeat) : 1;   // #7 escalate
-                            _sparkBurst(x, y, noteZ, _timingHex(_ndMatchedMark && _ndMatchedMark.timingState), Math.round((4 + 7 * _hitFx) * _heatMul));
+                            _sparkBurst(x, y, noteZ, _timingHex(noteDetectMatchedMark && noteDetectMatchedMark.timingState), Math.round((4 + 7 * _hitFx) * _heatMul));
                         }
                     }
                 }
@@ -10337,9 +10337,9 @@ function createFactory() {
             // level key, so a chord pops once, not once per gem; the
             // _fxSeen TTL also stops a sustain's long-lived verdict from
             // re-popping every frame.
-            if (_ndGood && _ndCsIsObj
-                    && _ndCs.points !== undefined && _ndCs.popKey != null) {
-                _fxSpawnPop(_ndCs.popKey, _ndCs.points, _ndCs.mult,
+            if (noteDetectGood && noteDetectChordStateIsObj
+                    && noteDetectChordState.points !== undefined && noteDetectChordState.popKey != null) {
+                _fxSpawnPop(noteDetectChordState.popKey, noteDetectChordState.points, noteDetectChordState.mult,
                     x, y + NH * 2.2, noteZ + 0.02);
             }
 
@@ -10349,7 +10349,7 @@ function createFactory() {
             // around a missed gem muddies the dark-core-plus-red-rim fail
             // signal, matching the same miss-over-accent priority the
             // gem core material applies below.
-            if (n.ac && _ndState !== 'miss' && mAccentHaloNear[s]) {
+            if (n.ac && noteDetectState !== 'miss' && mAccentHaloNear[s]) {
                 const rZ = approachRot;
                 const accentShells = _accentShellsByString[s];
                 for (let hi = 0; hi < accentShells.length; hi++) {
@@ -10379,9 +10379,9 @@ function createFactory() {
             // Verdict beats accent on the outline so hit/miss feedback isn't
             // hidden by mAccentOutline. Mirrors the same miss-over-accent
             // priority the accent halo guard above already applies.
-            const _ndVerdict = (_ndCs && (_ndState === 'miss' || _ndGood))
-                || !!_ndMatchedMark;
-            outline.material = (n.ac && !_ndVerdict) ? mAccentOutline[s] : _ndOutline;
+            const noteDetectVerdict = (noteDetectChordState && (noteDetectState === 'miss' || noteDetectGood))
+                || !!noteDetectMatchedMark;
+            outline.material = (n.ac && !noteDetectVerdict) ? mAccentOutline[s] : noteDetectOutline;
             // outline + core share the pNote pool, so set geometry explicitly
             // each frame (a recycled mesh may carry a gradient geometry from a
             // prior core use). Outline always uses the plain box.
@@ -10404,9 +10404,9 @@ function createFactory() {
             // Material array: groups 0-3 (±X ±Y) get the verdict colour;
             // groups 4-5 (+Z front / -Z back) are transparent so the large
             // front face shows only the core body's string colour beneath.
-            if (_ndFaceMat) {
+            if (noteDetectFaceMat) {
                 const edges = pNoteEdge.get();
-                edges.material = _ndFaceMat;
+                edges.material = noteDetectFaceMat;
                 edges.renderOrder = renderOrderForLayerAtZ(noteZ, 'TECHNIQUE_MARKER');
                 edges.position.set(x, y + techniqueYNow, noteZ + 0.001);
                 edges.rotation.z = approachRot;
@@ -10452,7 +10452,7 @@ function createFactory() {
         // Rendered for ALL notes with sustain, including skipBody=true
         // slide-target notes (e.g. linkNext hold→slide: gem suppressed,
         // slide trail stays visible as the continuation of the sustain).
-        // _ndGetNoteState is queried for every note (skipBody slide
+        // noteDetectGetState is queried for every note (skipBody slide
         // targets included), so the trail picks bright mGlow[s] when the
         // provider confirms hit/active and dim mSus[s] otherwise — a
         // slide-target trail is not forced dim.
@@ -10511,8 +10511,8 @@ function createFactory() {
                     // same materials as the gem border so hit/miss colours are
                     // perceptually identical across gem outline, lateral faces,
                     // and sustain trail rim.
-                    const _susOlMat = _ndState === 'miss' ? mMissOutline
-                        : _ndGood ? (mHitBright[s] ?? mHitSusOutline)
+                    const _susOlMat = noteDetectState === 'miss' ? mMissOutline
+                        : noteDetectGood ? (mHitBright[s] ?? mHitSusOutline)
                         : mSusOutline;
                     const emitSusStrip = (xCenter, segLen, zCenter) => {
                         // Same depth-bucket scheme as chord frames, using the
@@ -10527,7 +10527,7 @@ function createFactory() {
                             trOut.position.set(xOff, y, zCenter);
                             trOut.scale.set(tw + 0.4 * K, th + 0.4 * K, segLen);
                             const tr = pSus.get();
-                            tr.material = _ndState ? mGlow[s] : mSus[s];
+                            tr.material = noteDetectState ? mGlow[s] : mSus[s];
                             tr.renderOrder = trailRenderOrder + 0.0005;
                             tr.position.set(xOff, y, zCenter);
                             tr.scale.set(tw, th, segLen);
@@ -10560,7 +10560,7 @@ function createFactory() {
                             body.scale.set(1, 1, 1);
                             body.rotation.set(0, 0, 0);
                             body.position.set(0, 0, 0);
-                            body.material = _ndState ? mGlow[s] : mSus[s];
+                            body.material = noteDetectState ? mGlow[s] : mSus[s];
                             slideRibbonUpdatePositions(
                                 body.geometry, strandX, tw, th, y,
                                 sliceDur, susStart, now, n, slideSt,
@@ -11135,12 +11135,12 @@ function createFactory() {
     }
 
     function drawNotedetectLabels(ctx, W, H) {
-        if (!_ndLabels.length || !cam || !_probe) return;
+        if (!noteDetectLabels.length || !cam || !_probe) return;
         ctx.save();
         ctx.font = 'bold 12px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        for (const item of _ndLabels) {
+        for (const item of noteDetectLabels) {
             _probe.set(item.x, item.y, item.z);
             _probe.project(cam);
             if (_probe.z < -1 || _probe.z > 1) continue;
@@ -11166,7 +11166,7 @@ function createFactory() {
     // is active.
     function drawScoreFx(ctx, W, H) {
         if (!cam || !_probe) return;
-        const nowMs = _ndFrameNowMs || performance.now();
+        const nowMs = noteDetectFrameNowMs || performance.now();
         // TTL-prune the pop dedup keys (bounded: only notes hit in the
         // last few seconds).
         if (_fxSeen.size) {
@@ -11327,7 +11327,7 @@ function createFactory() {
         if (window.__h3dAspectPanelOpen) _aspectRegisterPane(_paneKey);
         const _aspTune = _resolveTuneFor(_paneKey);
         const _aspActive = !!(_aspTune && _aspTune.enabled
-            && !(_aspTune.splitOnly && !_ssActive()));
+            && !(_aspTune.splitOnly && !splitscreenActive()));
         const _tune = _aspActive ? _aspTune : null;
         const _vfov = effectiveVfov(_paneAspect, _tune);
         if (Number.isFinite(_vfov) && Math.abs(_vfov - cam.fov) > 1e-4) {
@@ -11478,7 +11478,7 @@ function createFactory() {
     function applySize(w, h) {
         if (!ren || !cam || !wrap) return;
         if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
-        const baseDPR = _ssActive() ? Math.min(devicePixelRatio, 1.25) : Math.min(devicePixelRatio, 2);
+        const baseDPR = splitscreenActive() ? Math.min(devicePixelRatio, 1.25) : Math.min(devicePixelRatio, 2);
         ren.setPixelRatio(_renderScale * baseDPR);
         ren.setSize(w, h);
         // Pin the overlay to #highway's exact box so it fully covers the
@@ -11561,13 +11561,13 @@ function createFactory() {
         // panel that stops doesn't keep accumulating marks. Marks
         // arrays are cleared too — they hold stale chart positions
         // that next init() may reuse (drawNote keys on (s, f, t)).
-        if (_ndOnHit) { window.removeEventListener('notedetect:hit', _ndOnHit); _ndOnHit = null; }
-        if (_ndOnMiss) { window.removeEventListener('notedetect:miss', _ndOnMiss); _ndOnMiss = null; }
+        if (noteDetectOnHit) { window.removeEventListener('notedetect:hit', noteDetectOnHit); noteDetectOnHit = null; }
+        if (noteDetectOnMiss) { window.removeEventListener('notedetect:miss', noteDetectOnMiss); noteDetectOnMiss = null; }
         if (_fxOnFx) { window.removeEventListener('notedetect:fx', _fxOnFx); _fxOnFx = null; }
         if (window.feedBack && typeof window.feedBack.off === 'function') {
             if (_fxOnSkin) { try { window.feedBack.off('notedetect:skin', _fxOnSkin); } catch (e) {} _fxOnSkin = null; }
-            if (_ndOnBusHit)  window.feedBack.off('note:hit', _ndOnBusHit);
-            if (_ndOnBusMiss) window.feedBack.off('note:miss', _ndOnBusMiss);
+            if (noteDetectOnBusHit)  window.feedBack.off('note:hit', noteDetectOnBusHit);
+            if (noteDetectOnBusMiss) window.feedBack.off('note:miss', noteDetectOnBusMiss);
             if (_visibilityHandler) {
                 try { window.feedBack.off('highway:visibility', _visibilityHandler); } catch (e) {}
             }
@@ -11575,12 +11575,12 @@ function createFactory() {
                 try { window.feedBack.off('highway:canvas-replaced', _canvasReplacedHandler); } catch (e) {}
             }
         }
-        _ndOnBusHit = _ndOnBusMiss = null;
+        noteDetectOnBusHit = noteDetectOnBusMiss = null;
         _visibilityHandler = null;
         _canvasReplacedHandler = null;
-        _ndHitMarks = [];
-        _ndMissMarks = [];
-        _ndLabels = [];
+        noteDetectHitMarks = [];
+        noteDetectMissMarks = [];
+        noteDetectLabels = [];
         for (const p of _fxPops) p.active = false;
         for (const b of _fxBursts) b.active = false;
         _fxSeen.clear();
@@ -11818,7 +11818,7 @@ function createFactory() {
             // Default behavior is unchanged when the field is absent.
             backgroundReactiveOptOut = !!(bundle && bundle.bgReactive === false);
 
-            if (_ssActive()) {
+            if (splitscreenActive()) {
                 window.feedBackSplitscreen.onFocusChange(_onFocusChange);
                 _focusSubscribed = true;
             }
@@ -11861,7 +11861,7 @@ function createFactory() {
                     // meant a machine without WebGL2 mounted a Background control
                     // for a renderer that never drew a frame, and no failure path
                     // below released it.
-                    if (!_pcAcquired) { _pcAcquired = true; _pcAcquire(); }
+                    if (!backgroundControlAcquired) { backgroundControlAcquired = true; acquireBackgroundControl(); }
                     _resolveReady();
                     _updateFocusState();
                     if (sz.w > 0 && sz.h > 0) {
@@ -12111,7 +12111,7 @@ function createFactory() {
                 _streakHeat += (Math.min(1, _streakHits / 16) - _streakHeat) * 0.08;   // #7 ease heat
             }
             {
-                const comp = (_bloom && !_ssActive()) ? _bloomEnsure() : null;
+                const comp = (_bloom && !splitscreenActive()) ? _bloomEnsure() : null;
                 if (comp) {
                     const bsz = canvasSize(highwayCanvas);
                     if (bsz && bsz.w > 0 && bsz.h > 0 && (bsz.w !== _bloomW || bsz.h !== _bloomH)) {
@@ -12289,7 +12289,7 @@ function createFactory() {
             _paneAspect = 0;
             if (cam && cam.fov !== BASE_VFOV) { cam.fov = BASE_VFOV; cam.updateProjectionMatrix(); }
             _wrapPinned = false;
-            if (_pcAcquired) { _pcAcquired = false; _pcRelease(); }
+            if (backgroundControlAcquired) { backgroundControlAcquired = false; releaseBackgroundControl(); }
             _unsubscribeFocus(); teardown();
             highwayCanvas = null;
         },

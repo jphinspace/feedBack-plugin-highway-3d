@@ -949,7 +949,7 @@
     </div>
 
     <!-- Hydrate from localStorage on load. Mirror runtime defaults AND
-         coercion rules from screen.js's BG_DEFAULTS / _bgCoerce so first-
+         coercion rules from src/settings/ SETTING_DEFAULTS / coerceSetting so first-
          run users see what the renderer actually drew, and any garbage
          in localStorage (out-of-range intensity, unknown style id) is
          clamped to a valid value instead of putting the controls in a
@@ -1049,8 +1049,8 @@
             // Generic 0..1 clamp + parseFloat with an explicit fallback.
             // Each unit-interval slider passes its own DEFAULTS[key] so a
             // future bound change on one setting doesn't drag the others
-            // along, and so this stays in sync with screen.js's _bgCoerce
-            // which also keys the fallback to BG_DEFAULTS[key].
+            // along, and so this stays in sync with src/settings/store.js's
+            // coerceSetting, which also keys the fallback to SETTING_DEFAULTS[key].
             function coerceUnitInterval(v, fallback) {
                 const n = parseFloat(v);
                 if (!Number.isFinite(n)) return fallback;
@@ -1375,10 +1375,10 @@
 
             // Hit-feedback "juice" controls — hydrate from saved state so the
             // panel reflects persistence on reopen (the renderer already reads
-            // these via _bgReadSetting; without this the controls always showed
+            // these via readSetting; without this the controls always showed
             // their default markup, misrepresenting a saved non-default). Reads
-            // h3d_bg_* directly; defaults mirror BG_DEFAULTS (all bools on,
-            // hitFx 0.70) and the _bgCoerceBool 'true'/'1' vs 'false'/'0' rules.
+            // h3d_bg_* directly; defaults mirror SETTING_DEFAULTS (all bools on,
+            // hitFx 0.70) and the coerceBoolSetting 'true'/'1' vs 'false'/'0' rules.
             try {
                 const _bgBool = (k, def) => {
                     const v = localStorage.getItem('h3d_bg_' + k);
