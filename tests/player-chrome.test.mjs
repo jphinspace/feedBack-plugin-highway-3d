@@ -15,30 +15,35 @@
 //     style reads `intensity`, and none of them read audio bands under
 //     Butterchurn, so a live-looking knob that does nothing is a real bug.
 //
-// The renderer body is one big closure (currently src/main.js, formerly
-// packed inside the screen.js IIFE), so the control cannot be imported. The
-// self-contained `_pc*` block is sliced out of the real source and evaluated
-// with its few collaborators stubbed (BG_STYLE_IDS, _bgReadSetting,
-// _bgSubscribe/_bgUnsubscribe). The slice markers are asserted before use: move
-// or rename the block and this fails loudly rather than testing nothing.
+// The control now lives in src/ui/player-chrome.js (moved out of the
+// screen.js -> src/ module split, Stage 3b) and is real-imported here rather
+// than sliced out of source text and evaluated in a vm sandbox. Its
+// collaborators (BG_STYLE_IDS, _bgReadGlobal/_bgSubscribe/_bgUnsubscribe,
+// _venueSceneOverride) are real imports too — src/settings/store.js and
+// src/bg/venue.js are genuinely side-effect-free at import time, so there is
+// no reason to fake them.
 //
-// Markers are 0-indent, matching src/main.js post-Stage-0e (the body was
-// dedented 4 spaces when it moved out of the screen.js IIFE wrapper).
+// Two different isolation strategies are in play, matched to how each
+// dependency is scoped:
+//   - player-chrome.js itself is re-imported PER TEST with a cache-busting
+//     query string, so its module-level state (_pcRefs, _pcEl, ...) starts
+//     fresh every time — same guarantee the old vm-per-test sandbox gave.
+//   - store.js/venue.js are genuine app-wide singletons (by design — see
+//     their own file comments) shared across every import of player-chrome.js,
+//     including across tests. `load()` resets their mutable state
+//     (_bgMemFallback, _bgListeners, _venueSceneOverride) at the top of every
+//     test instead.
 
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 
-const SCREEN_JS = path.join(__dirname, '..', 'src', 'main.js');
-const START = 'const _PC_LABELS = {';
-const END_CRLF = '/* ======================================================================\r\n *  Factory';
-const END_LF = '/* ======================================================================\n *  Factory';
+import { BG_STYLE_IDS } from '../src/settings/defaults.js';
+import { _bgMemFallback, _bgListeners, _bgEmitChange, _bgReadGlobal } from '../src/settings/store.js';
+import { _venueSetSceneOverride } from '../src/bg/venue.js';
 
 // What each style is expected to consume, derived by reading the BG_STYLES
-// bodies in screen.js — deliberately NOT read from the plugin's own _PC_USES
-// table, which would only assert that the table equals itself.
+// bodies in src/main.js — deliberately NOT read from the plugin's own
+// _PC_USES table, which would only assert that the table equals itself.
 //   intensity: true  => the style's build() reads settings.intensity
 //   reactive:  true  => the style's update() dereferences its `bands` argument
 // 'butterchurn' is a mode, not a BG_STYLES fog-scenery entry: _bcSyncMode
@@ -54,8 +59,6 @@ const EXPECTED_USES = {
     video: { intensity: false, reactive: false },
     butterchurn: { intensity: false, reactive: false },
 };
-
-const BG_STYLE_IDS = ['off', 'particles', 'silhouettes', 'lights', 'geometric', 'butterchurn', 'image', 'video'];
 
 // Minimal DOM: only what the control touches.
 function makeDom() {
@@ -105,140 +108,115 @@ function makeDom() {
     return { El, root, slot };
 }
 
-function load({ store: initialStore } = {}) {
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
-    const start = src.indexOf(START);
-    assert.notEqual(start, -1, 'could not find the _PC_LABELS marker in screen.js');
-    let end = src.indexOf(END_CRLF);
-    if (end === -1) end = src.indexOf(END_LF);
-    assert.notEqual(end, -1, 'could not find the Factory banner marker in screen.js');
-    assert.ok(end > start, 'slice markers found out of order in screen.js');
-    const block = src.slice(start, end);
+// Fake localStorage: shared across the file, cleared at the top of every
+// load(). store.js talks to the bare `localStorage` global.
+const fakeStorage = new Map();
+globalThis.localStorage = {
+    getItem: (k) => (fakeStorage.has(k) ? fakeStorage.get(k) : null),
+    setItem: (k, v) => { fakeStorage.set(k, String(v)); },
+    removeItem: (k) => { fakeStorage.delete(k); },
+};
+
+let _pcInstanceCounter = 0;
+
+async function load({ store: initialStore } = {}) {
+    // Reset the shared singletons (store.js / venue.js) before every test —
+    // player-chrome.js gets a fresh module instance below, but these two do
+    // not (by design: see their own file comments on why they must stay
+    // process-wide singletons in production).
+    fakeStorage.clear();
+    for (const k of Object.keys(_bgMemFallback)) delete _bgMemFallback[k];
+    _bgListeners.clear();
+    _venueSetSceneOverride(false);
 
     const dom = makeDom();
-    const store = Object.assign({
+    const initial = Object.assign({
         style: 'particles',
         reactive: true,
         intensity: 0.5,
         customImageDataUrl: '',
         customVideoName: '',
     }, initialStore);
+    // Mirrors _bgWriteGlobal: stage the STRING form, same as a real setter
+    // would, so real _bgCoerce (bool/float parsing) reads it back correctly.
+    for (const [k, v] of Object.entries(initial)) _bgMemFallback[k] = String(v);
 
     const bus = {};
-    const listeners = new Set();
-    const emit = (key) => { for (const fn of listeners) fn(key); };
     const writes = [];
     const timers = [];
 
-    const sandbox = {
-        console,
-        BG_STYLE_IDS,
-        // Module-scope in screen.js; the _pc* block reads it to resolve the
-        // effective style under the Venue override. Tests flip it via
-        // sandbox._venueSceneOverride and fire the 'venueScene' bus key.
-        _venueSceneOverride: false,
-        _bgReadSetting: (_panelKey, key) => store[key],
-        _bgReadGlobal: (key) => store[key],
-        _bgSubscribe: (fn) => listeners.add(fn),
-        _bgUnsubscribe: (fn) => listeners.delete(fn),
-        setTimeout: (fn) => { timers.push(fn); return timers.length; },
-        clearTimeout: () => {},
-        document: {
-            createElement: (t) => new dom.El(t),
-            // The Settings-panel mirror looks these up; absent here so it no-ops.
-            getElementById: () => null,
-        },
-        window: {
-            feedBack: {
-                uiVersion: 'v3',   // _pcSlot gates on this (docs/plugin-v3-ui.md)
-                ui: { playerControlSlot: () => dom.slot },
-                // The real bus is an EventTarget wrapper exposing on/off. Modelled
-                // here so the screen:changed subscription — and its removal — are
-                // observable.
-                on: (ev, fn) => { (bus[ev] || (bus[ev] = [])).push(fn); },
-                off: (ev, fn) => {
-                    const l = bus[ev];
-                    if (!l) return;
-                    const i = l.indexOf(fn);
-                    if (i >= 0) l.splice(i, 1);
-                },
+    const win = {
+        feedBack: {
+            uiVersion: 'v3',   // _pcSlot gates on this (docs/plugin-v3-ui.md)
+            ui: { playerControlSlot: () => dom.slot },
+            // The real bus is an EventTarget wrapper exposing on/off. Modelled
+            // here so the screen:changed subscription — and its removal — are
+            // observable.
+            on: (ev, fn) => { (bus[ev] || (bus[ev] = [])).push(fn); },
+            off: (ev, fn) => {
+                const l = bus[ev];
+                if (!l) return;
+                const i = l.indexOf(fn);
+                if (i >= 0) l.splice(i, 1);
             },
-            h3dBgSetStyle: (v) => { writes.push(['style', v]); store.style = v; emit('style'); },
-            h3dBgSetReactive: (v) => { writes.push(['reactive', v]); store.reactive = v; emit('reactive'); },
-            h3dBgSetIntensity: (v) => { writes.push(['intensity', v]); store.intensity = v; emit('intensity'); },
         },
+        h3dBgSetStyle: (v) => { writes.push(['style', v]); _bgMemFallback.style = String(v); _bgEmitChange('style'); },
+        h3dBgSetReactive: (v) => { writes.push(['reactive', v]); _bgMemFallback.reactive = String(v); _bgEmitChange('reactive'); },
+        h3dBgSetIntensity: (v) => { writes.push(['intensity', v]); _bgMemFallback.intensity = String(v); _bgEmitChange('intensity'); },
     };
-    sandbox.globalThis = sandbox;
+    globalThis.window = win;
+    globalThis.document = {
+        createElement: (t) => new dom.El(t),
+        // The Settings-panel mirror looks these up; absent here so it no-ops.
+        getElementById: () => null,
+    };
+    globalThis.setTimeout = (fn) => { timers.push(fn); return timers.length; };
+    globalThis.clearTimeout = () => {};
 
-    const api = vm.runInNewContext(
-        block
-        + '\n({ _pcAcquire, _pcRelease,'
-        + '   get el() { return _pcEl; },'
-        + '   get sel() { return _pcSel; },'
-        + '   get react() { return _pcReactive; },'
-        + '   get intens() { return _pcIntensity; },'
-        + '   get reason() { return _pcReason; },'
-        + '   get refs() { return _pcRefs; } })',
-        sandbox,
-    );
+    const pc = await import(`../src/ui/player-chrome.js?instance=${_pcInstanceCounter++}`);
+
+    const api = {
+        _pcAcquire: pc._pcAcquire,
+        _pcRelease: pc._pcRelease,
+        get el() { return pc._pcEl; },
+        get sel() { return pc._pcSel; },
+        get react() { return pc._pcReactive; },
+        get intens() { return pc._pcIntensity; },
+        get reason() { return pc._pcReason; },
+        get refs() { return pc._pcRefs; },
+    };
+
+    const sandbox = {
+        window: win,
+        set _venueSceneOverride(v) { _venueSetSceneOverride(!!v); },
+    };
     const fireScreenChanged = () => (bus['screen:changed'] || []).slice().forEach((fn) => fn());
     const screenHooks = () => (bus['screen:changed'] || []).length;
-    return { api, dom, store, emit, writes, timers, sandbox, listenerCount: () => listeners.size, fireScreenChanged, screenHooks };
+    // Round-trips through real coercion on both sides, same as a real
+    // setter (_bgWriteGlobal stringifies) + a real reader (_bgReadGlobal
+    // parses back to a bool/float/enum) would — so a plain
+    // `store.reactive = false` here behaves exactly like flipping the
+    // control in the browser, not like poking a raw identity-stubbed object.
+    const store = new Proxy({}, {
+        get: (_t, key) => _bgReadGlobal(key),
+        set: (_t, key, value) => { _bgMemFallback[key] = String(value); return true; },
+    });
+    return {
+        api, pc, dom, store, emit: _bgEmitChange, writes, timers, sandbox,
+        listenerCount: () => _bgListeners.size, fireScreenChanged, screenHooks,
+    };
 }
 
-// _bgReadSetting + _bgReadGlobal moved to src/settings/store.js in the
-// screen.js -> src/ module split (Stage 4); real-import them rather than
-// slicing their source text out of a vm sandbox -- they're genuinely
-// side-effect-free exports now, so there's no reason not to. The stubbed
-// `_bgCoerce: (_key, v) => v` identity trick from the old vm version is no
-// longer available (real _bgCoerce is a real internal dependency, not an
-// injectable global), so every value used below is a real BG_STYLE_IDS
-// member -- coercion passes them through unchanged, same effective test.
-test('_bgReadGlobal reads the global slot, ignoring per-panel overrides', async () => {
-    const { _bgReadSetting: bgReadSetting, _bgReadGlobal: bgReadGlobal, _bgMemFallback: bgMemFallback } =
-        await import('../src/settings/store.js');
-
-    const storage = new Map();
-    const realLocalStorage = globalThis.localStorage;
-    globalThis.localStorage = { getItem: (k) => (storage.has(k) ? storage.get(k) : null) };
-    try {
-        storage.set('h3d_bg_style', 'lights');            // global
-        storage.set('h3d_bg_panel3_style', 'geometric');  // a per-panel override
-
-        // The renderer, reading with a panel key, honours the per-panel override...
-        assert.equal(bgReadSetting('panel3', 'style'), 'geometric');
-        // ...but the shared control's global read must NOT see it - this is the
-        // whole point of #2 (previously _bgReadSetting(null, ...) relied on
-        // 'h3d_bg_null_style' never existing).
-        assert.equal(bgReadGlobal('style'), 'lights');
-
-        // In-memory staged value wins over the persisted global (matches
-        // _bgReadSetting's precedence). Must be a real BG_STYLE_IDS member
-        // ('butterchurn') since real _bgCoerce is in the loop now.
-        bgMemFallback.style = 'butterchurn';
-        assert.equal(bgReadGlobal('style'), 'butterchurn');
-        delete bgMemFallback.style;
-
-        // Nothing stored -> BG_DEFAULTS.
-        assert.equal(bgReadGlobal('style'), 'lights');
-        storage.delete('h3d_bg_style');
-        assert.equal(bgReadGlobal('style'), 'particles');
-    } finally {
-        globalThis.localStorage = realLocalStorage;
-        delete bgMemFallback.style;   // in case an assertion above threw mid-test
-    }
-});
-
-test('mounts one control into the player-control slot', () => {
-    const { api, dom } = load();
+test('mounts one control into the player-control slot', async () => {
+    const { api, dom } = await load();
     api._pcAcquire();
     assert.equal(dom.slot.children.length, 1);
     assert.ok(api.sel, 'style dropdown was not created');
     assert.equal(api.sel.children.length, BG_STYLE_IDS.length, 'one option per style');
 });
 
-test('multiple renderer instances share a single control', () => {
-    const { api, dom } = load();
+test('multiple renderer instances share a single control', async () => {
+    const { api, dom } = await load();
     api._pcAcquire();
     api._pcAcquire();
     api._pcAcquire();
@@ -255,8 +233,8 @@ test('multiple renderer instances share a single control', () => {
     assert.equal(api.el, null);
 });
 
-test('binds the screen hook on a retry when the bus was not ready at acquire', () => {
-    const ctl = load();
+test('binds the screen hook on a retry when the bus was not ready at acquire', async () => {
+    const ctl = await load();
     // Cold load: on a fresh page the renderer can init before the event bus is
     // wired AND before the rail popover exists. Simulate both being absent.
     const savedOn = ctl.sandbox.window.feedBack.on;
@@ -278,8 +256,8 @@ test('binds the screen hook on a retry when the bus was not ready at acquire', (
     ctl.api._pcRelease();
 });
 
-test('the last release unbinds the screen:changed hook', () => {
-    const ctl = load();
+test('the last release unbinds the screen:changed hook', async () => {
+    const ctl = await load();
     ctl.api._pcAcquire();
     assert.equal(ctl.screenHooks(), 1, 'acquire should subscribe once');
 
@@ -298,24 +276,24 @@ test('the last release unbinds the screen:changed hook', () => {
     ctl.api._pcRelease();
 });
 
-test('teardown unsubscribes from the settings bus', () => {
-    const ctl = load();
+test('teardown unsubscribes from the settings bus', async () => {
+    const ctl = await load();
     ctl.api._pcAcquire();
     assert.equal(ctl.listenerCount(), 1);
     ctl.api._pcRelease();
     assert.equal(ctl.listenerCount(), 0, 'listener leaked after unmount');
 });
 
-test('tracks changes made from the Settings page', () => {
-    const { api, store, emit } = load();
+test('tracks changes made from the Settings page', async () => {
+    const { api, store, emit } = await load();
     api._pcAcquire();
     store.style = 'lights';
     emit('style');
     assert.equal(api.sel.value, 'lights');
 });
 
-test('custom media options stay disabled until something is uploaded', () => {
-    const { api, store, emit } = load();
+test('custom media options stay disabled until something is uploaded', async () => {
+    const { api, store, emit } = await load();
     api._pcAcquire();
     assert.equal(api.sel.querySelector('option[value="image"]').disabled, true);
     store.customImageDataUrl = 'data:image/png;base64,AAAA';
@@ -324,8 +302,8 @@ test('custom media options stay disabled until something is uploaded', () => {
     assert.equal(api.sel.querySelector('option[value="video"]').disabled, true, 'video is independent');
 });
 
-test('re-mounts into a fresh slot when the player chrome is rebuilt', () => {
-    const { api, dom, sandbox, listenerCount } = load();
+test('re-mounts into a fresh slot when the player chrome is rebuilt', async () => {
+    const { api, dom, sandbox, listenerCount } = await load();
     api._pcAcquire();
     const first = api.el;
 
@@ -340,8 +318,8 @@ test('re-mounts into a fresh slot when the player chrome is rebuilt', () => {
     assert.equal(listenerCount(), 1, 'remount must not double-subscribe');
 });
 
-test('a non-v3 host mounts nothing (uiVersion gate)', () => {
-    const ctl = load();
+test('a non-v3 host mounts nothing (uiVersion gate)', async () => {
+    const ctl = await load();
     ctl.sandbox.window.feedBack.uiVersion = 'v2';   // pre-v3 shell
     ctl.api._pcAcquire();
     assert.equal(ctl.api.el, null, 'must not mount when uiVersion is not v3');
@@ -352,8 +330,8 @@ test('a non-v3 host mounts nothing (uiVersion gate)', () => {
     ctl.api._pcRelease();
 });
 
-test('a host with no player-control slot mounts nothing and does not throw', () => {
-    const { api, dom, sandbox, timers } = load();
+test('a host with no player-control slot mounts nothing and does not throw', async () => {
+    const { api, dom, sandbox, timers } = await load();
     sandbox.window.feedBack.ui = {};
     api._pcAcquire();
     assert.equal(api.el, null);
@@ -364,8 +342,8 @@ test('a host with no player-control slot mounts nothing and does not throw', () 
     assert.ok(guard < 100, 'retry loop did not terminate');
 });
 
-test('intensity writes once on release, not on every drag step', () => {
-    const { api, writes } = load();
+test('intensity writes once on release, not on every drag step', async () => {
+    const { api, writes } = await load();
     api._pcAcquire();
     for (const v of ['0.10', '0.20', '0.30', '0.40', '0.50']) {
         api.intens.value = v;
@@ -378,8 +356,8 @@ test('intensity writes once on release, not on every drag step', () => {
         'releasing must write exactly once');
 });
 
-test('the dropdown and Reactive pill drive the real setters', () => {
-    const { api, store, writes } = load();
+test('the dropdown and Reactive pill drive the real setters', async () => {
+    const { api, store, writes } = await load();
     api._pcAcquire();
     api.sel.value = 'geometric';
     api.sel.fire('change');
@@ -391,8 +369,8 @@ test('the dropdown and Reactive pill drive the real setters', () => {
     assert.ok(writes.some((w) => w[0] === 'reactive'));
 });
 
-test('exposes state and reasons to assistive tech', () => {
-    const ctl = load({ store: { style: 'image', reactive: true } });   // image: reactive inert
+test('exposes state and reasons to assistive tech', async () => {
+    const ctl = await load({ store: { style: 'image', reactive: true } });   // image: reactive inert
     ctl.api._pcAcquire();
 
     // The reason live-region must be a REAL mounted element with the id the
@@ -434,8 +412,8 @@ test('exposes state and reasons to assistive tech', () => {
     ctl.api._pcRelease();
 });
 
-test('greys out exactly the controls each style ignores', () => {
-    const { api, store, emit } = load();
+test('greys out exactly the controls each style ignores', async () => {
+    const { api, store, emit } = await load();
     api._pcAcquire();
     for (const [style, want] of Object.entries(EXPECTED_USES)) {
         store.style = style;
@@ -445,8 +423,8 @@ test('greys out exactly the controls each style ignores', () => {
     }
 });
 
-test('the Venue override greys the whole Background group', () => {
-    const ctl = load({ store: { style: 'particles' } });   // a style that uses both
+test('the Venue override greys the whole Background group', async () => {
+    const ctl = await load({ store: { style: 'particles' } });   // a style that uses both
     ctl.api._pcAcquire();
     assert.equal(ctl.api.intens.disabled, false, 'precondition: both enabled off-venue');
     assert.equal(ctl.api.react.disabled, false);
@@ -487,17 +465,29 @@ test('the Venue override greys the whole Background group', () => {
     ctl.api._pcRelease();
 });
 
-test('an unknown style enables both controls (fails open)', () => {
-    const { api, store, emit } = load();
+// A real (coerced) settings value can never actually reach _pcSync outside
+// BG_STYLE_IDS -- _bgReadGlobal/_bgCoerce reject anything not in that list
+// and fall back to the default. The scenario this guards is narrower and
+// more realistic: a style gets added to BG_STYLE_IDS (so it can genuinely be
+// the effective style) before its _PC_USES row is written. Exercise that by
+// deleting a real, valid style's row rather than injecting a bogus id.
+test('an unknown style enables both controls (fails open)', async () => {
+    const { api, pc, store, emit } = await load();
     api._pcAcquire();
-    store.style = 'some_future_style';
-    emit('style');
-    assert.equal(api.intens.disabled, false);
-    assert.equal(api.react.disabled, false);
+    const saved = pc._PC_USES.particles;
+    delete pc._PC_USES.particles;
+    try {
+        store.style = 'particles';
+        emit('style');
+        assert.equal(api.intens.disabled, false);
+        assert.equal(api.react.disabled, false);
+    } finally {
+        pc._PC_USES.particles = saved;
+    }
 });
 
-test('greyed-out controls cannot reach the setters', () => {
-    const { api, store, emit, writes } = load();
+test('greyed-out controls cannot reach the setters', async () => {
+    const { api, store, emit, writes } = await load();
     api._pcAcquire();
     store.style = 'video';           // uses neither setting
     emit('style');
@@ -507,8 +497,8 @@ test('greyed-out controls cannot reach the setters', () => {
     assert.equal(writes.length, before, 'an inert control must not write');
 });
 
-test('greyed-out controls explain themselves on hover', () => {
-    const { api, store, emit } = load();
+test('greyed-out controls explain themselves on hover', async () => {
+    const { api, store, emit } = await load();
     api._pcAcquire();
     store.style = 'butterchurn';
     emit('style');
@@ -521,8 +511,8 @@ test('greyed-out controls explain themselves on hover', () => {
 // non-disabled wrapper, and the disabled control must let the hover fall
 // through (pointer-events:none) — otherwise the "says why on hover" feature is
 // dead in the browser while these tests pass on the swallowed control title.
-test('the greyed-out reason reaches a hoverable wrapper', () => {
-    const { api, store, emit } = load();
+test('the greyed-out reason reaches a hoverable wrapper', async () => {
+    const { api, store, emit } = await load();
     api._pcAcquire();
     store.style = 'video';           // uses neither setting
     emit('style');
