@@ -3,3 +3,9 @@ node_modules/
 __pycache__/
 *.pyc
 src/.tmp-test-*
+
+# Local song libraries used for perf capture (scripts/perf-baseline.mjs needs a
+# real chart, so DLC_DIR gets pointed at this directory). These are tens of MB
+# each and must never be committed.
+*.feedpak
+*.sloppak
