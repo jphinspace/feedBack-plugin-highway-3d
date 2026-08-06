@@ -67,12 +67,19 @@ import { _ssActive, _ssIsCanvasFocused } from './core/splitscreen.js';
 import { nextInstanceId } from './core/instance-id.js';
 import { _registerTunerShortcut } from './ui/shortcuts.js';
 import { _aspectPaneKey, _aspectRegisterPane, _resolveTuneFor, nextPaneCounter } from './ui/aspect-panel.js';
+import { BG_DEFAULTS, BG_STYLE_IDS, _bgBackgroundColors, _bgHighwayColors } from './settings/defaults.js';
+import {
+    _bgEmitChange, _bgHasStored, _bgMemFallback, _bgPanelKey, _bgReadGlobal, _bgReadSetting,
+    _bgSubscribe, _bgUnsubscribe, _freeCamFor,
+} from './settings/store.js';
+import { installGlobals } from './globals.js';
 
 // Restore the persisted fret-spacing mode before anything renders. Must
 // run before the factory is ever used -- see initFretSpacing()'s doc
 // comment in core/fret-geometry.js for why this can't be a module-scope
 // side effect inside that file itself.
 initFretSpacing();
+installGlobals();
 
 /* ======================================================================
  *  Constants
@@ -749,8 +756,6 @@ function _bcCreateController(wrap, sizeProvider, audioProvider) {
 }
 
 // ── 3D preview: lookahead fret bounds + smoothed focal X / span ─────────
-/** User-selectable via `cameraMode`. Legacy `classic` in storage maps to `steady`. */
-const CAMERA_MODE_IDS = ['steady', 'lookahead'];
 
 window.h3dSetFretSpacing = mode => {
     // Validate against the two supported modes before persisting so an
@@ -990,91 +995,6 @@ function _bgReadBands() {
     return _bgBandsCache;
 }
 
-const BG_DEFAULTS = { style: 'particles', intensity: 0.5, reactive: true, palette: 'default', bgTheme: 'default', hwTheme: 'default', showFretOnNote: true, fretNumberGhostScope: 'chords', cameraSmoothing: 0.5, zoomSmoothing: 0.5, tiltSmoothing: 0.5, cameraLockLow: false, cameraLockZoom: 0.5, cameraMode: 'lookahead', nutHeadstockVisible: true, tuningLabelsVisible: true, nutColor: '#f5f3f0', headstockColor: '#d4b48a', textSize: 0.5, vibrancy: 0.85, glow: 0.25, customImageDataUrl: '', customImageName: '', customVideoName: '', chordDiagramVisible: true, chordDiagramSize: 0.5, chordDiagramPosition: 'tl', fretColumnMarkerCadence: 1, projectionVisible: true, inlayLabelsVisible: false, sectionLabelsOnHighway: false, sectionHudVisible: false, sectionHudPosition: 'tr', sectionHudSize: 0.5, toneHudVisible: false, toneHudPosition: 'tl', toneHudSize: 0.5, fpsVisible: false, fretDividersVisible: true, slideArrowApproachVisible: true, slideArrowNeckVisible: true, slideArrowChainPreviewVisible: true, hitFx: 0.7, sparks: true, cinematic: true, verdictMarks: true, timingFx: true, streakFx: true, bloom: true };
-// User-selectable, persistable bg styles — must mirror settings.html's
-// VALID_STYLES. 'venue' is deliberately NOT here: it is an internal effective
-// style reached only via _venueSceneOverride (the viz-picker Venue flow), so
-// _bgCoerce must reject a stored h3d_bg_style='venue' — otherwise venue could
-// mount outside that flow and settings.html (which can't represent 'venue')
-// would be unable to switch back. BG_STYLES still has a 'venue' renderer entry.
-const BG_STYLE_IDS = ['off', 'particles', 'silhouettes', 'lights', 'geometric', 'butterchurn', 'image', 'video'];
-// Scene color themes — TWO INDEPENDENT AXES sharing one palette family.
-// The combined `BG_THEMES` table below is the single source of truth; each
-// entry carries the colors for BOTH axes, but the two axes are selected and
-// applied SEPARATELY (two dropdowns, two settings keys):
-//   • BACKGROUND axis (setting key `bgTheme`) owns:
-//       clear — WebGL clear color (the empty background behind everything)
-//       fog   — distance fog tint (kept === clear so the horizon dissolves
-//               cleanly instead of showing a seam)
-//   • HIGHWAY axis (setting key `hwTheme`) owns:
-//       board   — the fretboard / highway-surface plane color
-//       lane    — the lit highway lane strip under the gems (optional)
-//       laneDim — the lane's dimmer alternating row (optional)
-// Because both axes read from the SAME id-set (the keys of this table), ANY
-// background id can mix with ANY highway id (e.g. Deep Focus background +
-// Cathode Green highway); picking the SAME id in both gives the original
-// "matched" combined look. _bgBackgroundColors()/_bgHighwayColors() below
-// are the per-axis accessors; both fall back to 'default' for unknown ids.
-// 'default' reproduces the original look byte-for-byte on BOTH axes, so
-// existing users (and anyone who never touches either setting) see no
-// change. A migration in _bgLoadSettings() makes an existing single-`bgTheme`
-// pick drive BOTH axes until the user diverges them, so upgrades are
-// visually identical too. All themes keep the board very dark and the
-// background dark so the bright per-string note gems, lane, and labels
-// retain contrast. NOTE: settings.html mirrors these ids in its
-// VALID_BG_THEMES set (shared by both dropdowns) — keep them in sync.
-// Optional `lane` / `laneDim` fields retint the lit highway lane strip + its
-// dimmer alternating row. A theme that omits them falls back to the stock
-// blue lane (HWY_LANE_STRIPE_ODD_HEX / _EVEN_HEX); only 'default' relies on
-// that fallback (so its output stays byte-identical). Every other theme sets
-// its own lane so the Highway axis is visibly distinct entry-to-entry — the
-// near-black neutral boards alone aren't separable, so the lane carries it.
-// See _applyBgTheme().
-const BG_THEMES = {
-    default:    { clear: 0x101820, fog: 0x101820, board: 0x08080e },
-    // Cool navy surface + a brighter pure-blue lane, so it reads distinct
-    // from 'default' (neutral board + stock teal-blue lane) on the Highway axis.
-    midnight:   { clear: 0x0a0e1a, fog: 0x0a0e1a, board: 0x080d1c, lane: 0x244fae, laneDim: 0x122a5e },
-    // Lighter NEUTRAL-grey surface + a steel-grey lane — the only mid-dark
-    // neutral board, so the surface itself is visibly different from the
-    // near-black neutrals around it (board kept dark enough for gem contrast).
-    charcoal:   { clear: 0x16181c, fog: 0x16181c, board: 0x141417, lane: 0x525a66, laneDim: 0x282d34 },
-    deeppurple: { clear: 0x140a1e, fog: 0x140a1e, board: 0x0b0610, lane: 0x3a1f6e, laneDim: 0x1f1040 },
-    forest:     { clear: 0x0a1614, fog: 0x0a1614, board: 0x06100c, lane: 0x15602a, laneDim: 0x0a3318 },
-    // Warm dark neutral (espresso/umber) — the first non-cool scene.
-    warmslate:  { clear: 0x1c130b, fog: 0x1c130b, board: 0x0e0805, lane: 0x5e3a12, laneDim: 0x341f0a },
-    // Recessive near-black neutral (a hair above #000000, ~zero chroma) —
-    // maximizes gem-vs-board contrast; a clean stage/stream look. Purest-dark
-    // board + a clean steel-cyan lane (brighter/cooler than 'default's muted
-    // teal-blue) so the Highway axis reads clearly distinct from default.
-    deepfocus:  { clear: 0x0c0c0d, fog: 0x0c0c0d, board: 0x060606, lane: 0x2f7fa0, laneDim: 0x163c4e },
-    // Calm dark teal — blue-dominant so it reads distinct from the navy
-    // 'midnight' and the green 'forest'.
-    deepsea:    { clear: 0x06222b, fog: 0x06222b, board: 0x03141a, lane: 0x0e5a63, laneDim: 0x063338 },
-    // Retro CRT glow — a warm AMBER phosphor cast (the classic amber
-    // terminal). Amber rather than green so a phosphor board can't crush
-    // green/teal gems, and so it stays clearly distinct from 'forest' and
-    // 'deepsea'. Board stays very dark / low-chroma to keep gems popping.
-    cathode:    { clear: 0x140b03, fog: 0x140b03, board: 0x0c0702, lane: 0x6e4a0e, laneDim: 0x3a2806 },
-    // Retro CRT GREEN phosphor — leaned more saturated / cyan-green than
-    // 'forest' so it reads as a terminal, not woodland (dRGB 35 vs forest,
-    // 32 vs deepsea). Phosphor-green board + green lane. Verified to keep
-    // green/teal gems legible (green-on-green floor CR ~2.2).
-    cathodegreen: { clear: 0x07301a, fog: 0x07301a, board: 0x031a0c, lane: 0x0e6e2a, laneDim: 0x073a18 },
-    // Warm hearth — the first warm-RED scene, pairs with the Ember/Sunrise
-    // strings. Deep red, pushed away from the amber 'cathode'/'warmslate'
-    // (dRGB ~26 from cathode). Ember-red lane.
-    hearth:     { clear: 0x280806, fog: 0x280806, board: 0x1a0606, lane: 0x7a2410, laneDim: 0x3f1409 },
-};
-const BG_THEME_IDS = Object.keys(BG_THEMES);
-// Shared lookup for the combined entry (both axes are keyed by the same id
-// set, so a single id list / coerce check validates either axis).
-function _bgThemeColors(id) { return BG_THEMES[id] || BG_THEMES.default; }
-// Per-axis accessors. Background reads clear/fog; highway reads
-// board/lane/laneDim. They alias the same table — splitting at read-time
-// keeps one source of truth while letting the two dropdowns pick freely.
-function _bgBackgroundColors(id) { return _bgThemeColors(id); }
-function _bgHighwayColors(id) { return _bgThemeColors(id); }
 const VENUE_SCENE_ASSET_BASE = '/static/assets/venue/themes/small-club/';
 const VENUE_BG_PLATE_PNG = 'bg-plate.png';
 const VENUE_BG_PLATE_WEBP = 'bg-plate.webp';
@@ -1300,299 +1220,7 @@ function _venueSwapPlateIfNeeded(s) {
         },
     );
 }
-const FRET_NUMBER_GHOST_SCOPE_IDS = ['chords', 'all'];
 
-/**
- * localStorage panel key for per-panel background settings ('main' or
- * 'panel<index>'). Defensive on the splitscreen global-name rename in flight,
- * and throw-safe on panelIndexFor — same as _freeCamFor — so a misbehaving
- * splitscreen build can't take down background-settings resolution. Only a
- * non-negative integer index yields a 'panel<N>' key; anything else (null,
- * NaN, negative, non-integer) falls back to 'main' so a bad index can never
- * mint a bogus "panelNaN"-style key.
- * @param {HTMLCanvasElement} canvas this renderer's highway canvas
- * @returns {string} 'main' or 'panel<index>'
- */
-function _bgPanelKey(canvas) {
-    const ss = window.feedBackSplitscreen || window.slopsmithSplitscreen;
-    let idx = null;
-    if (ss && typeof ss.panelIndexFor === 'function') {
-        try { idx = ss.panelIndexFor(canvas); } catch (e) { idx = null; }
-    }
-    return (Number.isInteger(idx) && idx >= 0) ? 'panel' + idx : 'main';
-}
-
-/**
- * Camera Director bridge resolver. Prefers THIS panel's per-panel camera under
- * splitscreen (window.__h3dCamCtlPanels[panelIndex]) and falls back to the
- * single global (window.__h3dCamCtl); returns null when Camera Director is
- * absent → 100% stock framing. Defensive on the splitscreen global-name rename
- * in flight (feedBackSplitscreen vs slopsmithSplitscreen); throw-safe on
- * panelIndexFor. Mirrors the panel resolution in _bgPanelKey.
- * @param {HTMLCanvasElement} canvas this renderer's highway canvas
- * @returns {object|null} the resolved free-camera bridge, or null
- */
-function _freeCamFor(canvas) {
-    const map = window.__h3dCamCtlPanels;
-    if (map) {
-        const ss = window.feedBackSplitscreen || window.slopsmithSplitscreen;
-        if (ss && typeof ss.panelIndexFor === 'function') {
-            try {
-                const i = ss.panelIndexFor(canvas);
-                // Only a non-negative integer indexes the map (same hardening
-                // as _bgPanelKey) — a non-int / negative / string index must not
-                // resolve an unintended/inherited property; fall through then.
-                if (Number.isInteger(i) && i >= 0 && map[i]) return map[i];
-            } catch (e) { /* ignore */ }
-        }
-    }
-    return window.__h3dCamCtl || null;
-}
-// In-memory fallback for when localStorage is blocked (private mode,
-// sandboxed iframes, some test runners). _bgWriteGlobal stages the
-// value here unconditionally, so it always reflects the most recent
-// in-session intent — _bgReadSetting prefers it over the global
-// localStorage slot to avoid serving a stale persisted value when
-// a write failed silently (quota exceeded, etc.). Per-panel
-// localStorage overrides still win because they're an explicit
-// per-instance opt-out and shouldn't be shadowed by a global edit.
-const _bgMemFallback = Object.create(null);
-function _bgReadSetting(panelKey, key) {
-    let panelVal = null;
-    let globalVal = null;
-    try {
-        // 'palette' + 'customColors' are GLOBAL-only: the per-panel palette
-        // control was removed in favour of the global "Highway String Colors"
-        // UI, so a panel must never be shadowed by a stale per-panel override
-        // (h3d_bg_panel<idx>_palette / _customColors). Neither is a
-        // BG_DEFAULTS key, so per-panel scoping never applied to them.
-        if (key !== 'palette' && key !== 'customColors') {
-            panelVal = localStorage.getItem('h3d_bg_' + panelKey + '_' + key);
-        }
-        globalVal = localStorage.getItem('h3d_bg_' + key);
-    } catch (_) { /* storage blocked — both stay null */ }
-    if (panelVal !== null && panelVal !== undefined) return _bgCoerce(key, panelVal);
-    // Prefer the in-memory staged value over the persisted global slot.
-    // _bgWriteGlobal always writes to _bgMemFallback first, so the
-    // memory value is at least as fresh as the persisted one.
-    if (key in _bgMemFallback) return _bgCoerce(key, _bgMemFallback[key]);
-    if (globalVal !== null && globalVal !== undefined) return _bgCoerce(key, globalVal);
-    return BG_DEFAULTS[key];
-}
-// Read a setting's GLOBAL value, ignoring any per-panel override. The
-// player-chrome control is a single shared instance, so it must always
-// read (and write) the global slot. Passing null as a panelKey to
-// _bgReadSetting happened to work only because 'h3d_bg_null_<key>' never
-// exists; this states the intent directly and can't be shadowed if a
-// panelKey of null is ever used deliberately. Mirrors the global half of
-// _bgReadSetting exactly (mem-fallback precedence, then persisted, then
-// default).
-function _bgReadGlobal(key) {
-    let globalVal = null;
-    try { globalVal = localStorage.getItem('h3d_bg_' + key); } catch (_) { /* storage blocked */ }
-    if (key in _bgMemFallback) return _bgCoerce(key, _bgMemFallback[key]);
-    if (globalVal !== null && globalVal !== undefined) return _bgCoerce(key, globalVal);
-    return BG_DEFAULTS[key];
-}
-// Shared "stored string -> bool" coercion for every boolean
-// setting. Mirrors settings.html's coerceBool so the renderer and
-// the UI hydration always agree on what a corrupted/unknown value
-// means (fall back to default rather than silently flipping to
-// false). Add new boolean keys to BG_DEFAULTS and they pick this
-// up via the dispatch below.
-const _BG_BOOL_KEYS = new Set(['reactive', 'showFretOnNote', 'cameraLockLow', 'inlayLabelsVisible', 'sectionLabelsOnHighway', 'sectionHudVisible', 'nutHeadstockVisible', 'tuningLabelsVisible', 'projectionVisible', 'chordDiagramVisible', 'fpsVisible', 'toneHudVisible', 'fretDividersVisible', 'slideArrowApproachVisible', 'slideArrowNeckVisible', 'slideArrowChainPreviewVisible', 'sparks', 'cinematic', 'verdictMarks', 'timingFx', 'streakFx', 'bloom']);
-function _bgCoerceBool(val, fallback) {
-    if (val === 'true' || val === '1') return true;
-    if (val === 'false' || val === '0') return false;
-    return fallback;
-}
-// Settings stored as 0..1 floats. cameraSmoothing controls X-pan
-// hysteresis; zoomSmoothing the zoom dead zone; tiltSmoothing the
-// vertical-tilt deadband + correction strength. All three slider-
-// shaped settings share the same parse + clamp behaviour.
-const _BG_FLOAT_KEYS = new Set(['intensity', 'cameraSmoothing', 'zoomSmoothing', 'tiltSmoothing', 'cameraLockZoom', 'textSize', 'vibrancy', 'glow', 'chordDiagramSize', 'sectionHudSize', 'toneHudSize', 'hitFx']);
-function _bgCoerce(key, val) {
-    if (_BG_FLOAT_KEYS.has(key)) {
-        const n = parseFloat(val);
-        return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : BG_DEFAULTS[key];
-    }
-    if (_BG_BOOL_KEYS.has(key)) return _bgCoerceBool(val, BG_DEFAULTS[key]);
-    if (key === 'style') return BG_STYLE_IDS.includes(val) ? val : BG_DEFAULTS.style;
-    if (key === 'palette') return (PALETTE_IDS.includes(val) || val === 'custom') ? val : BG_DEFAULTS.palette;
-    if (key === 'bgTheme') return BG_THEME_IDS.includes(val) ? val : BG_DEFAULTS.bgTheme;
-    // Highway axis shares the same id-set as the background axis.
-    if (key === 'hwTheme') return BG_THEME_IDS.includes(val) ? val : BG_DEFAULTS.hwTheme;
-    if (key === 'chordDiagramPosition')
-        return CHORD_DIAG_POSITION_IDS.includes(val) ? val : BG_DEFAULTS.chordDiagramPosition;
-    if (key === 'sectionHudPosition')
-        return ['tl', 'tr', 'bl', 'br'].includes(val) ? val : BG_DEFAULTS.sectionHudPosition;
-    if (key === 'toneHudPosition')
-        return ['tl', 'tr', 'bl', 'br'].includes(val) ? val : BG_DEFAULTS.toneHudPosition;
-    if (key === 'cameraMode') {
-        if (val === 'classic') val = 'steady';
-        return CAMERA_MODE_IDS.includes(val) ? val : BG_DEFAULTS.cameraMode;
-    }
-    if (key === 'fretNumberGhostScope')
-        return FRET_NUMBER_GHOST_SCOPE_IDS.includes(val) ? val : BG_DEFAULTS.fretNumberGhostScope;
-    if (key === 'nutColor' || key === 'headstockColor') {
-        if (typeof val !== 'string') return BG_DEFAULTS[key];
-        const t = val.trim();
-        if (/^#[0-9a-fA-F]{6}$/.test(t)) return t.toLowerCase();
-        return BG_DEFAULTS[key];
-    }
-    if (key === 'fretColumnMarkerCadence') {
-        const n = parseInt(val, 10);
-        if (!Number.isFinite(n)) return BG_DEFAULTS.fretColumnMarkerCadence;
-        return Math.max(0, Math.min(16, n));
-    }
-    return val;
-}
-
-// Mirror-at-first-read fallback: returns true if the user has ever
-// explicitly written `key` (per-panel, in-memory, or global). When
-// false, callers should treat the value as "unset" — useful for
-// zoomSmoothing / tiltSmoothing which inherit cameraSmoothing's
-// value the first time they're read so existing users who calmed
-// the camera don't lose calmness on the new axes by default.
-function _bgHasStored(panelKey, key) {
-    try {
-        if (localStorage.getItem('h3d_bg_' + panelKey + '_' + key) != null) return true;
-    } catch (_) {}
-    if (key in _bgMemFallback) return true;
-    try {
-        if (localStorage.getItem('h3d_bg_' + key) != null) return true;
-    } catch (_) {}
-    return false;
-}
-function _bgWriteGlobal(key, val) {
-    const s = String(val);
-    // Stage in memory FIRST so _bgReadSetting's "memory beats global
-    // localStorage" precedence has a true freshness guarantee even
-    // if localStorage.setItem throws partway through. Without this
-    // ordering, a quota exception thrown after the persisted slot
-    // was already mutated would leave a stale value in localStorage
-    // that's newer than _bgMemFallback.
-    _bgMemFallback[key] = s;
-    try { localStorage.setItem('h3d_bg_' + key, s); } catch (_) { /* storage blocked */ }
-    _bgEmitChange(key);
-}
-
-// Pub-sub so settings.html can update live across all panel instances.
-const _bgListeners = new Set();
-function _bgSubscribe(fn) { _bgListeners.add(fn); }
-function _bgUnsubscribe(fn) { _bgListeners.delete(fn); }
-function _bgEmitChange(key) {
-    for (const fn of _bgListeners) {
-        try { fn(key); } catch (e) { console.error('[3D-Hwy] bg listener threw', e); }
-    }
-}
-
-// Settings.html setters — global keys; per-panel overrides via direct
-// localStorage edits today, runtime UI in a follow-up.
-window.h3dBgSetStyle = (v) => _bgWriteGlobal('style', v);
-window.h3dBgSetIntensity = (v) => _bgWriteGlobal('intensity', v);
-window.h3dBgSetReactive = (v) => _bgWriteGlobal('reactive', !!v);
-window.h3dBgSetPalette = (v) => _bgWriteGlobal('palette', v);
-// BACKGROUND scene-color axis (clear + fog only). Validated against
-// BG_THEME_IDS in _bgCoerce; the listener re-applies clear/fog live and
-// independently of the highway axis.
-window.h3dBgSetBgTheme = (v) => {
-    const s = String(v);
-    _bgWriteGlobal('bgTheme', BG_THEME_IDS.includes(s) ? s : BG_DEFAULTS.bgTheme);
-};
-// HIGHWAY scene-color axis (board + lane + laneDim). Same id-set as the
-// background axis, so any highway can mix with any background. The listener
-// re-applies the board plane + lane live and independently.
-window.h3dBgSetHwTheme = (v) => {
-    const s = String(v);
-    _bgWriteGlobal('hwTheme', BG_THEME_IDS.includes(s) ? s : BG_DEFAULTS.hwTheme);
-};
-// Apply a user-defined per-string color set (core theming UI). `hexArray`
-// is up to 8 hex strings; invalid/missing entries fall back to the default
-// palette per index. Writes the colors, then flips the palette to 'custom'
-// — the palette listener retints all materials + rebuilds the board live.
-// Pass null/[] then h3dBgSetPalette('default') to revert.
-window.h3dBgSetStringColors = (hexArray) => {
-    const arr = Array.isArray(hexArray) ? hexArray : [];
-    const norm = [];
-    for (let i = 0; i < MAX_RENDER_STRINGS; i++) {
-        const n = _h3dHexToInt(arr[i]);
-        norm[i] = (n != null) ? '#' + n.toString(16).padStart(6, '0') : null;
-    }
-    _bgWriteGlobal('customColors', JSON.stringify(norm));
-    _bgWriteGlobal('palette', 'custom');
-};
-window.h3dBgSetShowFretOnNote = (v) => _bgWriteGlobal('showFretOnNote', !!v);
-window.h3dBgSetFretNumberGhostScope = (v) => {
-    const s = String(v);
-    _bgWriteGlobal('fretNumberGhostScope', FRET_NUMBER_GHOST_SCOPE_IDS.includes(s) ? s : BG_DEFAULTS.fretNumberGhostScope);
-};
-window.h3dBgSetCameraSmoothing = (v) => _bgWriteGlobal('cameraSmoothing', v);
-window.h3dBgSetZoomSmoothing = (v) => _bgWriteGlobal('zoomSmoothing', v);
-window.h3dBgSetTiltSmoothing = (v) => _bgWriteGlobal('tiltSmoothing', v);
-window.h3dBgSetCameraLockLow = (v) => _bgWriteGlobal('cameraLockLow', !!v);
-window.h3dBgSetCameraLockZoom = (v) => _bgWriteGlobal('cameraLockZoom', v);
-window.h3dBgSetCameraMode = (v) => {
-    let s = String(v);
-    if (s === 'classic') s = 'steady';
-    _bgWriteGlobal('cameraMode', s);
-};
-window.h3dBgSetNutHeadstockVisible = (v) => _bgWriteGlobal('nutHeadstockVisible', !!v);
-window.h3dBgSetTuningLabelsVisible = (v) => _bgWriteGlobal('tuningLabelsVisible', !!v);
-window.h3dBgSetNutColor = (v) => _bgWriteGlobal('nutColor', v);
-window.h3dBgSetHeadstockColor = (v) => _bgWriteGlobal('headstockColor', v);
-window.h3dBgSetTextSize = (v) => _bgWriteGlobal('textSize', v);
-window.h3dBgSetVibrancy = (v) => _bgWriteGlobal('vibrancy', v);
-window.h3dBgSetGlow     = (v) => _bgWriteGlobal('glow', v);
-window.h3dBgSetHitFx        = (v) => _bgWriteGlobal('hitFx', v);
-window.h3dBgSetSparks       = (v) => _bgWriteGlobal('sparks', !!v);
-window.h3dBgSetCinematic    = (v) => _bgWriteGlobal('cinematic', !!v);
-window.h3dBgSetVerdictMarks = (v) => _bgWriteGlobal('verdictMarks', !!v);
-window.h3dBgSetTimingFx     = (v) => _bgWriteGlobal('timingFx', !!v);
-window.h3dBgSetStreakFx     = (v) => _bgWriteGlobal('streakFx', !!v);
-window.h3dBgSetBloom        = (v) => _bgWriteGlobal('bloom', !!v);
-window.h3dBgSetToneHudVisible   = (v) => _bgWriteGlobal('toneHudVisible', !!v);
-window.h3dBgSetToneHudPosition  = (v) => _bgWriteGlobal('toneHudPosition', v);
-window.h3dBgSetToneHudSize      = (v) => _bgWriteGlobal('toneHudSize', v);
-window.h3dBgSetFpsVisible           = (v) => _bgWriteGlobal('fpsVisible', !!v);
-window.h3dBgSetFretDividersVisible  = (v) => _bgWriteGlobal('fretDividersVisible', !!v);
-window.h3dBgSetChordDiagramVisible  = (v) => _bgWriteGlobal('chordDiagramVisible', !!v);
-window.h3dBgSetChordDiagramSize     = (v) => _bgWriteGlobal('chordDiagramSize', v);
-window.h3dBgSetChordDiagramPosition = (v) => _bgWriteGlobal('chordDiagramPosition', v);
-window.h3dBgSetFretColumnMarkerCadence = (v) => _bgWriteGlobal('fretColumnMarkerCadence', v);
-window.h3dBgSetInlayLabelsVisible = (v) => _bgWriteGlobal('inlayLabelsVisible', !!v);
-window.h3dBgSetSectionLabelsOnHighway = (v) => _bgWriteGlobal('sectionLabelsOnHighway', !!v);
-window.h3dBgSetSectionHudVisible      = (v) => _bgWriteGlobal('sectionHudVisible', !!v);
-window.h3dBgSetSectionHudPosition     = (v) => _bgWriteGlobal('sectionHudPosition', v);
-window.h3dBgSetSectionHudSize         = (v) => _bgWriteGlobal('sectionHudSize', v);
-window.h3dBgSetProjectionVisible      = (v) => _bgWriteGlobal('projectionVisible', !!v);
-window.h3dBgSetSlideArrowApproachVisible = (v) => _bgWriteGlobal('slideArrowApproachVisible', !!v);
-window.h3dBgSetSlideArrowNeckVisible     = (v) => _bgWriteGlobal('slideArrowNeckVisible', !!v);
-window.h3dBgSetSlideArrowChainPreviewVisible = (v) => _bgWriteGlobal('slideArrowChainPreviewVisible', !!v);
-// Custom image asset for the 'image' bg style (#19). Composite setter:
-// writes both the data URL (the bytes that drive the texture) and the
-// display filename, each emitting a change event. The listener
-// rebuilds on customImageDataUrl change when the image style is
-// active; customImageName is display-only and skips rebuild.
-window.h3dBgSetCustomImage = (asset) => {
-    const a = asset || {};
-    _bgWriteGlobal('customImageDataUrl', a.dataUrl || '');
-    _bgWriteGlobal('customImageName', a.name || '');
-};
-window.h3dBgClearCustomImage = () => {
-    _bgWriteGlobal('customImageDataUrl', '');
-    _bgWriteGlobal('customImageName', '');
-};
-// Custom video asset for the 'video' bg style (#19 follow-up).
-// Bytes live on disk under {config_dir}/plugin_uploads/highway_3d/
-// and are served by routes.py — localStorage only stores the
-// filename, which the renderer maps to the served URL. Single
-// global slot; the file picker in settings.html POSTs to the
-// upload route and then calls this setter with the response name.
-window.h3dBgSetCustomVideo = (asset) => {
-    _bgWriteGlobal('customVideoName', (asset && asset.name) || '');
-};
-window.h3dBgClearCustomVideo = () => _bgWriteGlobal('customVideoName', '');
 window.h3dVenueSceneSetActive = (on) => {
     const next = !!on;
     if (_venueSceneOverride === next) return;
@@ -1650,7 +1278,6 @@ window.h3dVenueSceneGetState = () => {
 };
 // Back-compat alias for any caller that picked up the original
 // (inconsistent) name during this PR's review window.
-window.h3dSetPalette = window.h3dBgSetPalette;
 
 // Procedural silhouette bitmap, drawn once and shared across panels.
 // The Canvas2D bitmap is module-level (cheap, CPU-only); each layer

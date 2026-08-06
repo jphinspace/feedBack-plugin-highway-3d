@@ -186,48 +186,47 @@ function load({ store: initialStore } = {}) {
     return { api, dom, store, emit, writes, timers, sandbox, listenerCount: () => listeners.size, fireScreenChanged, screenHooks };
 }
 
-// Slice the real _bgReadSetting + _bgReadGlobal out of screen.js and run them
-// against a localStorage stub. The main suite stubs both helpers identically,
-// so it can't tell the #2 refactor from a no-op; this one proves the actual
-// helper bodies differ where they must: _bgReadGlobal ignores a per-panel
-// override that _bgReadSetting(panelKey, ...) still honours.
-test('_bgReadGlobal reads the global slot, ignoring per-panel overrides', () => {
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
-    const rgStart = src.indexOf('function _bgReadSetting(panelKey, key) {');
-    const rgEnd = src.indexOf('// Shared "stored string -> bool" coercion');
-    assert.ok(rgStart !== -1 && rgEnd > rgStart, 'could not slice the read helpers');
-    const block = src.slice(rgStart, rgEnd);
+// _bgReadSetting + _bgReadGlobal moved to src/settings/store.js in the
+// screen.js -> src/ module split (Stage 4); real-import them rather than
+// slicing their source text out of a vm sandbox -- they're genuinely
+// side-effect-free exports now, so there's no reason not to. The stubbed
+// `_bgCoerce: (_key, v) => v` identity trick from the old vm version is no
+// longer available (real _bgCoerce is a real internal dependency, not an
+// injectable global), so every value used below is a real BG_STYLE_IDS
+// member -- coercion passes them through unchanged, same effective test.
+test('_bgReadGlobal reads the global slot, ignoring per-panel overrides', async () => {
+    const { _bgReadSetting: bgReadSetting, _bgReadGlobal: bgReadGlobal, _bgMemFallback: bgMemFallback } =
+        await import('../src/settings/store.js');
 
     const storage = new Map();
-    const sandbox = {
-        localStorage: { getItem: (k) => (storage.has(k) ? storage.get(k) : null) },
-        _bgCoerce: (_key, v) => v,           // identity: we test key resolution, not coercion
-        _bgMemFallback: Object.create(null),
-        BG_DEFAULTS: { style: 'particles' },
-    };
-    sandbox.globalThis = sandbox;
-    const api = vm.runInNewContext(block + '\n({ _bgReadSetting, _bgReadGlobal, _bgMemFallback })', sandbox);
+    const realLocalStorage = globalThis.localStorage;
+    globalThis.localStorage = { getItem: (k) => (storage.has(k) ? storage.get(k) : null) };
+    try {
+        storage.set('h3d_bg_style', 'lights');            // global
+        storage.set('h3d_bg_panel3_style', 'geometric');  // a per-panel override
 
-    storage.set('h3d_bg_style', 'lights');            // global
-    storage.set('h3d_bg_panel3_style', 'geometric');  // a per-panel override
+        // The renderer, reading with a panel key, honours the per-panel override...
+        assert.equal(bgReadSetting('panel3', 'style'), 'geometric');
+        // ...but the shared control's global read must NOT see it - this is the
+        // whole point of #2 (previously _bgReadSetting(null, ...) relied on
+        // 'h3d_bg_null_style' never existing).
+        assert.equal(bgReadGlobal('style'), 'lights');
 
-    // The renderer, reading with a panel key, honours the per-panel override...
-    assert.equal(api._bgReadSetting('panel3', 'style'), 'geometric');
-    // ...but the shared control's global read must NOT see it - this is the
-    // whole point of #2 (previously _bgReadSetting(null, ...) relied on
-    // 'h3d_bg_null_style' never existing).
-    assert.equal(api._bgReadGlobal('style'), 'lights');
+        // In-memory staged value wins over the persisted global (matches
+        // _bgReadSetting's precedence). Must be a real BG_STYLE_IDS member
+        // ('butterchurn') since real _bgCoerce is in the loop now.
+        bgMemFallback.style = 'butterchurn';
+        assert.equal(bgReadGlobal('style'), 'butterchurn');
+        delete bgMemFallback.style;
 
-    // In-memory staged value wins over the persisted global (matches
-    // _bgReadSetting's precedence).
-    api._bgMemFallback.style = 'aurora';
-    assert.equal(api._bgReadGlobal('style'), 'aurora');
-    delete api._bgMemFallback.style;
-
-    // Nothing stored -> BG_DEFAULTS.
-    assert.equal(api._bgReadGlobal('style'), 'lights');
-    storage.delete('h3d_bg_style');
-    assert.equal(api._bgReadGlobal('style'), 'particles');
+        // Nothing stored -> BG_DEFAULTS.
+        assert.equal(bgReadGlobal('style'), 'lights');
+        storage.delete('h3d_bg_style');
+        assert.equal(bgReadGlobal('style'), 'particles');
+    } finally {
+        globalThis.localStorage = realLocalStorage;
+        delete bgMemFallback.style;   // in case an assertion above threw mid-test
+    }
 });
 
 test('mounts one control into the player-control slot', () => {
