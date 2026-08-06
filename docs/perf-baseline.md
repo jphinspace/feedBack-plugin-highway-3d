@@ -24,16 +24,22 @@ node scripts/h3dbench.mjs --base http://127.0.0.1:8000 \
     --playwright ../feedBack
 ```
 
-**Always set `CONFIG_DIR` to a scratch directory, separate from a normal dev-loop
-boot.** Without it, core defaults `CONFIG_DIR` to `~/.local/share/feedback` and
-*persists* the `DLC_DIR` library scan there (`web_library.db`,
-`scan_dir_signature.json`) — so a perf capture against scratch/symlinked songs
-leaves the shared dev environment showing 404s for those songs' missing cover
-art on every later boot, breaking `check-errors`/`highway-3d-lefty` for reasons
-that have nothing to do with any code change. Learned the hard way capturing the
-Stage 7 baseline below: had to delete the two polluted files from the real
+**Always set `CONFIG_DIR` to a scratch directory whenever you also set
+`DLC_DIR`** — this applies beyond perf capture, to *any* manual boot against
+scratch/symlinked songs (e.g. verifying a change against a real chart with
+Playwright). Without it, core defaults `CONFIG_DIR` to `~/.local/share/feedback`
+and *persists* the library scan there (`web_library.db`,
+`scan_dir_signature.json`) — so that boot leaves the shared dev environment
+showing 404s for those songs' missing cover art on every later boot, breaking
+`check-errors`/`highway-3d-lefty` for reasons that have nothing to do with any
+code change. Hit this twice capturing/verifying Stage 7 (once for the perf
+baseline, once again for a real-chart check that reused the default
+`CONFIG_DIR`) — each time had to delete the two polluted files from the real
 `~/.local/share/feedback` and rescan clean before Playwright was trustworthy
-again.
+again. If you do need an isolated `CONFIG_DIR` for a one-off check, expect
+`/api/library/stats` to briefly 500 on a fresh/empty DB (a pre-existing core
+quirk, unrelated to this plugin) until the scan completes — harmless, and not
+a signal to chase.
 
 ## Baseline — commit 61d2253 (pre-Phase-1), 2026-08-06
 
