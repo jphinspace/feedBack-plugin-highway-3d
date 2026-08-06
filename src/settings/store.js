@@ -19,7 +19,7 @@ import { CHORD_DIAG_POSITION_IDS } from '../core/constants.js';
 /**
  * localStorage panel key for per-panel background settings ('main' or
  * 'panel<index>'). Defensive on the splitscreen global-name rename in flight,
- * and throw-safe on panelIndexFor — same as _freeCamFor — so a misbehaving
+ * and throw-safe on panelIndexFor — same as freeCamFor — so a misbehaving
  * splitscreen build can't take down background-settings resolution. Only a
  * non-negative integer index yields a 'panel<N>' key; anything else (null,
  * NaN, negative, non-integer) falls back to 'main' so a bad index can never
@@ -46,7 +46,7 @@ export function settingsPanelKey(canvas) {
  * @param {HTMLCanvasElement} canvas this renderer's highway canvas
  * @returns {object|null} the resolved free-camera bridge, or null
  */
-export function _freeCamFor(canvas) {
+export function freeCamFor(canvas) {
     const map = window.__h3dCamCtlPanels;
     if (map) {
         const ss = window.feedBackSplitscreen || window.slopsmithSplitscreen;

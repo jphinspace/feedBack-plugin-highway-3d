@@ -70,7 +70,7 @@ import { _aspectPaneKey, _aspectRegisterPane, _resolveTuneFor, nextPaneCounter }
 import { SETTING_DEFAULTS, BACKGROUND_STYLE_IDS, backgroundAxisColors, highwayAxisColors } from './settings/defaults.js';
 import {
     emitSettingChange, hasStoredSetting, settingsMemFallback, settingsPanelKey, readGlobalSetting, readSetting,
-    subscribeToSettings, unsubscribeFromSettings, _freeCamFor,
+    subscribeToSettings, unsubscribeFromSettings, freeCamFor,
 } from './settings/store.js';
 import { _venueCrowdVideos, _venueEffectiveMotionMode, _venueSceneOverride, _venueSwapPlateIfNeeded } from './background/venue.js';
 import { acquireBackgroundControl, releaseBackgroundControl } from './ui/player-chrome.js';
@@ -11350,7 +11350,7 @@ function createFactory() {
             ? _tune.startAspect : HORPLUS_START_ASPECT;
         // Resolve the Camera Director bridge once (per-panel under splitscreen,
         // else global). Used both for the wide-pane gate and the transforms below.
-        const _freeCam = _freeCamFor(highwayCanvas);
+        const _freeCam = freeCamFor(highwayCanvas);
         const _dirActive = !!(_freeCam && _freeCam.enabled);
         const _wide = !!(_tune && _paneAspect > _startAspect) && !_dirActive;
         const _poseHMul = (_wide && Number.isFinite(_tune.heightMul)) ? _tune.heightMul : 1;
@@ -11386,7 +11386,7 @@ function createFactory() {
         // position and the look-at transforms; every field is coerced to a
         // finite number before use so a malformed object can never feed NaN
         // into cam.position / cam.lookAt.
-        // _freeCam resolved above via _freeCamFor(highwayCanvas): the
+        // _freeCam resolved above via freeCamFor(highwayCanvas): the
         // per-panel __h3dCamCtlPanels entry, else global __h3dCamCtl, else null.
         const _lookAtZ = -FOCUS_D * 0.35 * _poseLookZMul;
         if (_freeCam && _freeCam.enabled) {
