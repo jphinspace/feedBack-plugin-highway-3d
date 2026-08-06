@@ -1,14 +1,41 @@
 // Contract test for 3D Highway per-panel control metadata (feedBack#247).
-// The plugin script is evaluated in a vm sandbox so factory statics are
-// tested without constructing a renderer instance or calling init().
+// The factory statics are read without constructing a renderer instance or
+// calling init().
+//
+// Ported from feedBack core's tests/js/highway_3d_panel_controls.test.js.
+// The original evaluated the whole plugin script in a `vm` sandbox via
+// `vm.runInContext` — that stopped working the moment screen.js -> src/
+// module split (Stage 0e) gave src/main.js top-level `import` statements:
+// `vm.runInContext` only executes classic (non-module) scripts and throws
+// "Cannot use import statement outside a module". This is exactly the
+// blocker the split plan called out in advance for whole-file-eval tests.
+//
+// The fix is a REAL dynamic `import()` of src/main.js as an ES module,
+// with `window`/`localStorage`/`performance` stubbed on `globalThis` first
+// (module top-level code runs in the ambient global scope, not a sandbox --
+// verified safe: main.js has exactly one top-level side effect, a
+// `localStorage.getItem` call, and never calls `init()`/`createFactory()`
+// eagerly). `node --test` runs each test file in its own process, so
+// stubbing globalThis here doesn't leak into other test files.
+//
+// main.js doesn't `export` BG_DEFAULTS (it's an entry script, not a
+// library), so this test needs it for the default-value cross-check below.
+// Same technique as the original vm version: inject one `export` line into
+// a COPY of the source (never the real file) right after the factory
+// registration anchor, write that copy to a sibling temp file inside src/
+// so its `./core/...` relative imports still resolve, import the temp file,
+// then delete it. The anchor-must-appear-exactly-once assertion is kept, so
+// a moved/renamed anchor still fails loudly rather than silently testing
+// nothing.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const { pathToFileURL } = require('node:url');
 
-const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
+const MAIN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
+const TMP_MAIN_JS = path.join(__dirname, '..', '..', 'src', '.tmp-test-panel-controls-main.mjs');
 
 // 'palette' was removed — per-string colors are now set via the core
 // "Highway String Colors" UI, which drives both highways by named string.
@@ -16,44 +43,33 @@ const REQUIRED_KEYS = ['cameraSmoothing', 'cameraLockLow', 'cameraLockZoom'];
 const FORBIDDEN_KEYS = ['customImageDataUrl', 'customImageName', 'customVideoName'];
 const VALID_TYPES = new Set(['select', 'range', 'toggle']);
 
-function loadHighway3dStatics() {
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
-    // Inject test exports right after the factory registration — a stable,
-    // semantic anchor inside the IIFE — so harmless footer edits (a trailing
-    // sourceMappingURL comment, extra whitespace, a different IIFE close
-    // style) do not break this contract test.
+async function loadHighway3dStatics() {
+    const src = fs.readFileSync(MAIN_JS, 'utf8');
     const ANCHOR = 'window.feedBackViz_highway_3d = createFactory;';
     assert.equal(
         src.split(ANCHOR).length - 1,
         1,
-        'expected exactly one factory-registration anchor in screen.js',
+        'expected exactly one factory-registration anchor in src/main.js',
     );
-    const instrumented = src.replace(
-        ANCHOR,
-        `${ANCHOR}\n    window.__h3dTestExports = { BG_DEFAULTS };`,
-    );
-    assert.notEqual(instrumented, src, 'test export injection anchor not found in screen.js');
+    const instrumented = src.replace(ANCHOR, `${ANCHOR}\nexport { BG_DEFAULTS };`);
+    assert.notEqual(instrumented, src, 'test export injection anchor not found in src/main.js');
 
-    const sandbox = {
-        console: {
-            error() {},
-            log() {},
-            warn() {},
-        },
-        localStorage: {
-            getItem() { return null; },
-            setItem() {},
-        },
-        performance: { now: () => 0 },
-        window: {
-            feedBackTour: {
-                register() {},
-            },
-        },
+    fs.writeFileSync(TMP_MAIN_JS, instrumented);
+    globalThis.window = {};
+    globalThis.localStorage = {
+        getItem() { return null; },
+        setItem() {},
     };
-    vm.createContext(sandbox);
-    vm.runInContext(instrumented, sandbox, { filename: SCREEN_JS });
-    return sandbox.window;
+    globalThis.performance = { now: () => 0 };
+    try {
+        // Cache-bust: a bare re-import of the same URL would hit Node's
+        // module cache and return the previous test run's instance.
+        const { BG_DEFAULTS } = await import(pathToFileURL(TMP_MAIN_JS).href + `?t=${Date.now()}`);
+        globalThis.window.__h3dTestExports = { BG_DEFAULTS };
+        return globalThis.window;
+    } finally {
+        fs.unlinkSync(TMP_MAIN_JS);
+    }
 }
 
 function cloneJson(value) {
@@ -77,8 +93,8 @@ function assertOptionObject(option, controlKey) {
     assert.ok(option.label.trim().length > 0, `${controlKey}.options label must not be blank`);
 }
 
-test('3D Highway exposes static panelControls descriptors for per-panel hosts', () => {
-    const window = loadHighway3dStatics();
+test('3D Highway exposes static panelControls descriptors for per-panel hosts', async () => {
+    const window = await loadHighway3dStatics();
     const factory = window.feedBackViz_highway_3d;
     assert.equal(typeof factory, 'function', 'screen.js must register the 3D Highway factory');
 

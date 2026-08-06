@@ -27,14 +27,16 @@ const src = fs.readFileSync(SCREEN_JS, 'utf8');
 
 // ── Zoom-dependent framing ──────────────────────────────────────────────────
 
-test('framing NEAR/FAR multiplier constants are defined', () => {
+test('framing NEAR/FAR multiplier constants are defined', async () => {
+    // These moved to src/core/consts.js in the screen.js -> src/ module split
+    // (Stage 1); real-import them rather than regexing their declarations.
+    const consts = await import('../../src/core/consts.js');
     for (const name of [
         'CAM_FRAME_DIST_NEAR', 'CAM_FRAME_DIST_FAR',
         'CAM_FRAME_H_NEAR', 'CAM_FRAME_H_FAR',
         'CAM_FRAME_D_NEAR', 'CAM_FRAME_D_FAR',
     ]) {
-        assert.match(src, new RegExp('const\\s+' + name + '\\s*='),
-            `${name} must be declared as a framing constant`);
+        assert.strictEqual(typeof consts[name], 'number', `${name} must be declared as a framing constant`);
     }
 });
 
@@ -76,11 +78,10 @@ test('framing multipliers are a clamped zoom-distance interpolation', () => {
 
 // ── Measure-based lookahead window ──────────────────────────────────────────
 
-test('lookahead window is expressed in measures with a seconds fallback', () => {
-    assert.match(src, /const\s+CAM_LOOKAHEAD_MEASURES\s*=\s*9\b/,
-        'CAM_LOOKAHEAD_MEASURES must default to 9');
-    assert.match(src, /const\s+CAM_LOOKAHEAD_SEC\s*=\s*3\.0\b/,
-        'CAM_LOOKAHEAD_SEC must stay as the no-beats fallback');
+test('lookahead window is expressed in measures with a seconds fallback', async () => {
+    const { CAM_LOOKAHEAD_MEASURES, CAM_LOOKAHEAD_SEC } = await import('../../src/core/consts.js');
+    assert.strictEqual(CAM_LOOKAHEAD_MEASURES, 9, 'CAM_LOOKAHEAD_MEASURES must default to 9');
+    assert.strictEqual(CAM_LOOKAHEAD_SEC, 3.0, 'CAM_LOOKAHEAD_SEC must stay as the no-beats fallback');
 });
 
 test('measure-start cache only keeps beats with measure >= 0', () => {
@@ -135,12 +136,12 @@ test('measure-start cache is invalidated on song change', () => {
 // when a tight, centred zoom (worst mid-neck) drops it below the lower-third
 // framing. camUpdate dollies the camera back via a capped, hysteretic boost.
 
-test('fret-row fit guard constants are defined', () => {
+test('fret-row fit guard constants are defined', async () => {
+    const consts = await import('../../src/core/consts.js');
     for (const name of [
         'FRET_ROW_FIT_NDC_MIN', 'FRET_ROW_FIT_DEADBAND', 'FRET_ROW_FIT_BOOST_MAX',
     ]) {
-        assert.match(src, new RegExp('const\\s+' + name + '\\s*='),
-            `${name} must be declared as a fit-guard constant`);
+        assert.strictEqual(typeof consts[name], 'number', `${name} must be declared as a fit-guard constant`);
     }
 });
 

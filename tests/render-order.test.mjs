@@ -1,4 +1,4 @@
-// Pins the renderOrder hierarchy in plugins/highway_3d/screen.js.
+// Pins the renderOrder hierarchy of the 3D highway renderer.
 //
 // Three.js renders transparent objects by renderOrder first, then back-to-front
 // Z sort within the same renderOrder. Nearly all 3D-highway materials use
@@ -30,53 +30,97 @@
 //   [renderOrderForLayerAtZ(0, BOARD_FRET_WIRE)] static fret wires (above strings, as on a real guitar)
 //   1000             technique labels, ghost-fret overlay
 //
-// Tests are source-level regex checks — no need to load Three.js or a DOM.
+// Ported from feedBack core's tests/js/highway_3d_render_order.test.js (via
+// this fork's tests/legacy/highway_3d_render_order.test.js) and upgraded to a
+// real ESM import as part of the screen.js -> src/ module split, Stage 1:
+// RENDER_ORDER_LAYER_STACK / RENDER_ORDER_LAYER_INDEX / RENDER_ORDER_AT_Z_ZERO
+// / RENDER_ORDER_FAR_CLAMP / renderOrderForLayerAtZ moved into
+// src/core/render-order.js, so the assertions that used to regex their
+// *declarations* out of screen.js now import and call them directly. The
+// remaining assertions regex renderOrder *call sites* (`lane.renderOrder = 1`,
+// `outline.renderOrder = renderOrderForLayerAtZ(noteZ, 'NOTE_OUTLINE')`, …)
+// inside update()/drawNote()/buildBoard() — those bodies haven't moved yet,
+// so they still live in src/main.js and stay regex-based here until the
+// stage that extracts them.
 //
-// Any PR that changes a renderOrder value must update the relevant test(s) here
-// and provide a visual justification in the PR description.
+// Any PR that changes a renderOrder value must update the relevant test(s)
+// here and provide a visual justification in the PR description.
 
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
 
-const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
+import {
+    RENDER_ORDER_LAYER_STACK,
+    RENDER_ORDER_LAYER_INDEX,
+    RENDER_ORDER_AT_Z_ZERO,
+    RENDER_ORDER_FAR_CLAMP,
+    renderOrderForLayerAtZ,
+} from '../src/core/render-order.js';
+import { K, FRET_WIRE_IDLE_HEX, FRET_WIRE_ACTIVE_HEX } from '../src/core/consts.js';
+
+const MAIN_JS = new URL('../src/main.js', import.meta.url);
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 let _src;
-/** Returns the cached 3D highway screen source under test. */
+/** Returns the cached renderer source under test (for call-site regexes). */
 function src() {
-    if (!_src) _src = fs.readFileSync(SCREEN_JS, 'utf8');
+    if (!_src) _src = fs.readFileSync(MAIN_JS, 'utf8');
     return _src;
-}
-
-/** Parses the declared render-order layer stack from screen.js. */
-function layers() {
-    const match = src().match(/const\s+RENDER_ORDER_LAYER_STACK\s*=\s*Object\.freeze\(\s*\[([\s\S]*?)\]\s*\)/);
-    assert.ok(match, 'RENDER_ORDER_LAYER_STACK must be declared');
-    return Array.from(match[1].matchAll(/'([^']+)'/g), m => m[1]);
 }
 
 /** Returns the position of a named layer in the render-order stack. */
 function layerIndex(name) {
-    const ordered = layers();
-    const idx = ordered.indexOf(name);
-    assert.ok(idx !== -1, `${name} must be present in RENDER_ORDER_LAYER_STACK`);
+    const idx = RENDER_ORDER_LAYER_INDEX[name];
+    assert.ok(idx !== undefined, `${name} must be present in RENDER_ORDER_LAYER_STACK`);
     return idx;
 }
 
-/** Reads the render-order base used for objects at z = 0. */
-function zZeroRenderOrder() {
-    const match = src().match(/const\s+RENDER_ORDER_AT_Z_ZERO\s*=\s*(-?\d+(?:\.\d+)?)\s*;/);
-    assert.ok(match, 'RENDER_ORDER_AT_Z_ZERO must be declared');
-    return Number(match[1]);
-}
+// ---------------------------------------------------------------------------
+// core/render-order.js — real behavioral checks (were regex-on-declaration)
+// ---------------------------------------------------------------------------
+
+test('renderOrderForLayerAtZ computes depth bucket + layer fraction', () => {
+    // At z=0, depth bucket is RENDER_ORDER_AT_Z_ZERO exactly (no /K remainder).
+    const order = renderOrderForLayerAtZ(0, 'CHORD_FILL');
+    assert.strictEqual(RENDER_ORDER_LAYER_INDEX.CHORD_FILL, 0);
+    assert.strictEqual(order, RENDER_ORDER_AT_Z_ZERO + 0 / RENDER_ORDER_LAYER_STACK.length);
+});
+
+test('renderOrderForLayerAtZ: the layer fraction is a strict tie-breaker, never a depth-bucket override', () => {
+    // A farther object (larger negative worldZ -> smaller depth bucket) must
+    // never outrank a nearer one merely by sitting on a later layer -- the
+    // integer depth bucket has to dominate the sub-unit layer fraction.
+    const nearLowLayer = renderOrderForLayerAtZ(0, 'CHORD_FILL');
+    const farHighLayer = renderOrderForLayerAtZ(-50 * K, 'CHORD_FRET_LABEL');
+    assert.ok(nearLowLayer > farHighLayer, 'a near object on the lowest layer must still outrank a far object on the highest layer');
+});
+
+test('renderOrderForLayerAtZ clamps to RENDER_ORDER_FAR_CLAMP at extreme depth', () => {
+    const order = renderOrderForLayerAtZ(-1e9, 'CHORD_FILL');
+    assert.strictEqual(Math.floor(order), RENDER_ORDER_FAR_CLAMP);
+});
+
+test('renderOrderForLayerAtZ throws on an unknown layer name', () => {
+    assert.throws(() => renderOrderForLayerAtZ(0, 'NOT_A_REAL_LAYER'), /Unknown 3D highway depth layer/);
+});
+
+test('chordFrameRenderOrder call site still uses renderOrderForLayerAtZ(z, CHORD_FRAME)', () => {
+    // The call site (inside the chord render loop) hasn't moved out of
+    // src/main.js yet -- still a text check.
+    assert.match(
+        src(),
+        /const\s+chordFrameRenderOrder\s*=\s*renderOrderForLayerAtZ\(\s*z\s*,\s*'CHORD_FRAME'\s*\)\s*;/,
+        'chordFrameRenderOrder must use renderOrderForLayerAtZ(z, CHORD_FRAME)',
+    );
+    assert.ok(layerIndex('CHORD_FRAME') < layerIndex('NOTE_OUTLINE'));
+});
 
 // ---------------------------------------------------------------------------
-// Static / fixed renderOrder values
+// Static / fixed renderOrder values (call sites -- still text checks)
 // ---------------------------------------------------------------------------
 
 test('lane quads use renderOrder 1', () => {
@@ -195,16 +239,7 @@ test('static fret wires use bowed TubeGeometry + MeshStandardMaterial, named boa
         /color\s*:\s*FRET_WIRE_IDLE_HEX/,
         'fret wire material must take its default color from FRET_WIRE_IDLE_HEX',
     );
-    assert.match(
-        s,
-        /FRET_WIRE_IDLE_HEX\s*=\s*0x4A4A60/,
-        'FRET_WIRE_IDLE_HEX must be the dimmed idle gray-violet 0x4A4A60',
-    );
-    // Both depth flags anchored to the fret-wire material literal (via its
-    // FRET_WIRE_IDLE_HEX color, unique to it) — an unscoped match would pass
-    // off any other depthTest:false material in the file. Asserted as two
-    // separate anchored matches so property order inside the literal still
-    // isn't pinned.
+    assert.strictEqual(FRET_WIRE_IDLE_HEX, 0x4A4A60, 'FRET_WIRE_IDLE_HEX must stay the dimmed idle gray-violet 0x4A4A60');
     assert.match(
         s,
         /color\s*:\s*FRET_WIRE_IDLE_HEX[\s\S]{0,400}?depthTest\s*:\s*false/,
@@ -243,11 +278,7 @@ test('update() sets fret wire FRET_WIRE_ACTIVE_HEX (gold) for in-anchor frets, F
         /_m\.color\.setHex\(\s*FRET_WIRE_ACTIVE_HEX\s*\)/,
         'update() must set FRET_WIRE_ACTIVE_HEX for in-anchor fret wires',
     );
-    assert.match(
-        s,
-        /FRET_WIRE_ACTIVE_HEX\s*=\s*0xD8A636/,
-        'FRET_WIRE_ACTIVE_HEX must stay the anchor-lane gold 0xD8A636',
-    );
+    assert.strictEqual(FRET_WIRE_ACTIVE_HEX, 0xD8A636, 'FRET_WIRE_ACTIVE_HEX must stay the anchor-lane gold 0xD8A636');
     assert.match(
         s,
         /_m\.color\.setHex\(\s*FRET_WIRE_IDLE_HEX\s*\)/,
@@ -290,29 +321,10 @@ test('technique labels and ghost-fret overlay use renderOrder 1000', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Z-proportional formulas — chord frame / note gem / technique marker
+// Z-proportional formulas — note gem / technique marker call sites
 // ---------------------------------------------------------------------------
 
-test('chordFrameRenderOrder uses renderOrderForLayerAtZ(z, CHORD_FRAME)', () => {
-    // Per-chord frame renderOrder mirrors the note-gem scale with an earlier
-    // layer from RENDER_ORDER_LAYER_STACK.
-    assert.match(
-        src(),
-        /const\s+chordFrameRenderOrder\s*=\s*renderOrderForLayerAtZ\(\s*z\s*,\s*'CHORD_FRAME'\s*\)\s*;/,
-        'chordFrameRenderOrder must use renderOrderForLayerAtZ(z, CHORD_FRAME)',
-    );
-    assert.match(src(), /const\s+RENDER_ORDER_LAYER_INDEX\s*=\s*Object\.freeze\(\s*RENDER_ORDER_LAYER_STACK\.reduce\(/);
-    assert.match(src(), /const\s+layerIndex\s*=\s*RENDER_ORDER_LAYER_INDEX\[layerName\]\s*;/);
-    assert.match(src(), /if\s*\(\s*layerIndex\s*===\s*undefined\s*\)\s*throw\s+new\s+Error\(`Unknown 3D highway depth layer: \$\{layerName\}`\)\s*;/);
-    assert.match(src(), /const\s+depthRenderOrder\s*=\s*Math\.max\(\s*RENDER_ORDER_FAR_CLAMP\s*,\s*Math\.round\(\s*RENDER_ORDER_AT_Z_ZERO\s*\+\s*worldZ\s*\/\s*K\s*\)\s*\)\s*;/);
-    // Layer is a sub-unit fraction so the integer depth bucket strictly
-    // dominates (a farther object can't outrank a nearer one via a higher
-    // layer); the layer only breaks ties within the same depth bucket.
-    assert.match(src(), /return\s+depthRenderOrder\s*\+\s*layerIndex\s*\/\s*RENDER_ORDER_LAYER_STACK\.length\s*;/);
-    assert.ok(layerIndex('CHORD_FRAME') < layerIndex('NOTE_OUTLINE'));
-});
-
-test('note outline uses renderOrderForLayerAtZ(noteZ, NOTE_OUTLINE)', () => {
+test('note outline call site uses renderOrderForLayerAtZ(noteZ, NOTE_OUTLINE)', () => {
     // Per-note gem renderOrder. noteZ is negative (ahead of hit line → negative
     // Z in world space). At noteZ=0 (on the hit line), the note outline uses
     // the near render-order base plus its layer index; far notes clamp to the
@@ -326,7 +338,7 @@ test('note outline uses renderOrderForLayerAtZ(noteZ, NOTE_OUTLINE)', () => {
     assert.strictEqual(layerIndex('CHORD_FILL'), 0);
 });
 
-test('techniqueMarkerRenderOrder uses the named technique marker layer above gem core', () => {
+test('techniqueMarkerRenderOrder call site uses the named technique marker layer above gem core', () => {
     // Technique markers (PM cross, bend arrow, H/P chevron, etc.) must overlay
     // the gem itself.
     assert.match(
@@ -341,7 +353,7 @@ test('techniqueMarkerRenderOrder uses the named technique marker layer above gem
 // Intra-chord layering (chord fill < PM/FH fill < PM/FH lines < frame edge)
 // ---------------------------------------------------------------------------
 
-test('chord fill interior uses the named layer below chord frame', () => {
+test('chord fill interior call site uses the named layer below chord frame', () => {
     // The translucent chord-box fill sits below the frame edge so the edge
     // always wins when both cover the same pixel.
     assert.match(
@@ -352,7 +364,7 @@ test('chord fill interior uses the named layer below chord frame', () => {
     assert.ok(layerIndex('CHORD_FILL') < layerIndex('CHORD_FRAME'));
 });
 
-test('PM/FH X fill (pPMXFill / pFHXFill) uses its ordered layer', () => {
+test('PM/FH X fill (pPMXFill / pFHXFill) call sites use their ordered layer', () => {
     // The black background fill of the muted-note X symbol is above chord fill
     // but below the X lines — same chord, so same chord-frame renderOrder base.
     const matches = src().match(/xf\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*z\s*,\s*'CHORD_STRUM_FILL'\s*\)\s*;/g) || [];
@@ -364,7 +376,7 @@ test('PM/FH X fill (pPMXFill / pFHXFill) uses its ordered layer', () => {
     assert.ok(layerIndex('CHORD_STRUM_FILL') < layerIndex('CHORD_STRUM_LINE'));
 });
 
-test('PM/FH X lines (pMuteXLines / pFHXLines) use their ordered layer', () => {
+test('PM/FH X lines (pMuteXLines / pFHXLines) call sites use their ordered layer', () => {
     // The coloured X stroke lines are above the black fill but below
     // the chord frame border edge, so they don't escape the box.
     const matches = src().match(/xl\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*z\s*,\s*'CHORD_STRUM_LINE'\s*\)\s*;/g) || [];
@@ -375,7 +387,7 @@ test('PM/FH X lines (pMuteXLines / pFHXLines) use their ordered layer', () => {
     assert.ok(layerIndex('CHORD_STRUM_LINE') < layerIndex('CHORD_FRAME'));
 });
 
-test('chord frame glow uses the layer after chord frame', () => {
+test('chord frame glow call site uses the layer after chord frame', () => {
     // Accent glow draws after the frame while still remaining below connectors
     // and note symbols in the ordered layer list.
     assert.match(
@@ -416,7 +428,7 @@ test('sus-trail ribbon renderOrder formula mirrors strip formula using time-base
 // Note gem ordering (outline < core, both driven by named depth layers)
 // ---------------------------------------------------------------------------
 
-test('note gem outline uses the named outline layer', () => {
+test('note gem outline call site uses the named outline layer', () => {
     assert.match(
         src(),
         /outline\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*noteZ\s*,\s*'NOTE_OUTLINE'\s*\)\s*;/,
@@ -425,7 +437,7 @@ test('note gem outline uses the named outline layer', () => {
     assert.ok(layerIndex('NOTE_OUTLINE') > layerIndex('FRET_COLUMN'));
 });
 
-test('note gem core uses the named layer above outline', () => {
+test('note gem core call site uses the named layer above outline', () => {
     assert.match(
         src(),
         /core\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*noteZ\s*,\s*'NOTE_CORE'\s*\)\s*;/,
@@ -435,13 +447,13 @@ test('note gem core uses the named layer above outline', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Key relative-ordering invariants (derived constants)
+// Key relative-ordering invariants (real behavioral checks against the
+// imported layer stack)
 // ---------------------------------------------------------------------------
 
 test('chord frame layer is below note outline layer', () => {
     // Chord frames must always render below note gems, even at maximum depth
     // (far end of the lookahead).
-    //
     assert.ok(layerIndex('CHORD_FRAME') < layerIndex('NOTE_OUTLINE'));
 });
 
@@ -474,7 +486,7 @@ test('static fret wire layer is above string mesh and note symbols', () => {
     // Structural invariant: fret wires must always draw after (on top of) strings.
     assert.ok(layerIndex('BOARD_FRET_WIRE') > layerIndex('BOARD_STRING'), 'fret wire must be above string mesh');
     assert.ok(layerIndex('BOARD_FRET_WIRE') > layerIndex('TECHNIQUE_MARKER'), 'fret wire must be above note symbols');
-    assert.ok(zZeroRenderOrder() + layerIndex('BOARD_FRET_WIRE') < 1000, 'fret wire must be below technique labels (1000)');
+    assert.ok(RENDER_ORDER_AT_Z_ZERO + layerIndex('BOARD_FRET_WIRE') < 1000, 'fret wire must be below technique labels (1000)');
     assert.match(src(), /fw\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*0\s*,\s*'BOARD_FRET_WIRE'\s*\)\s*;/, 'buildBoard fret wire must use BOARD_FRET_WIRE');
     assert.match(src(), /mesh\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*0\s*,\s*'BOARD_STRING'\s*\)\s*;/, 'string mesh must use BOARD_STRING');
 });

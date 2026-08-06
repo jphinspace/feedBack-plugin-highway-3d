@@ -16,6 +16,7 @@
 //     ui -> globals/main).
 
 const importX = require('eslint-plugin-import-x');
+const globals = require('globals');
 
 // Per-file size ceilings — a mirror of docs/size-exemptions.md (canonical).
 // Keep in sync; each entry corresponds to a signed row in the register.
@@ -56,8 +57,12 @@ module.exports = [
     // This block is later in the array than the sourceType:'script' block
     // above, so its sourceType:'module' wins for screen.js specifically.
     {
-        files: ['screen.js', 'src/**/*.js', 'tests/**/*.mjs'],
-        languageOptions: { ecmaVersion: 'latest', sourceType: 'module' },
+        files: ['screen.js', 'src/**/*.js'],
+        languageOptions: {
+            ecmaVersion: 'latest',
+            sourceType: 'module',
+            globals: { ...globals.browser },
+        },
         plugins: { 'import-x': importX },
         // v4 flat-config resolver (resolver-next + createNodeResolver). Without
         // it the import rules silently skip imports they can't resolve.
@@ -66,6 +71,30 @@ module.exports = [
             'max-lines': sizeRule(1500),
             'import-x/no-unresolved': 'error',
             'import-x/no-cycle': 'error',
+            // Catches a forgotten import the moment a split moves code
+            // between files -- without this, a missing binding only shows
+            // up as a runtime ReferenceError on whichever code path happens
+            // to execute it, which for renderer code can be an infrequent
+            // settings toggle or an edge-case chart shape.
+            'no-undef': 'error',
+        },
+    },
+    // The .mjs test suite: real ES-module imports of src/**, run under
+    // node:test (Node globals, not browser globals).
+    {
+        files: ['tests/**/*.mjs'],
+        languageOptions: {
+            ecmaVersion: 'latest',
+            sourceType: 'module',
+            globals: { ...globals.node },
+        },
+        plugins: { 'import-x': importX },
+        settings: { 'import-x/resolver-next': [importX.createNodeResolver()] },
+        rules: {
+            'max-lines': sizeRule(1500),
+            'import-x/no-unresolved': 'error',
+            'import-x/no-cycle': 'error',
+            'no-undef': 'error',
         },
     },
     // Signed size exemptions (docs/size-exemptions.md) — raise the ceiling so

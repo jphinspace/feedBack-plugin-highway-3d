@@ -25,12 +25,11 @@ const src = fs.readFileSync(SCREEN_JS, 'utf8');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-test('BASE_VFOV is a named constant (not a literal in the camera ctor)', () => {
-    assert.match(
-        src,
-        /const\s+BASE_VFOV\s*=\s*70\s*;/,
-        'BASE_VFOV must be declared as a constant',
-    );
+test('BASE_VFOV is a named constant (not a literal in the camera ctor)', async () => {
+    // BASE_VFOV moved to src/core/consts.js in the screen.js -> src/ module
+    // split (Stage 1); real-import it rather than regexing its declaration.
+    const { BASE_VFOV } = await import('../../src/core/consts.js');
+    assert.strictEqual(BASE_VFOV, 70, 'BASE_VFOV must be declared as a constant');
 });
 
 test('the camera is constructed with BASE_VFOV, not a bare 70', () => {
@@ -41,11 +40,11 @@ test('the camera is constructed with BASE_VFOV, not a bare 70', () => {
     );
 });
 
-test('the Hor+ start-aspect and min-vfov defaults exist', () => {
-    assert.match(src, /const\s+HORPLUS_START_ASPECT\s*=\s*16\s*\/\s*9\s*;/,
+test('the Hor+ start-aspect and min-vfov defaults exist', async () => {
+    const { HORPLUS_START_ASPECT, HORPLUS_MIN_VFOV } = await import('../../src/core/consts.js');
+    assert.strictEqual(HORPLUS_START_ASPECT, 16 / 9,
         'HORPLUS_START_ASPECT must default to 16/9 (no-op at/under the reference aspect)');
-    assert.match(src, /const\s+HORPLUS_MIN_VFOV\s*=\s*\d+\s*;/,
-        'HORPLUS_MIN_VFOV floor must be declared');
+    assert.strictEqual(typeof HORPLUS_MIN_VFOV, 'number', 'HORPLUS_MIN_VFOV floor must be declared');
 });
 
 // ── effectiveVfov: no-op guarantees ──────────────────────────────────────────
