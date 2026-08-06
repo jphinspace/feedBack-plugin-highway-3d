@@ -16,13 +16,24 @@ own opt-in bench (`?h3dbench=1`), captured by `scripts/h3dbench.mjs`.
 
 ```bash
 # core, pointed at a directory of real charts (symlinks are fine)
-cd ../feedBack && DLC_DIR=/path/to/songs PYTHONPATH=lib python main.py
+cd ../feedBack && DLC_DIR=/path/to/songs CONFIG_DIR=/tmp/feedback-perf-config PYTHONPATH=lib python main.py
 
 # capture (playwright lives in the core checkout, not this repo)
 node scripts/h3dbench.mjs --base http://127.0.0.1:8000 \
     --song "Metallica_Enter-Sandman_v1.sloppak" --runs 3 --seconds 25 \
     --playwright ../feedBack
 ```
+
+**Always set `CONFIG_DIR` to a scratch directory, separate from a normal dev-loop
+boot.** Without it, core defaults `CONFIG_DIR` to `~/.local/share/feedback` and
+*persists* the `DLC_DIR` library scan there (`web_library.db`,
+`scan_dir_signature.json`) — so a perf capture against scratch/symlinked songs
+leaves the shared dev environment showing 404s for those songs' missing cover
+art on every later boot, breaking `check-errors`/`highway-3d-lefty` for reasons
+that have nothing to do with any code change. Learned the hard way capturing the
+Stage 7 baseline below: had to delete the two polluted files from the real
+`~/.local/share/feedback` and rescan clean before Playwright was trustworthy
+again.
 
 ## Baseline — commit 61d2253 (pre-Phase-1), 2026-08-06
 
