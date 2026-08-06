@@ -1,41 +1,20 @@
 // Behavioural characterization test for the teaching-marks (§6.2.2) render
-// helpers `teachingFingerLabel` / `teachingDegreeLabel` in screen.js. Both
-// pure, so we extract the function source by brace-matching and eval it in
-// isolation.
+// helpers `teachingFingerLabel` / `teachingDegreeLabel`.
 //
 // Ported from feedBack core's tests/js/highway_teaching_marks.test.js,
 // trimmed to the 3D half only — the original also covered the byte-identical
 // 2D twins in static/js/highway-geometry.js and the 2D-only
-// `strumGroupBuckets` (static/js/highway-draw.js), none of which exist in
-// this standalone plugin fork. This file is a tripwire during the screen.js
-// -> src/ module split: it should stay green until these functions move
-// into real modules, at which point this test is replaced by `.mjs` tests
-// that import them directly.
+// `strumGroupBuckets` (static/js/highway-draw.js), neither of which exist in
+// this standalone plugin fork.
+//
+// Was tests/legacy/highway_teaching_marks.test.js, a source-extraction
+// tripwire that brace-matched these functions out of src/main.js text and
+// eval'd them in isolation. Now real imports (Stage 7 Phase 1d,
+// src/instance/model/math.js) — same assertions, verbatim.
 
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-
-function extractFn(src, name) {
-    const start = src.indexOf('function ' + name);
-    assert.ok(start >= 0, `function ${name} must exist`);
-    const open = src.indexOf('{', start);
-    let depth = 0;
-    for (let i = open; i < src.length; i++) {
-        if (src[i] === '{') depth++;
-        else if (src[i] === '}' && --depth === 0) return src.slice(start, i + 1);
-    }
-    throw new Error(`unbalanced braces extracting ${name}`);
-}
-
-function loadFn(file, name) {
-    const src = fs.readFileSync(path.join(__dirname, '..', '..', file), 'utf8');
-    return new Function('"use strict";' + extractFn(src, name) + `\nreturn ${name};`)();
-}
-
-const teachingFingerLabel = loadFn('src/main.js', 'teachingFingerLabel');
-const teachingDegreeLabel = loadFn('src/main.js', 'teachingDegreeLabel');
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { teachingDegreeLabel, teachingFingerLabel } from '../src/instance/model/math.js';
 
 // ── teachingFingerLabel (fg) ─────────────────────────────────────────────────
 

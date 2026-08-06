@@ -61,23 +61,32 @@ test('the Hor+ start-aspect and min-vfov defaults exist', async () => {
 });
 
 // ── effectiveVfov: no-op guarantees ──────────────────────────────────────────
+// effectiveVfov moved to src/instance/model/math.js in the screen.js -> src/
+// module split (Stage 7 Phase 1d); real-import and call it rather than
+// regexing its body — strictly stronger, same as the BASE_VFOV/HORPLUS_*
+// conversions above.
 
-test('effectiveVfov returns the base fov when the bridge is off/absent', () => {
+test('effectiveVfov returns the base fov when the bridge is off/absent', async () => {
     // The disabled / malformed-input guard returns `base` before any Hor+ math,
     // so normal panes are unaffected when __h3dAspectTune is missing or off.
-    assert.match(
-        src,
-        /function\s+effectiveVfov\s*\(\s*aspect\s*,\s*tune\s*\)\s*\{[\s\S]*?if\s*\(\s*!tune\s*\|\|\s*!tune\.enabled[\s\S]*?return\s+base\s*;/,
-        'effectiveVfov must short-circuit to the base fov when disabled',
-    );
+    const { effectiveVfov } = await import('../../src/instance/model/math.js');
+    const { BASE_VFOV } = await import('../../src/core/constants.js');
+    assert.equal(effectiveVfov(32 / 9, null), BASE_VFOV, 'no tune bridge -> base fov');
+    assert.equal(effectiveVfov(32 / 9, { enabled: false }), BASE_VFOV, 'disabled bridge -> base fov');
+    assert.equal(effectiveVfov(32 / 9, { enabled: false, baseVfov: 65 }), 65,
+        'a custom baseVfov is still honoured on the disabled short-circuit path');
 });
 
-test('effectiveVfov is a no-op at/under the start aspect', () => {
-    assert.match(
-        src,
-        /if\s*\(\s*aspect\s*<=\s*start\s*\)\s*return\s+base\s*;/,
-        'effectiveVfov must return base when aspect <= start (no-op for normal/2x2 panes)',
-    );
+test('effectiveVfov is a no-op at/under the start aspect', async () => {
+    const { effectiveVfov } = await import('../../src/instance/model/math.js');
+    const { BASE_VFOV, HORPLUS_START_ASPECT } = await import('../../src/core/constants.js');
+    const tune = { enabled: true };
+    assert.equal(effectiveVfov(HORPLUS_START_ASPECT, tune), BASE_VFOV,
+        'aspect exactly at the default start aspect must not engage Hor+');
+    assert.equal(effectiveVfov(HORPLUS_START_ASPECT - 0.01, tune), BASE_VFOV,
+        'aspect under the default start aspect (normal/2x2 panes) must not engage Hor+');
+    assert.equal(effectiveVfov(HORPLUS_START_ASPECT + 1, tune) < BASE_VFOV, true,
+        'sanity: aspect past start DOES engage Hor+, so the no-op above is a real guard, not dead code');
 });
 
 // ── shipped defaults: off + coherent ─────────────────────────────────────────

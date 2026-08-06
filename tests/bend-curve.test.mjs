@@ -1,38 +1,19 @@
 // Behavioural characterization test for the per-note bend-curve (bnv, §6.2.1)
-// 3D render helper `bnvSampleAt` in screen.js. Pure, so we extract the
-// function source by brace-matching and eval it in isolation.
+// 3D render helper `bnvSampleAt`.
 //
 // Ported from feedBack core's tests/js/highway_bend_curve.test.js, trimmed to
 // the 3D half only — the original also covered the 2D twin
 // `bnvNormalizedPoints` in static/js/highway-geometry.js, which does not
-// exist in this standalone plugin fork. This file is a tripwire during the
-// screen.js -> src/ module split (see docs/plugin-modules split plan): it
-// should stay green until `bnvSampleAt` moves into a real module, at which
-// point this test is replaced by a `.mjs` test that imports it directly.
+// exist in this standalone plugin fork.
+//
+// Was tests/legacy/highway_bend_curve.test.js, a source-extraction tripwire
+// that brace-matched `bnvSampleAt` out of src/main.js text and eval'd it in
+// isolation. Now a real import (Stage 7 Phase 1d, src/instance/model/math.js)
+// — same assertions, verbatim.
 
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-
-function extractFn(src, name) {
-    const start = src.indexOf('function ' + name);
-    assert.ok(start >= 0, `function ${name} must exist`);
-    const open = src.indexOf('{', start);
-    let depth = 0;
-    for (let i = open; i < src.length; i++) {
-        if (src[i] === '{') depth++;
-        else if (src[i] === '}' && --depth === 0) return src.slice(start, i + 1);
-    }
-    throw new Error(`unbalanced braces extracting ${name}`);
-}
-
-function loadFn(file, name) {
-    const src = fs.readFileSync(path.join(__dirname, '..', '..', file), 'utf8');
-    return new Function('"use strict";' + extractFn(src, name) + `\nreturn ${name};`)();
-}
-
-const bnvSampleAt = loadFn('src/main.js', 'bnvSampleAt');
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { bnvSampleAt } from '../src/instance/model/math.js';
 
 // ── bnvSampleAt (3D) ─────────────────────────────────────────────────────────
 
