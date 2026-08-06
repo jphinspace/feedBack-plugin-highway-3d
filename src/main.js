@@ -789,7 +789,10 @@ function createFactory() {
         } else if (d.fxType === 'multiplier' && d.mult > (d.prevMult || 1)) {
             _fxRingMs = nowMs;
             _fxRingMult = d.mult;
-        } else if (d.fxType === 'streakBreak') {
+        } else if (d.fxType === 'streakBreak' && _streakFx) {
+            // Gated on the Streak feedback setting — without this the red
+            // wash armed even with the setting off (the setting only ever
+            // reached the hit-heat escalation multiplier in drawNote).
             _fxBreakMs = nowMs;
         }
     }
@@ -4179,13 +4182,38 @@ function createFactory() {
                 changedKey === 'projectionVisible' ||
                 changedKey === 'slideArrowApproachVisible' ||
                 changedKey === 'slideArrowNeckVisible' ||
-                changedKey === 'slideArrowChainPreviewVisible') {
+                changedKey === 'slideArrowChainPreviewVisible' ||
+                // Overlay/FX flags. These were all mirrored by loadSettings()
+                // but missing from this list, so toggling any of them did
+                // nothing until the panel was torn down and rebuilt (song
+                // change or viz swap). Every one is read per-frame, so a
+                // plain reload is enough:
+                //   fpsVisible / chordDiagramVisible — read in draw()
+                //   fretDividersVisible — read in update()'s lane block
+                //   hitFx / sparks / streakFx / timingFx / verdictMarks —
+                //     read in drawNote()'s notedetect branch
+                //   bloom — read per-frame; _bloomEnsure() is lazy
+                //   cinematic — loadSettings() itself calls _applyCinematic()
+                changedKey === 'fpsVisible' ||
+                changedKey === 'fretDividersVisible' ||
+                changedKey === 'chordDiagramVisible' ||
+                changedKey === 'hitFx' ||
+                changedKey === 'sparks' ||
+                changedKey === 'streakFx' ||
+                changedKey === 'timingFx' ||
+                changedKey === 'verdictMarks' ||
+                changedKey === 'cinematic' ||
+                changedKey === 'bloom') {
                 // Flag flips don't need a mesh rebuild — just refresh
                 // the per-instance state for the next frame to consult.
                 // Same shape for showFretOnNote (#12), cameraSmoothing
                 // (#34), the zoom/tilt smoothing follow-ups, and
                 // cameraLockLow — all read per-frame in update() /
                 // camUpdate().
+                //
+                // NOTE: `customColors` deliberately has no entry here.
+                // h3dBgSetStringColors writes it and THEN writes `palette`,
+                // so the 'palette' branch below already reloads it.
                 loadSettings();
                 return;
             }
@@ -11183,7 +11211,11 @@ function createFactory() {
             if (_fxBursts[i].active) { anyBurst = true; break; }
         }
         const ringAge = nowMs - _fxRingMs;
-        const breakAge = nowMs - _fxBreakMs;
+        // Infinity when the setting is off, so a wash armed just before the
+        // user unticked Streak feedback is cancelled mid-flight rather than
+        // painting out its remaining 350ms. Also makes the early-out below
+        // treat "no wash" and "wash disabled" identically.
+        const breakAge = _streakFx ? nowMs - _fxBreakMs : Infinity;
         if (!anyPop && !anyBurst && ringAge >= 600 && breakAge >= 350) return;
 
         const pal = _fxPalette;
