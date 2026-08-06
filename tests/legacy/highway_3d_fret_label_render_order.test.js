@@ -23,11 +23,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
+const NOTE_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'note.js');
 
 let _src;
-/** Returns the cached 3D highway screen source under test. */
+/**
+ * Returns the cached 3D highway screen source under test -- main.js plus
+ * note.js (drawNote() and its helpers moved there in Stage 7 Phase 3b).
+ */
 function src() {
-    if (!_src) _src = fs.readFileSync(SCREEN_JS, 'utf8');
+    if (!_src) _src = fs.readFileSync(SCREEN_JS, 'utf8') + '\n' + fs.readFileSync(NOTE_JS, 'utf8');
     return _src;
 }
 

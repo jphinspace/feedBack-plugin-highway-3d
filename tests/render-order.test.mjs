@@ -60,15 +60,21 @@ import {
 import { K, FRET_WIRE_IDLE_HEX, FRET_WIRE_ACTIVE_HEX } from '../src/core/constants.js';
 
 const MAIN_JS = new URL('../src/main.js', import.meta.url);
+const NOTE_JS = new URL('../src/instance/render/note.js', import.meta.url);
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 let _src;
-/** Returns the cached renderer source under test (for call-site regexes). */
+/**
+ * Returns the cached renderer source under test (for call-site regexes) --
+ * main.js plus note.js (drawNote() and its helpers moved there in Stage 7
+ * Phase 3b), concatenated so a call-site regex doesn't care which file its
+ * target currently lives in.
+ */
 function src() {
-    if (!_src) _src = fs.readFileSync(MAIN_JS, 'utf8');
+    if (!_src) _src = fs.readFileSync(MAIN_JS, 'utf8') + '\n' + fs.readFileSync(NOTE_JS, 'utf8');
     return _src;
 }
 

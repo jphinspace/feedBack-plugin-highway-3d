@@ -15,6 +15,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
+const NOTE_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'note.js');
 
 test('a _slideTargetSet pre-pass builds the suppressed-gem set from bundle.notes', () => {
     const src = fs.readFileSync(SCREEN_JS, 'utf8');
@@ -52,8 +53,9 @@ test('_isSlideTgt is threaded into drawNote as the skipBody argument', () => {
 
 test('the sustain trail renders for all notes, including skipBody slide targets', () => {
     // The trail block must stay outside the !skipBody gem gate so suppressed
-    // slide-target gems still show their slide trail.
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
+    // slide-target gems still show their slide trail. drawNote() moved to
+    // note.js in Stage 7 Phase 3b -- the comment contract lives there now.
+    const src = fs.readFileSync(NOTE_JS, 'utf8');
     assert.match(
         src,
         /Rendered for ALL notes with sustain, including skipBody=true/,

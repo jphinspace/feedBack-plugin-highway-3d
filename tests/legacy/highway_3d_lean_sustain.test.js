@@ -19,6 +19,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
+const NOTE_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'note.js');
 
 test('lean sustain rendering is the default (_leanSus starts true)', () => {
     const src = fs.readFileSync(SCREEN_JS, 'utf8');
@@ -57,7 +58,9 @@ test('exactly one element is gated behind the lean flag, and it is the rail bloo
 });
 
 test('the trail + ribbon outline always draw and use the hit/miss-aware material', () => {
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
+    // drawNote() moved to note.js in Stage 7 Phase 3b -- the sustain-trail
+    // block this test pins lives there now.
+    const src = fs.readFileSync(NOTE_JS, 'utf8');
     // Outline material is hit/miss aware: miss -> mMissOutline, confirmed hit
     // -> bright, otherwise the default mSusOutline white border.
     assert.match(
