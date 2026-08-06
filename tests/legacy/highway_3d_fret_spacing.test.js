@@ -12,7 +12,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SCREEN_JS = path.join(__dirname, '..', '..', 'screen.js');
+const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 
 test('fret-spacing mode is read from the highway_3d.fretSpacing localStorage key', () => {
     const src = fs.readFileSync(SCREEN_JS, 'utf8');
@@ -50,7 +50,7 @@ test('h3dSetFretSpacing applies the change live, not via a page reload', () => {
     // every other 3D-highway setting. Reintroducing location.reload() here is
     // the regression this guards against.
     const src = fs.readFileSync(SCREEN_JS, 'utf8');
-    const setter = src.match(/window\.h3dSetFretSpacing\s*=\s*mode\s*=>\s*\{[\s\S]*?\n    \};/);
+    const setter = src.match(/window\.h3dSetFretSpacing\s*=\s*mode\s*=>\s*\{[\s\S]*?\n\};/);
     assert.ok(setter, 'h3dSetFretSpacing assignment must be present');
     assert.doesNotMatch(
         setter[0],

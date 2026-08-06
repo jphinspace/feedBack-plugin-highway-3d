@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const SCREEN_JS = path.join(__dirname, '..', '..', 'screen.js');
+const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 
 // 'palette' was removed — per-string colors are now set via the core
 // "Highway String Colors" UI, which drives both highways by named string.

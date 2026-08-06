@@ -32,7 +32,7 @@ function loadFn(file, name) {
     return new Function('"use strict";' + extractFn(src, name) + `\nreturn ${name};`)();
 }
 
-const chordHarmonyLabels = loadFn('screen.js', 'chordHarmonyLabels');
+const chordHarmonyLabels = loadFn('src/main.js', 'chordHarmonyLabels');
 
 test('chordHarmonyLabels surfaces rn + voicing + caged + guideTones', () => {
     assert.deepEqual(chordHarmonyLabels({ rn: 'ii7', q: 'm7', deg: 2 }, 'open', 'E', [4, 10]),

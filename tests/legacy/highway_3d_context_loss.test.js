@@ -13,7 +13,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SCREEN_JS = path.join(__dirname, '..', '..', 'screen.js');
+const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 const src = fs.readFileSync(SCREEN_JS, 'utf8');
 
 test('binds webglcontextlost + webglcontextrestored on the renderer canvas', () => {

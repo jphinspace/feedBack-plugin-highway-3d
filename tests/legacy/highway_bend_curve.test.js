@@ -32,7 +32,7 @@ function loadFn(file, name) {
     return new Function('"use strict";' + extractFn(src, name) + `\nreturn ${name};`)();
 }
 
-const bnvSampleAt = loadFn('screen.js', 'bnvSampleAt');
+const bnvSampleAt = loadFn('src/main.js', 'bnvSampleAt');
 
 // ── bnvSampleAt (3D) ─────────────────────────────────────────────────────────
 

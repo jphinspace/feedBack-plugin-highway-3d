@@ -26,7 +26,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const highway3dJs = path.join(__dirname, '..', '..', 'screen.js');
+const highway3dJs = path.join(__dirname, '..', '..', 'src', 'main.js');
 
 // Brace-balanced extraction (same helper shape as the other legacy tests).
 function extractBlock(src, signature) {

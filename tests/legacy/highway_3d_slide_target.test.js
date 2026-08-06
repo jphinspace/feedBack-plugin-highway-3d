@@ -14,7 +14,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SCREEN_JS = path.join(__dirname, '..', '..', 'screen.js');
+const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 
 test('a _slideTargetSet pre-pass builds the suppressed-gem set from bundle.notes', () => {
     const src = fs.readFileSync(SCREEN_JS, 'utf8');

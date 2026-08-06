@@ -12,7 +12,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SCREEN_JS = path.join(__dirname, '..', '..', 'screen.js');
+const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 
 test('sustain rails are gated on multi-note chords with a known box width within AHEAD', () => {
     // Each chord in a sequence (including repeats) draws a rail from its onset

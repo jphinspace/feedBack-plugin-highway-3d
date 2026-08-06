@@ -11,7 +11,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SCREEN_JS = path.join(__dirname, '..', '..', 'screen.js');
+const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 const src = fs.readFileSync(SCREEN_JS, 'utf8');
 
 function extractFn(source, name) {
@@ -111,7 +111,7 @@ test('recent onsets inside the behind-window bootstrap at now', () => {
 test('bootstrap runs once when complete chart arrays arrive', () => {
     const bootstrap = sourceBetween(
         '// ── Camera bootstrap (first chart data)',
-        '            pbBeg(4);',
+        '        pbBeg(4);',
     );
     assert.match(
         bootstrap,
@@ -133,7 +133,7 @@ test('bootstrap runs once when complete chart arrays arrive', () => {
 test('steady and lookahead modes initialize immediately from future chart data', () => {
     const bootstrap = sourceBetween(
         '// ── Camera bootstrap (first chart data)',
-        '            pbBeg(4);',
+        '        pbBeg(4);',
     );
     assert.match(
         bootstrap,
@@ -198,7 +198,7 @@ test('song changes and teardown reset every bootstrap state field', () => {
 test('Camera Director still layers after the bootstrapped auto-framing base', () => {
     const bootstrap = sourceBetween(
         '// ── Camera bootstrap (first chart data)',
-        '            pbBeg(4);',
+        '        pbBeg(4);',
     );
     assert.doesNotMatch(
         bootstrap,

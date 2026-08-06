@@ -34,8 +34,8 @@ function loadFn(file, name) {
     return new Function('"use strict";' + extractFn(src, name) + `\nreturn ${name};`)();
 }
 
-const teachingFingerLabel = loadFn('screen.js', 'teachingFingerLabel');
-const teachingDegreeLabel = loadFn('screen.js', 'teachingDegreeLabel');
+const teachingFingerLabel = loadFn('src/main.js', 'teachingFingerLabel');
+const teachingDegreeLabel = loadFn('src/main.js', 'teachingDegreeLabel');
 
 // ── teachingFingerLabel (fg) ─────────────────────────────────────────────────
 

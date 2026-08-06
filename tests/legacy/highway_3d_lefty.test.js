@@ -16,7 +16,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..', '..');
-const SCREEN_JS = path.join(ROOT, 'screen.js');
+const SCREEN_JS = path.join(ROOT, 'src', 'main.js');
 const CLAUDE_MD = path.join(ROOT, 'CLAUDE.md');
 
 function src(file) {

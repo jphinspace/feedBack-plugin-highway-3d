@@ -15,11 +15,15 @@
 //     style reads `intensity`, and none of them read audio bands under
 //     Butterchurn, so a live-looking knob that does nothing is a real bug.
 //
-// screen.js is a single ~16k-line IIFE, so the control cannot be imported. The
+// The renderer body is one big closure (currently src/main.js, formerly
+// packed inside the screen.js IIFE), so the control cannot be imported. The
 // self-contained `_pc*` block is sliced out of the real source and evaluated
 // with its few collaborators stubbed (BG_STYLE_IDS, _bgReadSetting,
 // _bgSubscribe/_bgUnsubscribe). The slice markers are asserted before use: move
 // or rename the block and this fails loudly rather than testing nothing.
+//
+// Markers are 0-indent, matching src/main.js post-Stage-0e (the body was
+// dedented 4 spaces when it moved out of the screen.js IIFE wrapper).
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -27,10 +31,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const SCREEN_JS = path.join(__dirname, '..', 'screen.js');
-const START = '    const _PC_LABELS = {';
-const END_CRLF = '    /* ======================================================================\r\n     *  Factory';
-const END_LF = '    /* ======================================================================\n     *  Factory';
+const SCREEN_JS = path.join(__dirname, '..', 'src', 'main.js');
+const START = 'const _PC_LABELS = {';
+const END_CRLF = '/* ======================================================================\r\n *  Factory';
+const END_LF = '/* ======================================================================\n *  Factory';
 
 // What each style is expected to consume, derived by reading the BG_STYLES
 // bodies in screen.js — deliberately NOT read from the plugin's own _PC_USES
@@ -189,8 +193,8 @@ function load({ store: initialStore } = {}) {
 // override that _bgReadSetting(panelKey, ...) still honours.
 test('_bgReadGlobal reads the global slot, ignoring per-panel overrides', () => {
     const src = fs.readFileSync(SCREEN_JS, 'utf8');
-    const rgStart = src.indexOf('    function _bgReadSetting(panelKey, key) {');
-    const rgEnd = src.indexOf('    // Shared "stored string -> bool" coercion');
+    const rgStart = src.indexOf('function _bgReadSetting(panelKey, key) {');
+    const rgEnd = src.indexOf('// Shared "stored string -> bool" coercion');
     assert.ok(rgStart !== -1 && rgEnd > rgStart, 'could not slice the read helpers');
     const block = src.slice(rgStart, rgEnd);
 

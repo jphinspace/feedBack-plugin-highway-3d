@@ -13,7 +13,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const screenJs = path.join(__dirname, '..', '..', 'screen.js');
+const screenJs = path.join(__dirname, '..', '..', 'src', 'main.js');
 
 function extractBlock(src, signature) {
     const start = src.indexOf(signature);
