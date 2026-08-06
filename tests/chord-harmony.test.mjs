@@ -1,38 +1,20 @@
 // Behavioural characterization test for the chord harmony-annotation render
-// helper `chordHarmonyLabels` (§6.3.1 / §6.6) in screen.js. Pure, so we
-// extract the function source by brace-matching and eval it in isolation.
+// helper `chordHarmonyLabels` (§6.3.1 / §6.6).
 //
-// Ported from feedBack core's tests/js/highway_chord_harmony.test.js,
-// trimmed to the 3D half only — the original also covered the byte-identical
-// 2D twin in static/js/highway-geometry.js, which does not exist in this
-// standalone plugin fork. This file is a tripwire during the screen.js ->
-// src/ module split: it should stay green until `chordHarmonyLabels` moves
-// into a real module, at which point this test is replaced by a `.mjs` test
-// that imports it directly.
+// Ported from feedBack core's tests/js/highway_chord_harmony.test.js, trimmed
+// to the 3D half only — the original also covered the byte-identical 2D twin
+// in static/js/highway-geometry.js, which does not exist in this standalone
+// plugin fork.
+//
+// Was tests/legacy/highway_chord_harmony.test.js, a source-extraction tripwire
+// that brace-matched `chordHarmonyLabels` out of src/main.js text and eval'd
+// it in isolation. Now that the function lives in
+// src/instance/model/chord-inference.js as a real export (Stage 7 Phase 1c),
+// it's a real import — same assertions, verbatim.
 
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-
-function extractFn(src, name) {
-    const start = src.indexOf('function ' + name);
-    assert.ok(start >= 0, `function ${name} must exist`);
-    const open = src.indexOf('{', start);
-    let depth = 0;
-    for (let i = open; i < src.length; i++) {
-        if (src[i] === '{') depth++;
-        else if (src[i] === '}' && --depth === 0) return src.slice(start, i + 1);
-    }
-    throw new Error(`unbalanced braces extracting ${name}`);
-}
-
-function loadFn(file, name) {
-    const src = fs.readFileSync(path.join(__dirname, '..', '..', file), 'utf8');
-    return new Function('"use strict";' + extractFn(src, name) + `\nreturn ${name};`)();
-}
-
-const chordHarmonyLabels = loadFn('src/main.js', 'chordHarmonyLabels');
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { chordHarmonyLabels } from '../src/instance/model/chord-inference.js';
 
 test('chordHarmonyLabels surfaces rn + voicing + caged + guideTones', () => {
     assert.deepEqual(chordHarmonyLabels({ rn: 'ii7', q: 'm7', deg: 2 }, 'open', 'E', [4, 10]),

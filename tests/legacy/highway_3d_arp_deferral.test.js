@@ -12,13 +12,21 @@ const path = require('node:path');
 
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 
-test('chordShapeCoveredByStandaloneNotes helper exists with the expected signature', () => {
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
-    assert.match(
-        src,
-        /function\s+chordShapeCoveredByStandaloneNotes\s*\(\s*ch\s*,\s*shape\s*,\s*notesArr\s*,\s*timeWin\s*\)/,
-        'helper that scans the note stream for shape coverage must remain on screen.js',
-    );
+// chordShapeCoveredByStandaloneNotes moved to
+// src/instance/model/chord-inference.js in Stage 7 Phase 1c (it's called from
+// drawNote() via the chordInference.* facade below, not defined inline
+// anymore), so this checks the real export's signature instead of scanning
+// main.js text for it.
+test('chordShapeCoveredByStandaloneNotes helper exists with the expected signature', async () => {
+    const { createChordInference } = await import('../../src/instance/model/chord-inference.js');
+    const chordInference = createChordInference({
+        validString: () => true,
+        filterValidNotes: (notes) => notes,
+    });
+    assert.equal(typeof chordInference.chordShapeCoveredByStandaloneNotes, 'function',
+        'helper that scans the note stream for shape coverage must be exported from chord-inference.js');
+    assert.equal(chordInference.chordShapeCoveredByStandaloneNotes.length, 4,
+        'signature must stay (ch, shape, notesArr, timeWin)');
 });
 
 test('deferChordGems gates both synth and explicit+covered branches on note-stream coverage', () => {
