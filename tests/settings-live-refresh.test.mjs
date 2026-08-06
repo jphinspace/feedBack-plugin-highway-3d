@@ -17,7 +17,7 @@
 // That was true of ELEVEN keys at once (streakFx, plus fpsVisible,
 // fretDividersVisible, chordDiagramVisible, hitFx, sparks, timingFx,
 // verdictMarks, cinematic, bloom, and an apparent customColors). Only
-// streakFx was ever noticed, via highway_3d_streak_break_feedback.test.js.
+// streakFx was ever noticed, via a since-removed port of core's streak-break test.
 //
 // Rather than pin the ten names — which would pass again the moment someone
 // adds an eleventh — this asserts the INVARIANT: mirrored ⊆ handled, modulo a

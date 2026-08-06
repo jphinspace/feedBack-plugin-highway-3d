@@ -732,14 +732,13 @@ function createFactory() {
     let _fxElemSeen = new WeakSet();
     let _fxRingMs = -1e9;        // multiplier ring-pulse anchor
     let _fxRingMult = 1;
-    let _fxBreakMs = -1e9;       // streak-break flicker anchor
     // Canvas-side palette per notedetect skin (mirrors the accents in
     // notedetect's assets/plugin.css; fonts are document-loaded by that
     // stylesheet so the overlay canvas can use the family names).
     const _FX_PALETTES = {
-        neon:    { accent: '#00f0ff', accent2: '#ff2ec4', miss: '#ff4444', font: 'Orbitron' },
-        esports: { accent: '#e8b43a', accent2: '#f5f5f4', miss: '#f87171', font: 'Rajdhani' },
-        metal:   { accent: '#ffb347', accent2: '#ff6b35', miss: '#ef4444', font: 'Russo One' },
+        neon:    { accent: '#00f0ff', accent2: '#ff2ec4', font: 'Orbitron' },
+        esports: { accent: '#e8b43a', accent2: '#f5f5f4', font: 'Rajdhani' },
+        metal:   { accent: '#ffb347', accent2: '#ff6b35', font: 'Russo One' },
     };
     let _fxPalette = _FX_PALETTES.neon;
     function _fxResolvePalette() {
@@ -789,12 +788,13 @@ function createFactory() {
         } else if (d.fxType === 'multiplier' && d.mult > (d.prevMult || 1)) {
             _fxRingMs = nowMs;
             _fxRingMult = d.mult;
-        } else if (d.fxType === 'streakBreak' && _streakFx) {
-            // Gated on the Streak feedback setting — without this the red
-            // wash armed even with the setting off (the setting only ever
-            // reached the hit-heat escalation multiplier in drawNote).
-            _fxBreakMs = nowMs;
         }
+        // NOTE: 'streakBreak' is deliberately unhandled. It used to arm a
+        // full-screen red flash; that effect was removed outright (it washed
+        // the whole panel mid-song, including the notes you were trying to
+        // read). The event is simply ignored now. The other streak feedback —
+        // the hit-heat spark escalation gated on _streakFx in drawNote — is
+        // unaffected. Don't reintroduce a full-panel fill here.
     }
 
     // Object pools
@@ -11211,24 +11211,10 @@ function createFactory() {
             if (_fxBursts[i].active) { anyBurst = true; break; }
         }
         const ringAge = nowMs - _fxRingMs;
-        // Infinity when the setting is off, so a wash armed just before the
-        // user unticked Streak feedback is cancelled mid-flight rather than
-        // painting out its remaining 350ms. Also makes the early-out below
-        // treat "no wash" and "wash disabled" identically.
-        const breakAge = _streakFx ? nowMs - _fxBreakMs : Infinity;
-        if (!anyPop && !anyBurst && ringAge >= 600 && breakAge >= 350) return;
+        if (!anyPop && !anyBurst && ringAge >= 600) return;
 
         const pal = _fxPalette;
         ctx.save();
-
-        // Streak-break flicker: brief red wash over the whole panel.
-        if (breakAge < 350) {
-            const a = 0.10 * (1 - breakAge / 350);
-            ctx.fillStyle = pal.miss;
-            ctx.globalAlpha = a;
-            ctx.fillRect(0, 0, W, H);
-            ctx.globalAlpha = 1;
-        }
 
         // Strike-line center in screen px — anchor for bursts + pulses.
         let cx = W / 2, cy = H * 0.72, centerOk = false;
@@ -11619,7 +11605,7 @@ function createFactory() {
         _fxGen++;   // invalidate any pending deferred window-copy fallbacks
         _fxLastFxDetail = null;
         _fxElemSeen = new WeakSet();
-        _fxRingMs = _fxBreakMs = -1e9;
+        _fxRingMs = -1e9;
         _chordVerdicts = new Map();
         if (bcCtrl) { try { bcCtrl.destroy(); } catch (e) {} bcCtrl = null; }
         unmountBackgroundStyle();
