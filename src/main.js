@@ -72,6 +72,12 @@ import {
     _bgEmitChange, _bgHasStored, _bgMemFallback, _bgPanelKey, _bgReadGlobal, _bgReadSetting,
     _bgSubscribe, _bgUnsubscribe, _freeCamFor,
 } from './settings/store.js';
+import {
+    _bgVenueMoodCoeffs, _venueApplyFakeDepthMotion, _venueCrowdMix, _venueCrowdRev,
+    _venueCrowdVideos, _venueEffectiveMotionMode, _venueInstrumentPov, _venueLoadPlateForPov,
+    _venueMoodState, _venueSceneOverride, _venueSetSceneAssetsLoaded, _venueSetSceneLoadFailed,
+    _venueSetSceneOverride, _venueSwapPlateIfNeeded, _venueTextureCache
+} from './bg/venue.js';
 import { installGlobals } from './globals.js';
 
 // Restore the persisted fret-spacing mode before anything renders. Must
@@ -995,290 +1001,6 @@ function _bgReadBands() {
     return _bgBandsCache;
 }
 
-const VENUE_SCENE_ASSET_BASE = '/static/assets/venue/themes/small-club/';
-const VENUE_BG_PLATE_PNG = 'bg-plate.png';
-const VENUE_BG_PLATE_WEBP = 'bg-plate.webp';
-const VENUE_INSTRUMENT_PLATES = {
-    guitar: { webp: 'guitar-pov-bg.webp', png: 'guitar-pov-bg.png' },
-    bass: { webp: 'bass-pov-bg.webp', png: 'bass-pov-bg.png' },
-    drums: { webp: 'drums-pov-bg.webp', png: 'drums-pov-bg.png' },
-    piano: { webp: 'piano-pov-bg.webp', png: 'piano-pov-bg.png' },
-    vocals: { webp: 'vocals-pov-bg.webp', png: 'vocals-pov-bg.png' },
-};
-let _venueSceneOverride = false;
-let _venueMoodState = 'idle';
-let _venueInstrumentPov = 'guitar';
-let _venueMotionMode = 'subtle';
-let _venuePlateUrl = '';
-let _venueSceneAssetsLoaded = false;
-let _venueSceneLoadFailed = false;
-const _venueTextureCache = new Map();
-// Crowd video layers (career mode). venue-crowd.js owns the <video>
-// elements and the crossfade timing; the renderer only maps them onto
-// two planes in front of the static plate. _venueCrowdRev bumps on any
-// element (re)assignment so update() knows to rebind textures.
-const _venueCrowdVideos = [null, null];
-let _venueCrowdMix = 0;
-let _venueCrowdRev = 0;
-
-function _bgVenueMoodCoeffs(state) {
-    const s = String(state || 'idle').toLowerCase();
-    if (s === 'fire' || s === 'strong') {
-        return { light: 1.0, crowd: 0, haze: 0.012, warmth: 1.02 };
-    }
-    if (s === 'recovery' || s === 'smoke') {
-        return { light: 0.55, crowd: 0, haze: 0.032, warmth: 0.94 };
-    }
-    return { light: 0.72, crowd: 0, haze: VENUE_HAZE_STEADY, warmth: 0.96 };
-}
-
-function _venueResolvePovFromInput(input) {
-    if (typeof window !== 'undefined' && window.v3VenueInstrumentPov &&
-        typeof window.v3VenueInstrumentPov.resolveVenueInstrumentPov === 'function') {
-        return window.v3VenueInstrumentPov.resolveVenueInstrumentPov(input);
-    }
-    const s = String(input == null ? '' : input).trim().toLowerCase();
-    if (!s) return 'guitar';
-    if (/\b(drums?)\b/.test(s)) return 'drums';
-    if (/\b(bass)\b/.test(s)) return 'bass';
-    if (/\b(piano|keys|keyboard)\b/.test(s)) return 'piano';
-    if (/\b(karaoke|vocal|vocals|lyric|lyrics|sing|singing)\b/.test(s)) return 'vocals';
-    if (/\b(lead|rhythm|guitar|combo)\b/.test(s)) return 'guitar';
-    return 'guitar';
-}
-
-function _venueMotionProfile(mode) {
-    if (typeof window !== 'undefined' && window.v3VenueMoodFx &&
-        typeof window.v3VenueMoodFx.venueMotionProfile === 'function') {
-        return window.v3VenueMoodFx.venueMotionProfile(mode);
-    }
-    const m = String(mode || 'subtle').toLowerCase();
-    if (m === 'off') {
-        return { breathe: 0, parallax: 0, hazeDrift: 0, warmthPulse: 0, shimmer: 0 };
-    }
-    if (m === 'full') {
-        return { breathe: 0.014, parallax: 0.010, hazeDrift: 0.020, warmthPulse: 0.028, shimmer: 0.10 };
-    }
-    return { breathe: 0.005, parallax: 0.004, hazeDrift: 0.007, warmthPulse: 0.010, shimmer: 0.04 };
-}
-
-function _venuePrefersReducedMotion() {
-    if (typeof window !== 'undefined' && window.v3VenueMoodFx &&
-        typeof window.v3VenueMoodFx.prefersReducedMotion === 'function') {
-        return window.v3VenueMoodFx.prefersReducedMotion();
-    }
-    return false;
-}
-
-function _venueEffectiveMotionMode() {
-    if (!_venueSceneOverride) return 'off';
-    if (_venuePrefersReducedMotion()) return 'off';
-    return _venueMotionMode;
-}
-
-function _venueApplyFakeDepthMotion(s, coeffs, t) {
-    const motion = _venueMotionProfile(_venueEffectiveMotionMode());
-    if (!motion.breathe && !motion.parallax && !motion.hazeDrift && !motion.warmthPulse) {
-        if (s.haze && s.haze.mesh) {
-            s.haze.mesh.position.set(s.haze.baseX, s.haze.baseY, s.haze.baseZ);
-        }
-        return motion;
-    }
-    const breath = Math.sin(t * 0.38);
-    const parallax = Math.sin(t * 0.21);
-    const shimmer = Math.sin(t * 0.55);
-    if (s.backdrop && s.backdrop.loaded && s.backdrop.mesh) {
-        const mesh = s.backdrop.mesh;
-        const vh = s.backdrop.lastVisibleHeight || 1;
-        const vw = s.backdrop.lastVisibleWidth || vh;
-        const offX = parallax * motion.parallax * vh;
-        const offY = breath * motion.breathe * vh * 0.35;
-        mesh.position.x += offX;
-        mesh.position.y += offY;
-        const scaleMul = 1 + breath * motion.breathe * 2.5;
-        mesh.scale.set(vw * scaleMul, vh * scaleMul, 1);
-        if (s.backdrop.mat) {
-            const warm = coeffs.warmth;
-            const warmPulse = 1 + shimmer * motion.warmthPulse;
-            s.backdrop.mat.color.setRGB(
-                warm * warmPulse,
-                warm * 0.98 * warmPulse,
-                warm * 0.95 * (1 + shimmer * motion.warmthPulse * 0.6),
-            );
-        }
-    } else if (s.backdrop && s.backdrop.mat) {
-        const warm = coeffs.warmth;
-        s.backdrop.mat.color.setRGB(warm, warm * 0.98, warm * 0.95);
-    }
-    if (s.haze && s.haze.mesh) {
-        const driftX = Math.sin(t * 0.18) * motion.hazeDrift * 8 * K;
-        const driftY = Math.cos(t * 0.14) * motion.hazeDrift * 4 * K;
-        s.haze.mesh.position.set(
-            s.haze.baseX + driftX,
-            s.haze.baseY + driftY,
-            s.haze.baseZ,
-        );
-        if (s.haze.mat) {
-            const baseOp = (s.haze.baseOp || VENUE_HAZE_STEADY) * (coeffs.haze / VENUE_HAZE_STEADY);
-            s.haze.mat.opacity = baseOp * (1 + shimmer * motion.shimmer * 0.12);
-        }
-    }
-    return motion;
-}
-
-function _venuePlateUrlChain(pov) {
-    const plate = VENUE_INSTRUMENT_PLATES[pov] || VENUE_INSTRUMENT_PLATES.guitar;
-    const base = VENUE_SCENE_ASSET_BASE;
-    return [
-        base + plate.webp,
-        base + plate.png,
-        base + VENUE_BG_PLATE_WEBP,
-        base + VENUE_BG_PLATE_PNG,
-    ];
-}
-
-function _venueLoadCachedTexture(loader, url, onSuccess, onFail) {
-    const cached = _venueTextureCache.get(url);
-    if (cached) {
-        onSuccess(cached, url);
-        return;
-    }
-    loader.load(
-        url,
-        (tex) => {
-            _venueTextureCache.set(url, tex);
-            onSuccess(tex, url);
-        },
-        undefined,
-        onFail,
-    );
-}
-
-function _venueApplyPlateTexture(backdrop, tex, url) {
-    backdrop.tex = tex;
-    backdrop.plateUrl = url;
-    _venuePlateUrl = url;
-    backdrop.mat.map = tex;
-    backdrop.mat.needsUpdate = true;
-    if (backdrop.applyCoverCrop) backdrop.applyCoverCrop();
-    backdrop.loaded = true;
-    backdrop.mesh.visible = true;
-}
-
-function _venueLoadPlateForPov(loader, pov, backdrop, onSuccess, onFail) {
-    const chain = _venuePlateUrlChain(pov);
-    let idx = 0;
-    function tryNext() {
-        if (idx >= chain.length) {
-            onFail();
-            return;
-        }
-        const url = chain[idx++];
-        _venueLoadCachedTexture(loader, url, (tex, loadedUrl) => {
-            _venueApplyPlateTexture(backdrop, tex, loadedUrl);
-            onSuccess(tex, loadedUrl);
-        }, tryNext);
-    }
-    tryNext();
-}
-
-function _venueSwapPlateIfNeeded(s) {
-    if (!s || s.failed || s.plateLoading || !s.loader || !s.backdrop) return;
-    const pov = _venueInstrumentPov;
-    if (s.instrumentPov === pov && s.backdrop.loaded) return;
-    s.plateLoading = true;
-    _venueLoadPlateForPov(
-        s.loader,
-        pov,
-        s.backdrop,
-        () => {
-            s.instrumentPov = pov;
-            s.plateLoading = false;
-            s.loaded = true;
-            _venueSceneAssetsLoaded = true;
-            _venueSceneLoadFailed = false;
-            // The POV may have changed while this load was in flight (the
-            // plateLoading latch made concurrent swaps no-op). Re-sync to the
-            // current target so the backdrop isn't stranded on a stale plate.
-            if (_venueInstrumentPov !== pov) _venueSwapPlateIfNeeded(s);
-        },
-        () => {
-            s.plateLoading = false;
-            if (s.backdrop.loaded) return;
-            s.failed = true;
-            _venueSceneLoadFailed = true;
-            _venueSceneAssetsLoaded = false;
-            console.warn('[venue-scene] failed to load venue bg plate for pov ' + pov);
-            _venueSceneOverride = false;
-            _bgEmitChange('venueScene');
-            try {
-                if (typeof window !== 'undefined' && window.v3VenueScene3d &&
-                    typeof window.v3VenueScene3d.onAssetsFailed === 'function') {
-                    window.v3VenueScene3d.onAssetsFailed('failed to load venue bg plate');
-                }
-            } catch (_) { /* visual-only */ }
-        },
-    );
-}
-
-window.h3dVenueSceneSetActive = (on) => {
-    const next = !!on;
-    if (_venueSceneOverride === next) return;
-    _venueSceneOverride = next;
-    if (!next) {
-        _venueSceneAssetsLoaded = false;
-        _venueSceneLoadFailed = false;
-    }
-    _bgEmitChange('venueScene');
-};
-window.h3dVenueSceneSetMood = (state) => {
-    _venueMoodState = String(state || 'idle').toLowerCase();
-};
-// Crowd video layers (career mode) — see venue-crowd.js. Layer 0/1 are
-// two coplanar backdrop planes; mix selects between them (0 → layer 0,
-// 1 → layer 1) so the caller can crossfade loop videos.
-window.h3dVenueBackdropSetVideo = (layer, videoEl) => {
-    const i = layer ? 1 : 0;
-    const el = videoEl || null;
-    if (_venueCrowdVideos[i] === el) return;
-    _venueCrowdVideos[i] = el;
-    _venueCrowdRev++;
-};
-window.h3dVenueBackdropSetMix = (mix) => {
-    const v = Number(mix);
-    _venueCrowdMix = Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0;
-};
-window.h3dVenueSceneSetInstrumentPov = (input) => {
-    const next = _venueResolvePovFromInput(input);
-    if (_venueInstrumentPov === next) return;
-    _venueInstrumentPov = next;
-    _bgEmitChange('venueInstrumentPov');
-};
-window.h3dVenueSceneSetMotionMode = (mode) => {
-    const next = String(mode || 'subtle').toLowerCase();
-    const allowed = { off: 1, subtle: 1, full: 1 };
-    _venueMotionMode = allowed[next] ? next : 'subtle';
-};
-window.h3dVenueSceneGetState = () => {
-    const motionMode = _venueEffectiveMotionMode();
-    const motionProfile = _venueMotionProfile(motionMode);
-    return {
-        active: _venueSceneOverride,
-        mood: _venueMoodState,
-        instrumentPov: _venueInstrumentPov,
-        motionMode: _venueMotionMode,
-        motionEffective: motionMode,
-        motionEnabled: motionMode !== 'off',
-        motionIntensity: motionProfile.breathe + motionProfile.parallax + motionProfile.hazeDrift,
-        motionProfile,
-        plateUrl: _venuePlateUrl || null,
-        assetsLoaded: _venueSceneAssetsLoaded,
-        loadFailed: _venueSceneLoadFailed,
-    };
-};
-// Back-compat alias for any caller that picked up the original
-// (inconsistent) name during this PR's review window.
-
 // Procedural silhouette bitmap, drawn once and shared across panels.
 // The Canvas2D bitmap is module-level (cheap, CPU-only); each layer
 // wraps it in its own CanvasTexture so per-layer texture.offset.x
@@ -1651,8 +1373,8 @@ const BG_STYLES = {
                 state.pending--;
                 if (state.pending <= 0 && !state.failed) {
                     state.loaded = true;
-                    _venueSceneAssetsLoaded = true;
-                    _venueSceneLoadFailed = false;
+                    _venueSetSceneAssetsLoaded(true);
+                    _venueSetSceneLoadFailed(false);
                     try {
                         if (typeof window !== 'undefined' && window.v3VenueScene3d &&
                             typeof window.v3VenueScene3d.onAssetsLoaded === 'function') {
@@ -1664,10 +1386,10 @@ const BG_STYLES = {
             function _venueMarkFailed(msg) {
                 if (state.failed) return;
                 state.failed = true;
-                _venueSceneLoadFailed = true;
-                _venueSceneAssetsLoaded = false;
+                _venueSetSceneLoadFailed(true);
+                _venueSetSceneAssetsLoaded(false);
                 console.warn('[venue-scene] ' + msg);
-                _venueSceneOverride = false;
+                _venueSetSceneOverride(false);
                 _bgEmitChange('venueScene');
                 try {
                     if (typeof window !== 'undefined' && window.v3VenueScene3d &&
@@ -1835,7 +1557,7 @@ const BG_STYLES = {
         },
         teardown(s) {
             if (!s) return;
-            _venueSceneAssetsLoaded = false;
+            _venueSetSceneAssetsLoaded(false);
             for (const key of ['backdrop', 'haze']) {
                 const p = s[key];
                 if (!p) continue;

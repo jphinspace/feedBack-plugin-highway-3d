@@ -15,6 +15,11 @@ import {
     h3dBgSetSlideArrowNeckVisible, h3dBgSetSlideArrowChainPreviewVisible, h3dBgSetCustomImage,
     h3dBgClearCustomImage, h3dBgSetCustomVideo, h3dBgClearCustomVideo, h3dSetPalette
 } from './settings/setters.js';
+import {
+    h3dVenueSceneSetActive, h3dVenueSceneSetMood, h3dVenueBackdropSetVideo,
+    h3dVenueBackdropSetMix, h3dVenueSceneSetInstrumentPov, h3dVenueSceneSetMotionMode,
+    h3dVenueSceneGetState,
+} from './bg/venue.js';
 
 // THE ONLY FILE THAT WRITES window.* -- every renderer module exports
 // plain functions/values; this file is the sole place they get bound onto
@@ -79,4 +84,11 @@ export function installGlobals() {
     window.h3dBgSetCustomVideo = h3dBgSetCustomVideo;
     window.h3dBgClearCustomVideo = h3dBgClearCustomVideo;
     window.h3dSetPalette = h3dSetPalette;
+    window.h3dVenueSceneSetActive = h3dVenueSceneSetActive;
+    window.h3dVenueSceneSetMood = h3dVenueSceneSetMood;
+    window.h3dVenueBackdropSetVideo = h3dVenueBackdropSetVideo;
+    window.h3dVenueBackdropSetMix = h3dVenueBackdropSetMix;
+    window.h3dVenueSceneSetInstrumentPov = h3dVenueSceneSetInstrumentPov;
+    window.h3dVenueSceneSetMotionMode = h3dVenueSceneSetMotionMode;
+    window.h3dVenueSceneGetState = h3dVenueSceneGetState;
 }
