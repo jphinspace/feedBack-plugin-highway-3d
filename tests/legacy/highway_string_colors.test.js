@@ -21,6 +21,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const highway3dJs = path.join(__dirname, '..', '..', 'src', 'main.js');
+const materialRetintJs = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'material-retint.js');
 
 // Brace-balanced extraction (same helper shape as the other legacy tests).
 function extractBlock(src, signature) {
@@ -61,16 +62,18 @@ test('3D adds a custom palette path + h3dBgSetStringColors setter', async () => 
 });
 
 test('3D gem-body gradients follow the active palette (not hardcoded)', () => {
-    const src = fs.readFileSync(highway3dJs, 'utf8');
+    // Moved out of main.js into instance/render/material-retint.js (Stage 7,
+    // post-3e) -- both functions dropped their leading underscore there.
+    const src = fs.readFileSync(materialRetintJs, 'utf8');
     // The gem bodies (strings 0..5) are a baked per-vertex gradient; a custom
     // palette must recolor them, else gems/sustain/vibrato heads stay stock.
-    assert.match(src, /function _recolorGemGradients\(\)/, '_recolorGemGradients must exist');
-    const fn = extractBlock(src, 'function _recolorGemGradients()');
+    assert.match(src, /function recolorGemGradients\(\)/, 'recolorGemGradients must exist');
+    const fn = extractBlock(src, 'function recolorGemGradients()');
     assert.match(fn, /isCustom\s*&&\s*base !== PALETTES\.default\[s\]/, 'custom slots must derive stops from the base color');
     assert.match(fn, /_lightenInt\(base/, 'derived top highlight via _lightenInt');
     assert.match(fn, /_darkenInt\(base/, 'derived bottom shade via _darkenInt');
     assert.match(fn, /colAttr\.needsUpdate = true/, 'must flag the color attribute dirty');
     // Wired into both the build path and the live palette-change path.
-    const apply = extractBlock(src, 'function _applyPaletteToMaterials()');
-    assert.match(apply, /_recolorGemGradients\(\)/, '_applyPaletteToMaterials must recolor gems on palette change');
+    const apply = extractBlock(src, 'function applyPaletteToMaterials()');
+    assert.match(apply, /recolorGemGradients\(\)/, 'applyPaletteToMaterials must recolor gems on palette change');
 });
