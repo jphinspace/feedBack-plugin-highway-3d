@@ -2624,15 +2624,14 @@ function createFactory() {
         _imM4 = _imPos = _imSca = _imQ = _imAZ = _imColor = null;
         gHaloBar?.dispose?.(); gHaloBar = null;
         gArpBracket?.dispose?.(); gArpBracket = null;
-        for (const m of mStr) m?.dispose?.();
-        for (const m of mGlow) m?.dispose?.();
-        for (const m of mSus) m?.dispose?.();
-        for (const m of mStrHitOutline) m?.dispose?.();
-        for (const m of mAccentOutline) m?.dispose?.();
-        for (const m of mAccentCore) m?.dispose?.();
-        for (const m of mAccentHaloNear) m?.dispose?.();
-        for (const m of mAccentHaloMid) m?.dispose?.();
-        for (const m of mAccentHaloFar) m?.dispose?.();
+        // Per-string material arrays -- one loop instead of 9 near-identical
+        // dispose lines, same idea as POOL_REGISTRY's reset loop in update().
+        for (const arr of [
+            mStr, mGlow, mSus, mStrHitOutline, mAccentOutline, mAccentCore,
+            mAccentHaloNear, mAccentHaloMid, mAccentHaloFar,
+        ]) {
+            for (const m of arr) m?.dispose?.();
+        }
         mBeatM?.dispose?.(); mBeatQ?.dispose?.();
         // Notedetect outline materials (#9). May not be reachable
         // via scene.traverse if no event ever fired (never attached
