@@ -597,11 +597,14 @@ function createFactory() {
     // pass. bgState is the active style's per-panel state object.
     let bgGroup = null, bgStage = null, bgState = null;
     let bgMountedStyleId = null;
-    let bgStyleId = 'particles', bgIntensity = 0.5;
-    // bgReactive / bgThemeId / hwThemeId live on ctx.settings (Stage 7
-    // Track 3e) -- bgReactive read only in draw(); bgThemeId/hwThemeId
-    // (BACKGROUND / HIGHWAY axis, applied by _applyBgTheme -- clear + fog
-    // + board plane) read only in _applyBgTheme()/buildBoard().
+    // bgStyleId / bgIntensity / bgReactive / bgThemeId / hwThemeId live on
+    // ctx.settings (Stage 7 Track 3e) -- bgStyleId read in
+    // effectiveBackgroundStyleId()/butterchurnModeActive()/
+    // mountBackgroundStyle() (plus settings-listener.js's ctx.settings
+    // reads); bgIntensity in mountBackgroundStyle() (plus settings-
+    // listener.js); bgReactive in draw(); bgThemeId/hwThemeId (BACKGROUND /
+    // HIGHWAY axis, applied by _applyBgTheme -- clear + fog + board plane)
+    // in _applyBgTheme()/buildBoard().
     // _boardPlaneMat lives on ctx.board now (see instance/ctx.js) -- the
     // fretboard/highway-surface plane material, kept so the theme can
     // recolor it live without rebuilding the board. Set in buildBoard().
@@ -665,11 +668,9 @@ function createFactory() {
     let _juiceLastT = 0;              // frame-dt clock for the juice layer
     let _streakHeat = 0;  // #7 consecutive-hit escalation (streakHits itself lives on noteVerdictState — see its decl above)
     // fretDividersVisible / fretColumnMarkerCadence / sectionLabelsOnHighway
-    // / fpsVisible / chordDiagram* / sectionHud* / toneHud* / _bloom live on
-    // ctx.settings (Stage 7 Track 3e) -- all read only inside draw() (or
-    // update() for the first group).
-    let inlayLabelsVisible = SETTING_DEFAULTS.inlayLabelsVisible;
-    let nutHeadstockVisible    = SETTING_DEFAULTS.nutHeadstockVisible;
+    // / fpsVisible / chordDiagram* / sectionHud* / toneHud* / _bloom /
+    // inlayLabelsVisible / nutHeadstockVisible live on ctx.settings (Stage 7
+    // Track 3e) -- all read only inside draw() or buildBoard() (last two).
     // tuningLabelsVisible / nutColor / headstockColor live on ctx.settings
     // (Stage 7 Track 3e) -- read only in _syncOpenStringPitchLabels() /
     // buildBoard(). projectionVisible (board "note preview" ghost) and the
@@ -1741,14 +1742,12 @@ function createFactory() {
         // of what this reads, from inside several of its own branches).
         settingsListener = createSettingsListener({
             getFretG: () => fretG, buildBoard, loadSettings, ctx,
-            getInlayLabelsVisible: () => inlayLabelsVisible,
-            getNutHeadstockVisible: () => nutHeadstockVisible,
             setLastOpenStringLblSig: (v) => { _lastOpenStringLblSig = v; },
             getTuningLabelSprites: () => _tuningLabelSprites,
             _disposeOpenStringPitchSprites,
             _applyVibrancy, _applyGlow,
-            getBgStyleId: () => bgStyleId, rebuildBackground, _applyBgTheme,
-            getBgState: () => bgState, getBgIntensity: () => bgIntensity,
+            rebuildBackground, _applyBgTheme,
+            getBgState: () => bgState,
             effectiveBackgroundStyleId,
         });
         subscribeToSettings(settingsListener);
@@ -1776,15 +1775,15 @@ function createFactory() {
 
     function loadSettings() {
         const panelKey = settingsPanelKey(highwayCanvas);
-        bgStyleId = readSetting(panelKey, 'style');
-        bgIntensity = readSetting(panelKey, 'intensity');
+        ctx.settings.bgStyleId = readSetting(panelKey, 'style');
+        ctx.settings.bgIntensity = readSetting(panelKey, 'intensity');
         ctx.settings.bgReactive = readSetting(panelKey, 'reactive');
         // Per-render opt-out (captured from the mount bundle in init): force
         // the reactive background off for THIS instance, overriding the shared
         // setting without writing it back. Re-applied here so it sticks across
         // setting reloads.
         if (backgroundReactiveOptOut) ctx.settings.bgReactive = false;
-        if (bgStyleId === 'butterchurn') ctx.settings.bgReactive = false; // Butterchurn owns the <audio> tap
+        if (ctx.settings.bgStyleId === 'butterchurn') ctx.settings.bgReactive = false; // Butterchurn owns the <audio> tap
         const newPaletteId = readSetting(panelKey, 'palette');
         let newPalette;
         if (newPaletteId === 'custom') {
@@ -1862,7 +1861,7 @@ function createFactory() {
         ctx.settings.chordDiagramSize     = readSetting(panelKey, 'chordDiagramSize');
         ctx.settings.chordDiagramPosition = readSetting(panelKey, 'chordDiagramPosition');
         ctx.settings.fretColumnMarkerCadence = readSetting(panelKey, 'fretColumnMarkerCadence');
-        inlayLabelsVisible = readSetting(panelKey, 'inlayLabelsVisible');
+        ctx.settings.inlayLabelsVisible = readSetting(panelKey, 'inlayLabelsVisible');
         ctx.settings.sectionLabelsOnHighway = readSetting(panelKey, 'sectionLabelsOnHighway');
         ctx.settings.sectionHudVisible      = readSetting(panelKey, 'sectionHudVisible');
         ctx.settings.sectionHudPosition     = readSetting(panelKey, 'sectionHudPosition');
@@ -1870,7 +1869,7 @@ function createFactory() {
         ctx.settings.toneHudVisible         = readSetting(panelKey, 'toneHudVisible');
         ctx.settings.toneHudPosition        = readSetting(panelKey, 'toneHudPosition');
         ctx.settings.toneHudSize            = readSetting(panelKey, 'toneHudSize');
-        nutHeadstockVisible    = readSetting(panelKey, 'nutHeadstockVisible');
+        ctx.settings.nutHeadstockVisible    = readSetting(panelKey, 'nutHeadstockVisible');
         ctx.settings.tuningLabelsVisible    = readSetting(panelKey, 'tuningLabelsVisible');
         ctx.settings.nutColor               = readSetting(panelKey, 'nutColor');
         ctx.settings.headstockColor         = readSetting(panelKey, 'headstockColor');
@@ -2112,13 +2111,13 @@ function createFactory() {
         }
     }
     function effectiveBackgroundStyleId() {
-        return _venueSceneOverride ? 'venue' : bgStyleId;
+        return _venueSceneOverride ? 'venue' : ctx.settings.bgStyleId;
     }
     // The 'butterchurn' bg-style renders a WebGL MilkDrop canvas BEHIND a
     // transparent highway via the self-contained butterchurn/ controller module,
     // NOT a Three.js fog-scenery style (its scenery falls back to 'off'). Mount
     // is idempotent and driven by the bg-style dropdown through mountBackgroundStyle.
-    function butterchurnModeActive() { return bgStyleId === 'butterchurn'; }
+    function butterchurnModeActive() { return ctx.settings.bgStyleId === 'butterchurn'; }
     function syncButterchurnMode() {
         if (butterchurnModeActive()) {
             // Recreate when there's no controller, or the last one died during
@@ -2150,7 +2149,7 @@ function createFactory() {
         let result = null;
         try {
             result = style.build(stage, {
-                intensity: bgIntensity,
+                intensity: ctx.settings.bgIntensity,
                 palette: activePalette,
                 customImageDataUrl: ctx.settings.bgCustomImageDataUrl,
                 customVideoName: ctx.settings.bgCustomVideoName,
@@ -2568,7 +2567,7 @@ function createFactory() {
                 gr.position.set(nutXC, sY(st), slotZ);
                 ctx.board.nutHeadstockGroup.add(gr);
             }
-            ctx.board.nutHeadstockGroup.visible = nutHeadstockVisible;
+            ctx.board.nutHeadstockGroup.visible = ctx.settings.nutHeadstockVisible;
             fretG.add(ctx.board.nutHeadstockGroup);
         }
 
@@ -2681,7 +2680,7 @@ function createFactory() {
             const scale = 5.5 * (0.5 + ctx.settings.textSize) * fretLabelScaleForFret(f);
             lbl.scale.set(scale * K, scale * K, 1);
             lbl.position.set(xFretMid(f), yTop - S_GAP * 0.4, -K);
-            lbl.visible = inlayLabelsVisible;
+            lbl.visible = ctx.settings.inlayLabelsVisible;
             fretG.add(lbl);
             ctx.board._inlayLabels.push(lbl);
             ctx.board._inlayMats.push(mat);

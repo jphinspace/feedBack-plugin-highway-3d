@@ -171,6 +171,18 @@ export function createCtx(id) {
             _vibrancyIdleOp: 0.4  + 0.6  * SETTING_DEFAULTS.vibrancy,
             _vibrancyProjOp: 0.15 + 0.35 * SETTING_DEFAULTS.vibrancy,
             _cinematic: SETTING_DEFAULTS.cinematic,
+            // Batch 6: the four settings settings-listener.js previously
+            // threaded through as live getters (`getBgStyleId` etc.) because
+            // the values were bare main.js closure `let`s reassigned by
+            // loadSettings() mid-flight. Now that they live on the SAME
+            // stable ctx object settings-listener.js already holds a
+            // reference to, the getter indirection is dropped entirely --
+            // it reads ctx.settings.x directly, same as its existing
+            // ctx.board.* reads.
+            bgStyleId: SETTING_DEFAULTS.style,
+            bgIntensity: SETTING_DEFAULTS.intensity,
+            inlayLabelsVisible: SETTING_DEFAULTS.inlayLabelsVisible,
+            nutHeadstockVisible: SETTING_DEFAULTS.nutHeadstockVisible,
         },
     };
 }

@@ -4,19 +4,23 @@ import { _venueSwapPlateIfNeeded } from '../background/venue.js';
 // (Stage 7 Track B / 3-ctx-3). Like dom-and-scene.js's visibility/canvas-
 // replaced handlers, this listener outlives the initScene() call that
 // creates it (subscribeToSettings() keeps it alive until teardown()
-// unsubscribes). Unlike that cluster, almost every value it reads
-// (fretG, inlayLabelsVisible, nutHeadstockVisible, bgStyleId, bgState,
-// bgIntensity, _tuningLabelSprites) is a settings-driven main.js closure
-// `let` that gets REASSIGNED by `loadSettings()` -- and several branches
-// below call `loadSettings()` and then read the just-updated value in the
-// same breath. A plain deps snapshot would see the value as it stood at
-// initScene() time, not after that reload, so every one of those is
-// threaded through as a live getter (same shape as dom-and-scene.js's
-// getHighwayCanvas). `_lastOpenStringLblSig` is also WRITTEN here, so it
-// gets a setter. `ctx` itself doesn't need this treatment -- it's a
-// stable object reference (created once per instance); only its `.board`
-// properties change, via ordinary property mutation the listener already
-// reads through the same reference.
+// unsubscribes). Most of what it reads (fretG, bgState, _tuningLabelSprites)
+// is a settings-driven main.js closure `let` that gets REASSIGNED by
+// `loadSettings()` -- and several branches below call `loadSettings()` and
+// then read the just-updated value in the same breath. A plain deps
+// snapshot would see the value as it stood at initScene() time, not after
+// that reload, so those are threaded through as live getters (same shape
+// as dom-and-scene.js's getHighwayCanvas). `_lastOpenStringLblSig` is also
+// WRITTEN here, so it gets a setter.
+//
+// bgStyleId / bgIntensity / inlayLabelsVisible / nutHeadstockVisible used
+// to need the same getter treatment (Stage 7 Track 3e's ctx.settings
+// conversion, batch 6) -- now that they live on ctx.settings, and `ctx`
+// itself is already a stable per-instance object reference this file holds
+// (only its `.board`/`.cam`/`.settings` PROPERTIES change, via ordinary
+// mutation, never the object itself), the getter indirection is gone:
+// every read below is `ctx.settings.x`, same as the existing `ctx.board.*`
+// reads.
 //
 // tests/settings-live-refresh.test.mjs brace-matches this function's body
 // directly from source (`block('settingsListener = (changedKey) =>')` in
@@ -27,11 +31,10 @@ import { _venueSwapPlateIfNeeded } from '../background/venue.js';
 // each branch are threaded in.
 export function createSettingsListener({
     getFretG, buildBoard, loadSettings, ctx,
-    getInlayLabelsVisible, getNutHeadstockVisible,
     setLastOpenStringLblSig, getTuningLabelSprites, _disposeOpenStringPitchSprites,
     _applyVibrancy, _applyGlow,
-    getBgStyleId, rebuildBackground, _applyBgTheme,
-    getBgState, getBgIntensity, effectiveBackgroundStyleId,
+    rebuildBackground, _applyBgTheme,
+    getBgState, effectiveBackgroundStyleId,
 }) {
     return (changedKey) => {
         if (changedKey === 'fretSpacing') {
@@ -48,12 +51,12 @@ export function createSettingsListener({
             // Flip visibility on the already-built sprites; no
             // need to rebuild the board (cheaper, preserves the
             // shared materials and avoids palette re-apply churn).
-            for (const lbl of ctx.board._inlayLabels) lbl.visible = getInlayLabelsVisible();
+            for (const lbl of ctx.board._inlayLabels) lbl.visible = ctx.settings.inlayLabelsVisible;
             return;
         }
         if (changedKey === 'nutHeadstockVisible') {
             loadSettings();
-            if (ctx.board.nutHeadstockGroup) ctx.board.nutHeadstockGroup.visible = getNutHeadstockVisible();
+            if (ctx.board.nutHeadstockGroup) ctx.board.nutHeadstockGroup.visible = ctx.settings.nutHeadstockVisible;
             return;
         }
         if (changedKey === 'tuningLabelsVisible') {
@@ -65,7 +68,7 @@ export function createSettingsListener({
         if (changedKey === 'nutColor' || changedKey === 'headstockColor') {
             loadSettings();
             if (getFretG()) buildBoard();
-            for (const lbl of ctx.board._inlayLabels) lbl.visible = getInlayLabelsVisible();
+            for (const lbl of ctx.board._inlayLabels) lbl.visible = ctx.settings.inlayLabelsVisible;
             return;
         }
         if (changedKey === 'reactive' || changedKey === 'showFretOnNote' ||
@@ -147,7 +150,7 @@ export function createSettingsListener({
             //     that style is active.
             loadSettings();
             if (getFretG()) buildBoard();
-            if (getBgStyleId() === 'lights') rebuildBackground();
+            if (ctx.settings.bgStyleId === 'lights') rebuildBackground();
             return;
         }
         if (changedKey === 'bgTheme' || changedKey === 'hwTheme') {
@@ -166,7 +169,7 @@ export function createSettingsListener({
             // style is active — otherwise the new bytes will
             // pick up next time the user picks `image`.
             loadSettings();
-            if (getBgStyleId() === 'image') rebuildBackground();
+            if (ctx.settings.bgStyleId === 'image') rebuildBackground();
             return;
         }
         if (changedKey === 'customImageName') {
@@ -180,7 +183,7 @@ export function createSettingsListener({
             // otherwise the new bytes pick up next time the
             // user picks `video`.
             loadSettings();
-            if (getBgStyleId() === 'video') rebuildBackground();
+            if (ctx.settings.bgStyleId === 'video') rebuildBackground();
             return;
         }
         if (changedKey === 'intensity') {
@@ -193,8 +196,8 @@ export function createSettingsListener({
             // count, opacity, and size at build time, so they
             // still need a full rebuild.
             const bgState = getBgState();
-            if (getBgStyleId() === 'image' && bgState) {
-                bgState.intensity = getBgIntensity();
+            if (ctx.settings.bgStyleId === 'image' && bgState) {
+                bgState.intensity = ctx.settings.bgIntensity;
                 return;
             }
             rebuildBackground();
