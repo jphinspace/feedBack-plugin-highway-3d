@@ -671,31 +671,22 @@ function createFactory() {
     // linear blend every frame.
     let vibrancy            = SETTING_DEFAULTS.vibrancy;
     let glowMul             = SETTING_DEFAULTS.glow;
-    // _hitFx / _verdictMarks / _timingFx / _streakFx live on ctx.settings
-    // (Stage 7 Track 3e) -- all read only inside update()'s _noteFrame
-    // block. _sparks also moves there (same block); _cinematic/_bloom stay
-    // (consumed by _applyCinematic()/draw(), not yet migrated).
+    // _hitFx / _verdictMarks / _timingFx / _streakFx / _bloom live on
+    // ctx.settings (Stage 7 Track 3e) -- read only inside update()'s
+    // _noteFrame block (first four) or draw() (_bloom). _sparks also moved
+    // there. _cinematic stays (consumed by _applyCinematic(), not migrated).
     let _cinematic          = SETTING_DEFAULTS.cinematic;
-    let _bloom              = SETTING_DEFAULTS.bloom;
     let _composer = null, _bloomPass = null, _bloomLoad = null, _bloomW = 0, _bloomH = 0;
     let _sparkPts = null, _sparkPos = null, _sparkCol = null, _sparkVel = null, _sparkLife = null;
     const _SPARK_N = 256;
     const _sparkSeen = new Map();     // note-key -> expiry; one burst per hit
     let _juiceLastT = 0;              // frame-dt clock for the juice layer
     let _streakHeat = 0;  // #7 consecutive-hit escalation (streakHits itself lives on noteVerdictState — see its decl above)
-    let fpsVisible           = SETTING_DEFAULTS.fpsVisible;
     // fretDividersVisible / fretColumnMarkerCadence / sectionLabelsOnHighway
-    // live on ctx.settings (Stage 7 Track 3e) -- all read only inside update().
-    let chordDiagramVisible  = SETTING_DEFAULTS.chordDiagramVisible;
-    let chordDiagramSize     = SETTING_DEFAULTS.chordDiagramSize;
-    let chordDiagramPosition = SETTING_DEFAULTS.chordDiagramPosition;
+    // / fpsVisible / chordDiagram* / sectionHud* / toneHud* / _bloom live on
+    // ctx.settings (Stage 7 Track 3e) -- all read only inside draw() (or
+    // update() for the first group).
     let inlayLabelsVisible = SETTING_DEFAULTS.inlayLabelsVisible;
-    let sectionHudVisible      = SETTING_DEFAULTS.sectionHudVisible;
-    let sectionHudPosition     = SETTING_DEFAULTS.sectionHudPosition;
-    let sectionHudSize         = SETTING_DEFAULTS.sectionHudSize;
-    let toneHudVisible         = SETTING_DEFAULTS.toneHudVisible;
-    let toneHudPosition        = SETTING_DEFAULTS.toneHudPosition;
-    let toneHudSize            = SETTING_DEFAULTS.toneHudSize;
     let nutHeadstockVisible    = SETTING_DEFAULTS.nutHeadstockVisible;
     let tuningLabelsVisible    = SETTING_DEFAULTS.tuningLabelsVisible;
     let nutColor               = SETTING_DEFAULTS.nutColor;
@@ -1887,22 +1878,22 @@ function createFactory() {
         ctx.settings._verdictMarks = readSetting(panelKey, 'verdictMarks');
         ctx.settings._timingFx     = readSetting(panelKey, 'timingFx');
         ctx.settings._streakFx     = readSetting(panelKey, 'streakFx');
-        _bloom               = readSetting(panelKey, 'bloom');
+        ctx.settings._bloom  = readSetting(panelKey, 'bloom');
         _applyCinematic();
-        fpsVisible           = readSetting(panelKey, 'fpsVisible');
+        ctx.settings.fpsVisible           = readSetting(panelKey, 'fpsVisible');
         ctx.settings.fretDividersVisible  = readSetting(panelKey, 'fretDividersVisible');
-        chordDiagramVisible  = readSetting(panelKey, 'chordDiagramVisible');
-        chordDiagramSize     = readSetting(panelKey, 'chordDiagramSize');
-        chordDiagramPosition = readSetting(panelKey, 'chordDiagramPosition');
+        ctx.settings.chordDiagramVisible  = readSetting(panelKey, 'chordDiagramVisible');
+        ctx.settings.chordDiagramSize     = readSetting(panelKey, 'chordDiagramSize');
+        ctx.settings.chordDiagramPosition = readSetting(panelKey, 'chordDiagramPosition');
         ctx.settings.fretColumnMarkerCadence = readSetting(panelKey, 'fretColumnMarkerCadence');
         inlayLabelsVisible = readSetting(panelKey, 'inlayLabelsVisible');
         ctx.settings.sectionLabelsOnHighway = readSetting(panelKey, 'sectionLabelsOnHighway');
-        sectionHudVisible      = readSetting(panelKey, 'sectionHudVisible');
-        sectionHudPosition     = readSetting(panelKey, 'sectionHudPosition');
-        sectionHudSize         = readSetting(panelKey, 'sectionHudSize');
-        toneHudVisible         = readSetting(panelKey, 'toneHudVisible');
-        toneHudPosition        = readSetting(panelKey, 'toneHudPosition');
-        toneHudSize            = readSetting(panelKey, 'toneHudSize');
+        ctx.settings.sectionHudVisible      = readSetting(panelKey, 'sectionHudVisible');
+        ctx.settings.sectionHudPosition     = readSetting(panelKey, 'sectionHudPosition');
+        ctx.settings.sectionHudSize         = readSetting(panelKey, 'sectionHudSize');
+        ctx.settings.toneHudVisible         = readSetting(panelKey, 'toneHudVisible');
+        ctx.settings.toneHudPosition        = readSetting(panelKey, 'toneHudPosition');
+        ctx.settings.toneHudSize            = readSetting(panelKey, 'toneHudSize');
         nutHeadstockVisible    = readSetting(panelKey, 'nutHeadstockVisible');
         tuningLabelsVisible    = readSetting(panelKey, 'tuningLabelsVisible');
         nutColor               = readSetting(panelKey, 'nutColor');
@@ -4704,7 +4695,7 @@ function createFactory() {
                 _streakHeat += (Math.min(1, noteVerdictState.streakHits / 16) - _streakHeat) * 0.08;   // #7 ease heat
             }
             {
-                const comp = (_bloom && !splitscreenActive()) ? _bloomEnsure() : null;
+                const comp = (ctx.settings._bloom && !splitscreenActive()) ? _bloomEnsure() : null;
                 if (comp) {
                     const bsz = canvasSize(highwayCanvas);
                     if (bsz && bsz.w > 0 && bsz.h > 0 && (bsz.w !== _bloomW || bsz.h !== _bloomH)) {
@@ -4753,7 +4744,7 @@ function createFactory() {
                     }
                 }
                 _fpsLastT = _fpsNowMs;
-                if (fpsVisible) {
+                if (ctx.settings.fpsVisible) {
                     if (_fpsNowMs - _fpsLastSampleT > 250) {
                         _fpsDisplay = _fpsEma;
                         _fpsLastSampleT = _fpsNowMs;
@@ -4789,32 +4780,32 @@ function createFactory() {
                 }
 
                 // 2. Section HUD.
-                if (sectionHudVisible && bundle.sections && bundle.sections.length) {
+                if (ctx.settings.sectionHudVisible && bundle.sections && bundle.sections.length) {
                     const secH = drawSectionHud(lyricsCtx, {
                         sections: bundle.sections,
                         currentTime: bundle.currentTime,
                         canvasW: lyricsCanvas.width, canvasH: lyricsCanvas.height,
-                        position: sectionHudPosition,
-                        sizeSlider: sectionHudSize,
+                        position: ctx.settings.sectionHudPosition,
+                        sizeSlider: ctx.settings.sectionHudSize,
                         lyricsBottom,
-                        stackOffset: cornerStack[sectionHudPosition] || 0,
+                        stackOffset: cornerStack[ctx.settings.sectionHudPosition] || 0,
                     });
-                    stackPush(sectionHudPosition, secH);
+                    stackPush(ctx.settings.sectionHudPosition, secH);
                 }
 
                 // 3. Tone HUD.
-                if (toneHudVisible && (bundle.toneChanges?.length || bundle.toneBase)) {
+                if (ctx.settings.toneHudVisible && (bundle.toneChanges?.length || bundle.toneBase)) {
                     const toneH = drawToneHud(lyricsCtx, {
                         toneChanges: bundle.toneChanges,
                         toneBase: bundle.toneBase,
                         currentTime: bundle.currentTime,
                         canvasW: lyricsCanvas.width, canvasH: lyricsCanvas.height,
-                        position: toneHudPosition,
-                        sizeSlider: toneHudSize,
+                        position: ctx.settings.toneHudPosition,
+                        sizeSlider: ctx.settings.toneHudSize,
                         lyricsBottom,
-                        stackOffset: cornerStack[toneHudPosition] || 0,
+                        stackOffset: cornerStack[ctx.settings.toneHudPosition] || 0,
                     });
-                    stackPush(toneHudPosition, toneH);
+                    stackPush(ctx.settings.toneHudPosition, toneH);
                 }
 
                 // 4. Chord diagram — always last (bottommost in the stack).
@@ -4823,7 +4814,7 @@ function createFactory() {
                 // The outgoing (prev) diagram uses the same corner slot — it is
                 // fading out while the incoming one fades in, so they share the
                 // same stack position and don't double-count the height.
-                if (chordDiagramVisible && _diagPrev && _diagPrevOpacity > 0) {
+                if (ctx.settings.chordDiagramVisible && _diagPrev && _diagPrevOpacity > 0) {
                     _drawDiagramCached(lyricsCtx, {
                         name: _diagPrev.name, frets: _diagPrev.frets,
                         opacity: _diagPrevOpacity,
@@ -4832,26 +4823,26 @@ function createFactory() {
                             : 1.0,
                         canvasW: lyricsCanvas.width, canvasH: lyricsCanvas.height,
                         inverted: _invertedCached,
-                        sizeSlider: chordDiagramSize, position: chordDiagramPosition,
+                        sizeSlider: ctx.settings.chordDiagramSize, position: ctx.settings.chordDiagramPosition,
                         nStr: _diagPrev.nStr ?? nStr,
                         lyricsBottom,
-                        stackOffset: cornerStack[chordDiagramPosition] || 0,
+                        stackOffset: cornerStack[ctx.settings.chordDiagramPosition] || 0,
                     });
                     // Don't push here — outgoing and incoming share the same slot.
                 }
-                if (chordDiagramVisible && _diagChord) {
+                if (ctx.settings.chordDiagramVisible && _diagChord) {
                     const diagH = _drawDiagramCached(lyricsCtx, {
                         name: _diagChord.name, frets: _diagChord.frets,
                         opacity: Math.max(0, 1 + (_diagChord.t - bundle.currentTime) / DIAG_LINGER_S),
                         entranceT: _diagEntranceT,
                         canvasW: lyricsCanvas.width, canvasH: lyricsCanvas.height,
                         inverted: _invertedCached,
-                        sizeSlider: chordDiagramSize, position: chordDiagramPosition,
+                        sizeSlider: ctx.settings.chordDiagramSize, position: ctx.settings.chordDiagramPosition,
                         nStr: _diagChord.nStr ?? nStr,
                         lyricsBottom,
-                        stackOffset: cornerStack[chordDiagramPosition] || 0,
+                        stackOffset: cornerStack[ctx.settings.chordDiagramPosition] || 0,
                     });
-                    stackPush(chordDiagramPosition, diagH);
+                    stackPush(ctx.settings.chordDiagramPosition, diagH);
                 }
             }
             // Draw-hook compatibility: fire hooks registered via

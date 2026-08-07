@@ -121,6 +121,20 @@ export function createCtx(id) {
             slideArrowApproachVisible: SETTING_DEFAULTS.slideArrowApproachVisible,
             slideArrowNeckVisible: SETTING_DEFAULTS.slideArrowNeckVisible,
             slideArrowChainPreviewVisible: SETTING_DEFAULTS.slideArrowChainPreviewVisible,
+            // Batch 2: settings read only inside draw()'s HUD/chord-diagram
+            // corner-stacking block (plus the bloom composer gate, same
+            // function).
+            _bloom: SETTING_DEFAULTS.bloom,
+            fpsVisible: SETTING_DEFAULTS.fpsVisible,
+            chordDiagramVisible: SETTING_DEFAULTS.chordDiagramVisible,
+            chordDiagramSize: SETTING_DEFAULTS.chordDiagramSize,
+            chordDiagramPosition: SETTING_DEFAULTS.chordDiagramPosition,
+            sectionHudVisible: SETTING_DEFAULTS.sectionHudVisible,
+            sectionHudPosition: SETTING_DEFAULTS.sectionHudPosition,
+            sectionHudSize: SETTING_DEFAULTS.sectionHudSize,
+            toneHudVisible: SETTING_DEFAULTS.toneHudVisible,
+            toneHudPosition: SETTING_DEFAULTS.toneHudPosition,
+            toneHudSize: SETTING_DEFAULTS.toneHudSize,
         },
     };
 }
