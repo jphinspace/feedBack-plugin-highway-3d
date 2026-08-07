@@ -104,6 +104,7 @@ import { createSingleNoteRenderer } from './instance/render/single-notes.js';
 import { createHighwayLane } from './instance/render/highway-lane.js';
 import { createFretColumnMarkers } from './instance/render/fret-column-markers.js';
 import { createCameraTarget } from './instance/render/camera-target.js';
+import { updateChordDiagramTracking } from './instance/model/chord-diagram-tracking.js';
 import {
     bnvSampleAt, canvasSize, darkenHex, disposeGroupTree, effectiveVfov, noteHasVibrato,
     teachingDegreeLabel, teachingFingerLabel, tremoloOffsetWorldX, vibratoSemisAtTime,
@@ -4328,156 +4329,19 @@ function createFactory() {
         );
 
 
-        // ── Chord diagram: track chord, drive entrance + crossfade animations ─
-        {
-            let newChord = null;
-            if (chords) {
-                // Only chords in (now - DIAG_LINGER_S, now] — use binary search
-                // to skip past old chords, break once we pass `now`.
-                const _dlo = lowerBoundT(chords, now - DIAG_LINGER_S);
-                for (let _di = _dlo; _di < chords.length; _di++) {
-                    const ch = chords[_di];
-                    const chDt = ch.t - now;
-                    if (chDt > 0) break;
-                    if (!ch.notes) continue;
-                    const tmpl = bundle.chordTemplates?.[ch.id];
-                    const lbl = chordInference.chordTemplateLabel(tmpl);
-                    // Last valid chord (highest t ≤ now) naturally wins since array is sorted.
-                    if (lbl && tmpl?.frets) {
-                        newChord = { name: lbl, frets: tmpl.frets, t: ch.t, t0: ch.t, chDt, nStr };
-                    }
-                }
-            }
-
-            // Include frets in the key so two templates sharing a display name but
-            // differing in fingering each trigger a fresh crossfade/entrance.
-            const newKey = newChord ? newChord.name + '|' + newChord.frets.join(',') : null;
-            if (newKey !== _diagLastKey) {
-                if (_diagChord && newKey !== null) {
-                    // Recompute outgoing alpha from stored event time rather than the
-                    // stale per-frame chDt; after dropped frames or seeks this prevents
-                    // the overlay jumping to a stale brightness before the crossfade.
-                    const freshChDt = _diagChord.t !== undefined ? _diagChord.t - now : _diagChord.chDt;
-                    const prevOpacity = Math.max(0, Math.min(1, 1 + freshChDt / DIAG_LINGER_S));
-                    // Only crossfade when the outgoing chord is actually visible at now.
-                    // freshChDt > 0 means the old chord is in the future (backward seek
-                    // crossed the chord boundary).  In that case _diagChord is stale, so
-                    // recompute the outgoing diagram from the chart — find the most recent
-                    // named chord that ends just before newChord.t and use it as _diagPrev
-                    // so that seeking into a historical chord transition fades correctly
-                    // rather than snapping straight to the new chord.
-                    if (freshChDt <= 0 && prevOpacity > 0) {
-                        // Use the string count the outgoing chord was captured with, not the
-                        // current nStr — an arrangement switch during a 150 ms crossfade
-                        // must not remap the outgoing diagram onto the new layout.
-                        _diagPrev = { name: _diagChord.name, frets: _diagChord.frets, nStr: _diagChord.nStr ?? nStr, t: _diagChord.t0 ?? _diagChord.t ?? now };
-                        _diagPrevStartOpacity = prevOpacity;
-                        _diagPrevOpacity = prevOpacity;
-                        _diagPrevStartT = now;
-                        // entranceT for the outgoing diagram is computed live from _diagPrev.t
-                        // each frame (see draw path), so it rewinds correctly on backward seeks
-                        // within the crossfade window — no separate snapped state needed here.
-                    } else if (freshChDt > 0) {
-                        // Backward seek: _diagChord is now in the future.
-                        // Look up the chart chord immediately before newChord.t to provide
-                        // the correct historical outgoing diagram for the crossfade.
-                        let histPrev = null;
-                        if (chords && newChord) {
-                            // Find the most recent named chord before newChord.t.
-                            // Chords are sorted ascending, so all matches are before
-                            // lowerBoundT(chords, newChord.t); iterate in order and
-                            // take the last valid one.
-                            const _hpHi = lowerBoundT(chords, newChord.t);
-                            for (let _hpi = 0; _hpi < _hpHi; _hpi++) {
-                                const ch = chords[_hpi];
-                                if (!ch.notes) continue;
-                                const tmpl = bundle.chordTemplates?.[ch.id];
-                                const lbl = chordInference.chordTemplateLabel(tmpl);
-                                if (lbl && tmpl?.frets) {
-                                    histPrev = { name: lbl, frets: tmpl.frets, t: ch.t, t0: ch.t, nStr };
-                                }
-                            }
-                        }
-                        // Only start a crossfade if we are still within DIAG_CROSSFADE_S of
-                        // newChord.t; seeking further into the chord skips the crossfade.
-                        // Also skip if histPrev was no longer visible when newChord started
-                        // (gap longer than DIAG_LINGER_S), so only genuinely adjacent chord
-                        // transitions produce a crossfade — not seeks to just after any new
-                        // chord that happens to have an older chord somewhere earlier in the song.
-                        const elapsed = newChord ? now - newChord.t : Infinity;
-                        const histPrevVisible = histPrev && (newChord.t - histPrev.t) < DIAG_LINGER_S;
-                        if (histPrevVisible && elapsed >= 0 && elapsed < DIAG_CROSSFADE_S) {
-                            // Start at the linger opacity the outgoing chord would have had at
-                            // newChord.t during forward playback, not always 1.  This prevents
-                            // a chord that was mostly faded from appearing brighter on a seek.
-                            const histStartOpacity = Math.max(0, Math.min(1,
-                                1 - (newChord.t - histPrev.t) / DIAG_LINGER_S));
-                            _diagPrev = histPrev;
-                            _diagPrevStartOpacity = histStartOpacity;
-                            _diagPrevOpacity = Math.max(0, histStartOpacity * (1 - elapsed / DIAG_CROSSFADE_S));
-                            _diagPrevStartT = newChord.t;
-                        } else {
-                            _diagPrev = null; _diagPrevOpacity = 0; _diagPrevStartOpacity = 0;
-                            _diagPrevStartT = null;
-                        }
-                    } else {
-                        // prevOpacity <= 0: old chord already fully faded, no crossfade needed.
-                        _diagPrev = null; _diagPrevOpacity = 0; _diagPrevStartOpacity = 0;
-                        _diagPrevStartT = null;
-                    }
-                } else {
-                    _diagPrev = null; _diagPrevOpacity = 0; _diagPrevStartOpacity = 0;
-                    _diagPrevStartT = null;
-                }
-                _diagLastKey = newKey;
-                // Only update _diagChord when the chord key actually changes so that a
-                // lingering chord's original nStr is preserved on subsequent frames.
-                // (newChord is rebuilt every frame with the live nStr; unconditionally
-                // assigning here would stomp the captured nStr if the arrangement switches
-                // while the same chord is still in its linger window.)
-                _diagChord = newChord;
-            } else if (newKey !== null && newChord && _diagChord) {
-                // Same chord re-seen. Update linger expiry (t) when the event time changes.
-                // Forward restrum (newChord.t > _diagChord.t): extend the linger window
-                // but preserve t0 so the entrance animation is NOT replayed — avoids the
-                // overlay jumping back to its 0.85× scale on every strum of the same chord.
-                // Backward seek to earlier occurrence (newChord.t < _diagChord.t): update
-                // both t and t0 to restart the entrance animation from the earlier position.
-                if (newChord.t !== _diagChord.t) {
-                    _diagChord = newChord.t < _diagChord.t
-                        ? { ..._diagChord, t: newChord.t, t0: newChord.t }  // backward seek
-                        : { ..._diagChord, t: newChord.t };                 // forward restrum
-                }
-            }
-
-            // Guard for backward seeks within the same chord (same key, no branch above).
-            // If _diagPrevStartT is in the future relative to now, the crossfade was set up
-            // during a later playback position that has since been seeked past. Clear it so
-            // the stale outgoing diagram does not stay fully visible at the seek target.
-            if (_diagPrev && _diagPrevStartT !== null && _diagPrevStartT > now) {
-                _diagPrev = null; _diagPrevOpacity = 0; _diagPrevStartOpacity = 0;
-                _diagPrevStartT = null;
-            }
-
-            // Entrance: derived from t0 (the original appearance time, not updated on
-            // forward restrums) so repeated hits of the same chord do not replay the
-            // 0.85→1.0 scale animation. On backward seeks t0 is updated alongside t,
-            // so the animation still rewinds correctly to the earlier position.
-            const _entranceAnchor = _diagChord && (_diagChord.t0 ?? _diagChord.t);
-            _diagEntranceT = (_diagChord && _entranceAnchor !== undefined)
-                ? Math.min(1.0, Math.max(0, (now - _entranceAnchor) / DIAG_ENTRANCE_S))
-                : 1.0;
-
-            // Crossfade: derived from absolute start time so backward seeks within the
-            // crossfade window correctly rewind the fade. _diagPrev is kept alive (at
-            // opacity 0) until the next key change rather than destroyed here, so that a
-            // backward seek that re-enters the crossfade window can recompute a positive
-            // opacity. Seeks before _diagPrevStartT are handled by the guard above.
-            if (_diagPrev && _diagPrevStartT !== null) {
-                const fadedT = Math.max(0, now - _diagPrevStartT);
-                _diagPrevOpacity = Math.max(0, _diagPrevStartOpacity * (1 - fadedT / DIAG_CROSSFADE_S));
-            }
-        }
+        // Chord-diagram state tracking -- see
+        // instance/model/chord-diagram-tracking.js. The 7 fields stay bare
+        // closure `let`s here (draw()/teardown()/destroy() read/reset them
+        // directly, unchanged) -- this call just recomputes their new
+        // values each frame.
+        ({
+            diagChord: _diagChord, diagPrev: _diagPrev, diagPrevOpacity: _diagPrevOpacity,
+            diagPrevStartOpacity: _diagPrevStartOpacity, diagPrevStartT: _diagPrevStartT,
+            diagEntranceT: _diagEntranceT, diagLastKey: _diagLastKey,
+        } = updateChordDiagramTracking(
+            chordInference, chords, bundle, now, nStr,
+            _diagChord, _diagPrev, _diagPrevOpacity, _diagPrevStartOpacity, _diagPrevStartT, _diagLastKey,
+        ));
         // Finalise InstancedMesh batches -- see
         // instance/render/finalize-instanced-meshes.js. Must run after all
         // drawNote() / chord-loop writes are done.
