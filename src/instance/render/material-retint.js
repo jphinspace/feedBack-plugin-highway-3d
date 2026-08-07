@@ -1,10 +1,12 @@
 import { T } from '../../core/three.js';
 import {
     ACCENT_HALO_OP_FAR, ACCENT_HALO_OP_MID, ACCENT_HALO_OP_NEAR, ACCENT_RIM_BASE_EMISSIVE, NH,
+    VENUE_GEM_EMISSIVE_MUL,
 } from '../../core/constants.js';
 import {
     DEFAULT_GEM_GRADIENTS, PALETTES, _customPalette, _darkenInt, _lightenInt,
 } from '../../core/palette.js';
+import { _venueSceneOverride } from '../../background/venue.js';
 
 // Live palette/vibrancy/glow material-retint passes -- moved verbatim out
 // of main.js (Stage 7, post-3e). All four walk the same construction-time
@@ -34,7 +36,7 @@ import {
 // needed since the whole module is reconstructed fresh on the next
 // initScene() call anyway (same as hit-sparks.js's private arrays).
 export function createMaterialRetint({
-    ctx,
+    ctx, noteVerdictState,
     getMStr, getMGlow, getMSus, getMRimFlash, getMStrHitOutline, getMAccentOutline, getMAccentCore,
     getMAccentHaloNear, getMAccentHaloMid, getMAccentHaloFar, getProjMeshArr, getGNoteGrad,
     getMWhiteOutline, getMMissOutline, getMHitBright, getMSusOutline, getMHitSusOutline,
@@ -251,5 +253,29 @@ export function createMaterialRetint({
         }
     }
 
-    return { applyPaletteToMaterials, recolorGemGradients, applyVibrancy, applyGlow };
+    // Per-frame verdict-glow apply -- moved verbatim out of update() (Stage
+    // 7, post-3e). Applies the level-driven verdict brightness the note-
+    // state provider accumulated into noteVerdictState LAST frame (a
+    // 1-frame lag is imperceptible), then resets it for this frame's fresh
+    // capture in the gem path (note.js's drawNote()). vg = 1 when no
+    // provider alpha was seen (legacy event path / note_detect off),
+    // leaving the authored 4.0/0.7 x glowMul brightness from applyGlow()
+    // untouched. Only the verdict-only materials (mHitBright + its
+    // face-fill arrays, and the hit sustain outline) are scaled -- never
+    // mStrHitOutline, which is the default rim for every fretted note.
+    // Fits here rather than a new file because it walks the same
+    // mHitBright/mHitSusOutline getters applyGlow() already has.
+    function applyVerdictGlow() {
+        const mHitBright = getMHitBright(), mHitSusOutline = getMHitSusOutline();
+        const vg = noteVerdictState.sawAlpha ? noteVerdictState.maxAlpha : 1;
+        const venueGemMul = _venueSceneOverride ? VENUE_GEM_EMISSIVE_MUL : 1;
+        for (let s = 0; s < mHitBright.length; s++) {
+            if (mHitBright[s]) mHitBright[s].emissiveIntensity = 4.0 * ctx.settings.glowMul * vg * venueGemMul;
+        }
+        if (mHitSusOutline) mHitSusOutline.emissiveIntensity = 0.7 * ctx.settings.glowMul * vg * venueGemMul;
+        noteVerdictState.maxAlpha = 0;
+        noteVerdictState.sawAlpha = false;
+    }
+
+    return { applyPaletteToMaterials, recolorGemGradients, applyVibrancy, applyGlow, applyVerdictGlow };
 }

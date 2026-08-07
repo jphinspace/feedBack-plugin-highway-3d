@@ -120,6 +120,7 @@ import { createNutHeadstockBuilder } from './instance/geometry/nut-headstock.js'
 import { createFretMarkersBuilder } from './instance/geometry/fret-markers.js';
 import { createBackgroundMount } from './instance/background-mount.js';
 import { createMaterialRetint } from './instance/render/material-retint.js';
+import { createVerdictPrune } from './instance/notedetect/verdict-prune.js';
 import {
     bnvSampleAt, canvasSize, darkenHex, disposeGroupTree, effectiveVfov, noteHasVibrato,
     teachingDegreeLabel, teachingFingerLabel, tremoloOffsetWorldX, vibratoSemisAtTime,
@@ -717,11 +718,6 @@ function createFactory() {
     // beyond the current pre-hit-line frontier. Also cleared in
     // destroy().
     let _chordVerdicts = new Map();
-    // Previous-frame `now` for the chord-verdicts pruner — on a
-    // backward seek the latches behind that time become "future"
-    // entries the forward-only prune can't reach, so we wipe the
-    // map instead of paying an O(n) scan per frame to find them.
-    let _chordVerdictsLastNow = null;
     // Numeric encoding for the _chordVerdicts key — replaces
     // ``${ch.id}|${ch.t}`` which allocated a string per chord per
     // frame in detect mode. Encoded so the key is monotonic in
@@ -772,6 +768,8 @@ function createFactory() {
     // _fxOnSkin/_fxElemSeen stay here -- they're notedetect/listeners.js's
     // concern (already-extracted, Phase 3c), not score-fx.js's.
     let scoreFx = null;
+    // Per-frame chord-verdict Map pruning -- see instance/notedetect/verdict-prune.js.
+    let verdictPrune = null;
     let _fxOnFx = null;          // notedetect:fx listener (window)
     let _fxOnSkin = null;        // notedetect:skin bus listener
     // Details seen via element-scoped (bubbled) dispatch. A WeakSet, not a
@@ -1351,6 +1349,12 @@ function createFactory() {
             noteDetectLabels, getNoteDetectFrameNowMs: () => noteDetectFrameNowMs,
         });
 
+        // Per-frame chord-verdict Map pruning -- see
+        // instance/notedetect/verdict-prune.js.
+        verdictPrune = createVerdictPrune({
+            scoreFx, _chordVerdicts, _susVerdictLatch, _CV_KEY_TIME_MUL, _CV_KEY_TIME_SLOT,
+        });
+
         bloomComposer = createBloomComposer({
             getRenderer: () => ren, getScene: () => scene, getCamera: () => cam,
             canvasSize, getHighwayCanvas: () => highwayCanvas,
@@ -1392,7 +1396,7 @@ function createFactory() {
         // yet, so every one of materialRetint's deps is a live getter,
         // not a plain value (see that file's doc comment).
         materialRetint = createMaterialRetint({
-            ctx,
+            ctx, noteVerdictState,
             getMStr: () => mStr, getMGlow: () => mGlow, getMSus: () => mSus,
             getMRimFlash: () => mRimFlash, getMStrHitOutline: () => mStrHitOutline,
             getMAccentOutline: () => mAccentOutline, getMAccentCore: () => mAccentCore,
@@ -2185,22 +2189,9 @@ function createFactory() {
         pbBeg(0);
         // [verdict glow] Apply the level-driven verdict brightness captured
         // last frame (1-frame lag is imperceptible), then reset for this
-        // frame's capture in the gem path below. vg = 1 when no provider
-        // alpha was seen (legacy event path / note_detect off), leaving the
-        // authored 4.0/0.7 × glowMul brightness from _applyGlow() untouched.
-        // Only the verdict-only materials (mHitBright + its face-fill arrays,
-        // and the hit sustain outline) are scaled — never mStrHitOutline,
-        // which is the default rim for every fretted note.
-        {
-            const vg = noteVerdictState.sawAlpha ? noteVerdictState.maxAlpha : 1;
-            const venueGemMul = _venueSceneOverride ? VENUE_GEM_EMISSIVE_MUL : 1;
-            for (let s = 0; s < mHitBright.length; s++) {
-                if (mHitBright[s]) mHitBright[s].emissiveIntensity = 4.0 * ctx.settings.glowMul * vg * venueGemMul;
-            }
-            if (mHitSusOutline) mHitSusOutline.emissiveIntensity = 0.7 * ctx.settings.glowMul * vg * venueGemMul;
-            noteVerdictState.maxAlpha = 0;
-            noteVerdictState.sawAlpha = false;
-        }
+        // frame's capture in the gem path below -- see
+        // instance/render/material-retint.js's applyVerdictGlow().
+        materialRetint.applyVerdictGlow();
         // Lean sustain rendering is the default (see declaration above):
         // the trail/ribbon outline always draws; only the additive rail
         // bloom halo is dropped. The full look (with bloom) is an opt-out.
@@ -2286,53 +2277,8 @@ function createFactory() {
         const ndVerdictT0 = noteDetectHasProvider
             ? now - Math.max(BEHIND, NOTEDETECT_GEM_VERDICT_WINDOW)
             : t0;
-        // Prune _chordVerdicts latches whose chord has fully scrolled
-        // past the loop's verdict-window cull. Forward playback never
-        // re-encounters a chord, so without this prune the map would
-        // grow unbounded for the rest of the song (each chord onset
-        // contributes one entry, ~hundreds for a typical song).
-        // verdictKey is now an integer encoded by _encodeChordVerdictKey
-        // — time component sits in the upper bits, so a direct
-        // ``k < pruneBeforeKey`` test prunes correctly without
-        // parseFloat / String.slice on every entry.
-        //
-        // Backward seek (now < lastNow): every latched entry's
-        // chord time is now ahead of `now`, the forward-only check
-        // below would skip them all and the map would grow on every
-        // loop. Clear wholesale — the chord-loop's `chDt > 0` eviction
-        // re-creates entries as chords re-enter the pre-hit window.
-        //
-        // Forward playback: iterate every entry. An earlier `break`
-        // optimization assumed Map insertion order tracked chord
-        // time, but entries are inserted when a verdict OBSERVATION
-        // lands — so a later chord whose verdict arrived first could
-        // sit before an earlier chord whose verdict was still
-        // pending, and breaking on the first in-window entry would
-        // leave the now-older later-inserted entries un-pruned. Full
-        // scan is O(n) but n is bounded (chord count in the song,
-        // ~hundreds) so the per-frame cost is microseconds.
-        if (noteDetectHasProvider && _chordVerdictsLastNow !== null && now < _chordVerdictsLastNow - 0.25) {
-            // Backward seek — wipe all verdict latches so notes re-judge
-            // from scratch regardless of whether chords were present.
-            _chordVerdicts.clear();
-            _susVerdictLatch.clear();
-            // Score-pop dedup too: a practice loop / rewind re-judges
-            // the same popKeys, and the wall-time TTL alone would
-            // suppress their fresh "+N" pops for up to 4 s.
-            scoreFx.clearFxSeen();
-        }
-        if (noteDetectHasProvider && _chordVerdicts.size > 0) {
-            if (_chordVerdictsLastNow !== null && now < _chordVerdictsLastNow - 0.25) {
-                // already cleared above
-            } else {
-                const pruneBefore = ndVerdictT0 - 0.5; // safety margin
-                const pruneBeforeKey = Math.round(pruneBefore * _CV_KEY_TIME_MUL) * _CV_KEY_TIME_SLOT;
-                for (const k of _chordVerdicts.keys()) {
-                    if (k < pruneBeforeKey) _chordVerdicts.delete(k);
-                }
-            }
-        }
-        _chordVerdictsLastNow = now;
+        // Chord-verdict Map pruning -- see instance/notedetect/verdict-prune.js.
+        verdictPrune.pruneChordVerdicts(now, ndVerdictT0, noteDetectHasProvider);
 
         const notes = bundle.notes;
         // Chord merge + arp-ghost-infer memoization -- see
