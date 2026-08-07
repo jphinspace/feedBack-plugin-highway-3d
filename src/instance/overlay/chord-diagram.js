@@ -2,6 +2,57 @@ import {
     DIAG_CELL_MAX, DIAG_SIZE_MAX, DIAG_SIZE_MIN,
 } from '../../core/constants.js';
 
+// OffscreenCanvas render-cache wrapper around drawChordDiagram() -- moved
+// verbatim out of main.js as `_drawDiagramCached` (Stage 7, post-3e).
+// Fully-faded-in diagrams (entranceT >= 1.0) are rasterised once per
+// distinct (name/frets/nStr/inverted/size/position/canvas-size/stack)
+// key and reused via drawImage(); diagrams still animating their entrance
+// (entranceT < 1.0) skip the cache and call drawChordDiagram() directly
+// every frame, since the cache key doesn't include entranceT. Private
+// cache Map + max-size constant, own-it-outright -- nothing outside this
+// wrapper touched them in main.js. clearDiagramCache() is exposed for the
+// three main.js call sites that used to call `_diagRenderCache.clear()`
+// directly (lefty-flip mirror, a resize path, destroy()).
+export function createChordDiagramCache() {
+    const _diagRenderCache = new Map();
+    const _DIAG_CACHE_MAX = 6;
+
+    function drawDiagramCached(ctx, opts) {
+        const { opacity = 1, entranceT = 1.0, canvasW, canvasH } = opts;
+        if (opacity <= 0) return 0;
+        if (entranceT < 1.0) {
+            return drawChordDiagram(ctx, opts) || 0;
+        }
+        const { name, frets, nStr, inverted, sizeSlider, position, lyricsBottom = 0, stackOffset = 0 } = opts;
+        const key = name + '|' + (frets || []).join(',') + '|' + nStr + '|' +
+                    (inverted ? 1 : 0) + '|' + sizeSlider + '|' + position + '|' +
+                    canvasW + '|' + canvasH + '|' + lyricsBottom + '|' + stackOffset;
+        let entry = _diagRenderCache.get(key);
+        if (!entry) {
+            let oc;
+            try { oc = new OffscreenCanvas(canvasW, canvasH); }
+            catch (_) { oc = document.createElement('canvas'); oc.width = canvasW; oc.height = canvasH; }
+            const boxH = drawChordDiagram(oc.getContext('2d'), { ...opts, opacity: 1, entranceT: 1 }) || 0;
+            if (_diagRenderCache.size >= _DIAG_CACHE_MAX) {
+                _diagRenderCache.delete(_diagRenderCache.keys().next().value);
+            }
+            entry = { oc, boxH };
+            _diagRenderCache.set(key, entry);
+        }
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        ctx.drawImage(entry.oc, 0, 0);
+        ctx.restore();
+        return entry.boxH;
+    }
+
+    function clearDiagramCache() {
+        _diagRenderCache.clear();
+    }
+
+    return { drawDiagramCached, clearDiagramCache };
+}
+
 // Returns indices of the longest consecutive run in a sorted integer
 // array as { start, len } — `sorted[start..start+len)` is the run.
 // Avoids the two per-call sub-array allocations of the previous

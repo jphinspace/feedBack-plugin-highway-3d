@@ -77,7 +77,7 @@ import { ZERO_AUDIO_BANDS, getAudioAnalyser, readAudioBands, _resetAnalyserBridg
 import { BACKGROUND_STYLES } from './background/styles/index.js';
 import { drawSectionHud, drawToneHud } from './instance/overlay/huds.js';
 import { createLyricsCache, drawLyrics } from './instance/overlay/lyrics.js';
-import { drawChordDiagram } from './instance/overlay/chord-diagram.js';
+import { createChordDiagramCache, drawChordDiagram } from './instance/overlay/chord-diagram.js';
 import { createTextSpriteCache } from './instance/render/text-sprites.js';
 import { createTechMaterialCache } from './instance/render/tech-materials.js';
 import { chordHarmonyLabels, createChordInference } from './instance/model/chord-inference.js';
@@ -429,18 +429,11 @@ function createFactory() {
         return maxBottom;
     }
     let _diagChord            = null;
-    // Chord diagram render cache. Keys: static layout inputs joined as a
-    // string. Values: OffscreenCanvas (or <canvas>) rendered at opacity=1
-    // entranceT=1 — composited each frame via drawImage + globalAlpha.
-    // Cleared on canvas resize (bx/by depend on canvasW/H/lyricsBottom)
-    // and on teardown/destroy.
-    const _diagRenderCache = new Map();
-    // Cap chosen to cover the ~5–6 active chord shapes per phrase while
-    // keeping the cached-OffscreenCanvas footprint bounded (~50 MB per
-    // panel at typical 1920×1080). A structural fix — caching a
-    // tightly-sized box surface instead of the full overlay canvas —
-    // is tracked as a follow-up.
-    const _DIAG_CACHE_MAX  = 6;
+    // Chord diagram OffscreenCanvas render cache -- see
+    // instance/overlay/chord-diagram.js's createChordDiagramCache().
+    // Constructed once (no per-init Three.js dependency). Cleared on canvas
+    // resize (bx/by depend on canvasW/H/lyricsBottom) and on teardown/destroy.
+    const chordDiagramCache = createChordDiagramCache();
     let pSusRail = null, gSusRail = null, mSusRailBase = null;
     let pSusRailBloom = null, gSusRailBloom = null, mSusRailBloomBase = null, _bloomGaussTex = null;
     let pTechPlane = null, gTechPlane = null;
@@ -1335,44 +1328,8 @@ function createFactory() {
         pbBeg = pbEnd = pbReportTick = function () {};
     }
 
-    // Cached wrapper for drawChordDiagram. When entranceT === 1 (scale
-    // transform is identity) the diagram is rendered once to an
-    // OffscreenCanvas and reused every subsequent frame via drawImage +
-    // globalAlpha. During the 0.2 s entrance animation (entranceT < 1)
-    // the scale transform is non-trivial so we fall through to a fresh
-    // render — that window is ~12 frames at 60 fps, negligible.
-    //
-    // Returns boxH (diagram card height in px) so the draw loop can
-    // accumulate per-corner stack offsets when multiple overlays share
-    // the same corner position.
-    function _drawDiagramCached(ctx, opts) {
-        const { opacity = 1, entranceT = 1.0, canvasW, canvasH } = opts;
-        if (opacity <= 0) return 0;
-        if (entranceT < 1.0) {
-            return drawChordDiagram(ctx, opts) || 0;
-        }
-        const { name, frets, nStr, inverted, sizeSlider, position, lyricsBottom = 0, stackOffset = 0 } = opts;
-        const key = name + '|' + (frets || []).join(',') + '|' + nStr + '|' +
-                    (inverted ? 1 : 0) + '|' + sizeSlider + '|' + position + '|' +
-                    canvasW + '|' + canvasH + '|' + lyricsBottom + '|' + stackOffset;
-        let entry = _diagRenderCache.get(key);
-        if (!entry) {
-            let oc;
-            try { oc = new OffscreenCanvas(canvasW, canvasH); }
-            catch (_) { oc = document.createElement('canvas'); oc.width = canvasW; oc.height = canvasH; }
-            const boxH = drawChordDiagram(oc.getContext('2d'), { ...opts, opacity: 1, entranceT: 1 }) || 0;
-            if (_diagRenderCache.size >= _DIAG_CACHE_MAX) {
-                _diagRenderCache.delete(_diagRenderCache.keys().next().value);
-            }
-            entry = { oc, boxH };
-            _diagRenderCache.set(key, entry);
-        }
-        ctx.save();
-        ctx.globalAlpha = opacity;
-        ctx.drawImage(entry.oc, 0, 0);
-        ctx.restore();
-        return entry.boxH;
-    }
+    // Cached wrapper for drawChordDiagram -- see
+    // instance/overlay/chord-diagram.js's createChordDiagramCache().
 
     /* ── Scene initialisation ─────────────────────────────────────────── */
     function initScene() {
@@ -3449,7 +3406,7 @@ function createFactory() {
             _wrapPinned = false;
         }
         if (lyricsCanvas) { lyricsCanvas.width = w; lyricsCanvas.height = h; }
-        _diagRenderCache.clear();
+        chordDiagramCache.clearDiagramCache();
         cam.aspect = w / h;
         cam.updateProjectionMatrix();
         ctx.cam.aspectScale = Math.max(1, REF_ASPECT / Math.max(cam.aspect, 0.5));
@@ -3506,7 +3463,7 @@ function createFactory() {
         unmountBackgroundStyle();
         bgGroup = null; backgroundLastT = 0;
         _diagChord = null; _diagPrev = null; _diagPrevOpacity = 0; _diagPrevStartOpacity = 0; _diagPrevStartT = null;
-        _diagEntranceT = 1.0; _diagLastKey = null; _diagRenderCache.clear();
+        _diagEntranceT = 1.0; _diagLastKey = null; chordDiagramCache.clearDiagramCache();
 
         if (wrap) { wrap.remove(); wrap = null; }
         _disposeOpenStringPitchSprites();
@@ -4111,7 +4068,7 @@ function createFactory() {
                 // fading out while the incoming one fades in, so they share the
                 // same stack position and don't double-count the height.
                 if (ctx.settings.chordDiagramVisible && _diagPrev && _diagPrevOpacity > 0) {
-                    _drawDiagramCached(lyricsCtx, {
+                    chordDiagramCache.drawDiagramCached(lyricsCtx, {
                         name: _diagPrev.name, frets: _diagPrev.frets,
                         opacity: _diagPrevOpacity,
                         entranceT: (_diagPrev.t !== undefined)
@@ -4127,7 +4084,7 @@ function createFactory() {
                     // Don't push here — outgoing and incoming share the same slot.
                 }
                 if (ctx.settings.chordDiagramVisible && _diagChord) {
-                    const diagH = _drawDiagramCached(lyricsCtx, {
+                    const diagH = chordDiagramCache.drawDiagramCached(lyricsCtx, {
                         name: _diagChord.name, frets: _diagChord.frets,
                         opacity: Math.max(0, 1 + (_diagChord.t - bundle.currentTime) / DIAG_LINGER_S),
                         entranceT: _diagEntranceT,
@@ -4163,7 +4120,7 @@ function createFactory() {
         },
 
         destroy() {
-            _destroyed = true; _isReady = false; _diagChord = null; _diagPrev = null; _diagLastKey = null; _diagRenderCache.clear();
+            _destroyed = true; _isReady = false; _diagChord = null; _diagPrev = null; _diagLastKey = null; chordDiagramCache.clearDiagramCache();
             _lastHwW = 0; _lastHwH = 0;
             _appliedW = 0; _appliedH = 0;
             ctx.cam._paneAspect = 0;
