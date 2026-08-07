@@ -118,6 +118,7 @@ import { createNoteCameraTargets } from './instance/render/note-camera-targets.j
 import { createScoreFx } from './instance/render/score-fx.js';
 import { createNutHeadstockBuilder } from './instance/geometry/nut-headstock.js';
 import { createFretMarkersBuilder } from './instance/geometry/fret-markers.js';
+import { createBackgroundMount } from './instance/background-mount.js';
 import {
     bnvSampleAt, canvasSize, darkenHex, disposeGroupTree, effectiveVfov, noteHasVibrato,
     teachingDegreeLabel, teachingFingerLabel, tremoloOffsetWorldX, vibratoSemisAtTime,
@@ -602,9 +603,9 @@ function createFactory() {
 
     // Background animation state (issue #13). bgGroup is the parent
     // container for all bg meshes so teardown is one remove + dispose
-    // pass. bgState is the active style's per-panel state object.
-    let bgGroup = null, bgStage = null, bgState = null;
-    let bgMountedStyleId = null;
+    // pass. bgState/bgStage/bgMountedStyleId now live privately inside
+    // instance/background-mount.js -- see backgroundMount.getBgState().
+    let bgGroup = null;
     // bgStyleId / bgIntensity / bgReactive / bgThemeId / hwThemeId live on
     // ctx.settings (Stage 7 Track 3e) -- bgStyleId read in
     // effectiveBackgroundStyleId()/butterchurnModeActive()/
@@ -682,6 +683,11 @@ function createFactory() {
     // (instance/geometry/fret-markers.js), (re)built in initScene(), called
     // from buildBoard() on every rebuild.
     let fretMarkersBuilder = null;
+    // Background-style mount/unmount/rebuild + scene-color theme applier
+    // (instance/background-mount.js), (re)built in initScene(). bgState is
+    // now private to this module -- read externally via
+    // backgroundMount.getBgState().
+    let backgroundMount = null;
     // Hit-spark particle system (#3) -- see instance/render/hit-sparks.js.
     // _sparkPts/_sparkBurst/_sparkUpdate are populated by createHitSparks()
     // in initScene(); the backing Float32Arrays are private to that module.
@@ -1381,6 +1387,19 @@ function createFactory() {
         nutHeadstockBuilder = createNutHeadstockBuilder({ ctx });
         fretMarkersBuilder = createFretMarkersBuilder({ ctx, xFret, xFretMid, textSprites });
 
+        backgroundMount = createBackgroundMount({
+            ctx, butterchurnModeActive, loadSettings,
+            getWrap: () => wrap, getRen: () => ren, getScene: () => scene,
+            getCam: () => cam, getAmbLight: () => ambLight,
+            getHighwayCanvas: () => highwayCanvas,
+            getBgGroup: () => bgGroup,
+            getMLaneOdd: () => mLaneOdd, getMLaneEven: () => mLaneEven,
+            getLaneTargetColor: () => _laneTargetColor,
+            setLaneTargetColor: (v) => { _laneTargetColor = v; },
+            getBcCtrl: () => bcCtrl, setBcCtrl: (v) => { bcCtrl = v; },
+            setBackgroundLastT: (v) => { backgroundLastT = v; },
+        });
+
         fretG = new T.Group(); scene.add(fretG);
         tuningLblG = new T.Group(); scene.add(tuningLblG);
         noteG = new T.Group(); scene.add(noteG);
@@ -1626,7 +1645,7 @@ function createFactory() {
         // the clear color + fog tint (board plane was themed in buildBoard).
         // For the default theme this is identical to the hardcoded values
         // initScene seeded above, so nothing changes for existing users.
-        _applyBgTheme();
+        backgroundMount.applyBgTheme();
 
         // Background animations (#13). Read settings keyed by this
         // panel and mount the active style's meshes. Subscribe to
@@ -1651,7 +1670,7 @@ function createFactory() {
         // Combined with the deeper-than-note-range placements below,
         // background never paints over notes.
         scene.add(bgGroup);
-        mountBackgroundStyle();
+        backgroundMount.mountBackgroundStyle();
         // The live settings-bus subscriber -- see instance/settings-listener.js.
         // Threaded through as live getters/setters, not plain deps values --
         // see that file's doc comment for why (loadSettings() reassigns most
@@ -1662,9 +1681,10 @@ function createFactory() {
             getTuningLabelSprites: () => _tuningLabelSprites,
             _disposeOpenStringPitchSprites,
             _applyVibrancy, _applyGlow,
-            rebuildBackground, _applyBgTheme,
-            getBgState: () => bgState,
-            effectiveBackgroundStyleId,
+            rebuildBackground: backgroundMount.rebuildBackground,
+            _applyBgTheme: backgroundMount.applyBgTheme,
+            getBgState: backgroundMount.getBgState,
+            effectiveBackgroundStyleId: backgroundMount.effectiveBackgroundStyleId,
         });
         subscribeToSettings(settingsListener);
 
@@ -2026,172 +2046,14 @@ function createFactory() {
             if (mAccentHaloFar[si]) mAccentHaloFar[si].opacity = ACCENT_HALO_OP_FAR * g;
         }
     }
-    function effectiveBackgroundStyleId() {
-        return _venueSceneOverride ? 'venue' : ctx.settings.bgStyleId;
-    }
+    // effectiveBackgroundStyleId/syncButterchurnMode/mountBackgroundStyle/
+    // unmountBackgroundStyle/rebuildBackground/applyVenueSceneFog/_applyBgTheme
+    // -- see instance/background-mount.js.
     // The 'butterchurn' bg-style renders a WebGL MilkDrop canvas BEHIND a
     // transparent highway via the self-contained butterchurn/ controller module,
     // NOT a Three.js fog-scenery style (its scenery falls back to 'off'). Mount
     // is idempotent and driven by the bg-style dropdown through mountBackgroundStyle.
     function butterchurnModeActive() { return ctx.settings.bgStyleId === 'butterchurn'; }
-    function syncButterchurnMode() {
-        if (butterchurnModeActive()) {
-            // Recreate when there's no controller, or the last one died during
-            // async init (lib/WebGL failure) — a dead controller self-cleaned,
-            // so retry here instead of leaving the style permanently broken.
-            if ((!bcCtrl || (bcCtrl.dead && bcCtrl.dead())) && wrap) {
-                if (bcCtrl) bcCtrl = null;
-                // audioProvider reuses this instance's shared analyser (the
-                // fog scenery's #audio / stems tap) so the browser path never
-                // opens a second createMediaElementSource on #audio.
-                try { bcCtrl = createButterchurnController(wrap, () => canvasSize(highwayCanvas), () => { try { return getAudioAnalyser(); } catch (e) { return null; } }); }
-                catch (e) { console.warn('[3D-Hwy] Butterchurn init failed', e); }
-            }
-            if (ren) ren.setClearColor(0x101820, 0); // transparent so the visualizer shows through
-        } else if (bcCtrl) {
-            try { bcCtrl.destroy(); } catch (e) {}
-            bcCtrl = null;
-            _applyBgTheme(); // restore the opaque themed clear
-        }
-    }
-    function mountBackgroundStyle() {
-        const effectiveId = effectiveBackgroundStyleId();
-        const style = BACKGROUND_STYLES[effectiveId] || BACKGROUND_STYLES.off;
-        // Build into a fresh stage group so a partial throw can't
-        // orphan meshes inside bgGroup. On success the stage joins
-        // bgGroup atomically; on failure the stage and everything
-        // in it are disposed and bgState stays null.
-        const stage = new T.Group();
-        let result = null;
-        try {
-            result = style.build(stage, {
-                intensity: ctx.settings.bgIntensity,
-                palette: ctx.settings.activePalette,
-                customImageDataUrl: ctx.settings.bgCustomImageDataUrl,
-                customVideoName: ctx.settings.bgCustomVideoName,
-                cam: cam,
-            }) || null;
-        } catch (e) {
-            console.error('[3D-Hwy] bg style build failed', effectiveId, e);
-            disposeGroupTree(stage);
-            bgState = null;
-            bgStage = null;
-            bgMountedStyleId = null;
-            return;
-        }
-        // renderOrder on a Group doesn't propagate to its children
-        // (Three.js sorts by per-object renderOrder, and a Group is a
-        // transform, not a rendered object). Stamp every mesh in the
-        // stage so transparent bg objects always sort behind notes
-        // regardless of their z relative to gameplay geometry.
-        stage.traverse((c) => { c.renderOrder = -1; });
-        bgGroup.add(stage);
-        bgStage = stage;
-        bgState = result;
-        bgMountedStyleId = effectiveId;
-        syncButterchurnMode();
-    }
-    function unmountBackgroundStyle() {
-        const mountedId = bgMountedStyleId || effectiveBackgroundStyleId();
-        const style = BACKGROUND_STYLES[mountedId] || BACKGROUND_STYLES.off;
-        try { style.teardown(bgState); } catch (e) { console.error('[3D-Hwy] bg teardown', e); }
-        bgState = null;
-        // Belt + suspenders: even if a style's teardown forgets to
-        // dispose something, the stage tree dispose mops up.
-        if (bgStage) {
-            bgStage.parent?.remove(bgStage);
-            disposeGroupTree(bgStage);
-            bgStage = null;
-        }
-        bgMountedStyleId = null;
-    }
-    // Recursively dispose geometries / materials attached to an
-    // Object3D tree, then detach. Used as a safety net during
-    // mountBackgroundStyle failures and on unmountBackgroundStyle.
-    //
-    // Deliberately does NOT dispose material.map textures — texture
-    // lifetime belongs to whoever allocated the texture. The
-    // silhouettes style allocates a per-layer CanvasTexture wrapping
-    // the shared silhouetteCanvas bitmap, and disposes those textures in
-    // its own teardown. Disposing them here would double-dispose,
-    // and any future plugin texture sharing across panels (e.g. an
-    // upcoming custom-background feature) would break the same way.
-    // Style teardown owns texture release.
-    function rebuildBackground() {
-        if (!bgGroup) return;
-        // Order matters: teardown must run against the (style id,
-        // state) pair that built the meshes, so unmount BEFORE
-        // reloading settings. Reload, then mount with the new id.
-        unmountBackgroundStyle();
-        loadSettings();
-        mountBackgroundStyle();
-        applyVenueSceneFog(_venueSceneOverride);
-        // Reset dt accounting so the first frame after a switch
-        // doesn't see a huge "since last update" window — that
-        // would clamp to 0.1 and visibly snap motion / rotation.
-        backgroundLastT = 0;
-    }
-    // Venue-only fog/clear/ambient tuning — darker near field, less
-    // washed-out gray haze over the playable highway. Restored when
-    // venue deactivates.
-    function applyVenueSceneFog(active) {
-        if (!scene || !scene.fog) return;
-        if (active) {
-            scene.fog.color.setHex(0x080c12);
-            scene.fog.near = FOG_START * 0.98;
-            scene.fog.far = FOG_END * 0.98;
-            // Keep the clear transparent while Butterchurn is active so the
-            // venue scene doesn't occlude the visualizer behind the highway.
-            if (ren) ren.setClearColor(0x080c12, butterchurnModeActive() ? 0 : 1);
-            if (ambLight) ambLight.intensity = 0.68;
-        } else {
-            // Restore the user's scene-color theme (clear + fog) rather than
-            // the old hardcoded gray, so deactivating venue doesn't wipe a
-            // chosen background theme. _applyBgTheme reads the current theme.
-            scene.fog.near = FOG_START * 0.8;
-            scene.fog.far = FOG_END * 1.2;
-            if (ambLight) ambLight.intensity = 0.85;
-            _applyBgTheme();
-        }
-    }
-
-    // Apply BOTH scene-color axes, each from its own setting key:
-    //   • BACKGROUND (bgThemeId): the WebGL clear color + the distance-fog
-    //     tint. Skipped while the venue scene is active (venue owns those —
-    //     see applyVenueSceneFog).
-    //   • HIGHWAY (hwThemeId): the fretboard/highway-surface plane + the lit
-    //     highway lane strip (the bright quad under the gems) + its dimmer
-    //     alternating row. Always themed; venue doesn't touch them.
-    // The two axes are independent, so picking a different id in each mixes
-    // freely. Safe to call any time; called from initScene, buildBoard, and
-    // the scene-theme listener (so a live switch of EITHER dropdown retints
-    // only its half immediately).
-    //
-    // The lane fields are OPTIONAL on a highway theme: one that omits `lane`
-    // / `laneDim` falls back to the stock lit/dim lane hexes, so every
-    // existing/neutral highway theme stays byte-identical (default blue lane
-    // unchanged). Only colored highway themes opt into a coordinated lane.
-    function _applyBgTheme() {
-        // --- Background axis: clear + fog ---
-        const bg = backgroundAxisColors(ctx.settings.bgThemeId);
-        if (!_venueSceneOverride) {
-            if (scene && scene.fog) scene.fog.color.setHex(bg.fog);
-            if (ren) ren.setClearColor(bg.clear, butterchurnModeActive() ? 0 : 1);
-        }
-        // --- Highway axis: board plane + lane ---
-        const hw = highwayAxisColors(ctx.settings.hwThemeId);
-        if (ctx.board._boardPlaneMat) ctx.board._boardPlaneMat.color.setHex(hw.board);
-        // Lit lane strip + its dimmer alternating row. Fall back to the
-        // hardcoded stock lane colors when the highway theme omits them.
-        const laneLit = (typeof hw.lane === 'number') ? hw.lane : HIGHWAY_LANE_STRIPE_ODD_HEX;
-        const laneDim = (typeof hw.laneDim === 'number') ? hw.laneDim : HIGHWAY_LANE_STRIPE_EVEN_HEX;
-        if (mLaneOdd) mLaneOdd.color.setHex(laneLit);
-        if (mLaneEven) mLaneEven.color.setHex(laneDim);
-        // Keep the (otherwise vestigial) lane target color in sync with the
-        // lit lane so any future lane-blend consumer reads the themed value.
-        if (_laneTargetColor) _laneTargetColor.setHex(laneLit);
-        else _laneTargetColor = new T.Color(laneLit);
-    }
 
     /* ── Fretboard (static geometry) ────────────────────────────────── */
     // Cinematic lighting (#2): darken ambient so emissive gems have a dark
@@ -3460,7 +3322,7 @@ function createFactory() {
         _fxElemSeen = new WeakSet();
         _chordVerdicts = new Map();
         if (bcCtrl) { try { bcCtrl.destroy(); } catch (e) {} bcCtrl = null; }
-        unmountBackgroundStyle();
+        backgroundMount.unmountBackgroundStyle();
         bgGroup = null; backgroundLastT = 0;
         _diagChord = null; _diagPrev = null; _diagPrevOpacity = 0; _diagPrevStartOpacity = 0; _diagPrevStartT = null;
         _diagEntranceT = 1.0; _diagLastKey = null; chordDiagramCache.clearDiagramCache();
@@ -3861,15 +3723,16 @@ function createFactory() {
             // Background animations (#13). Compute frame dt once,
             // read audio bands when reactivity is on, delegate to
             // the active style's update().
-            if (bgGroup && effectiveBackgroundStyleId() !== 'off') {
+            if (bgGroup && backgroundMount.effectiveBackgroundStyleId() !== 'off') {
                 const nowMs = performance.now();
                 const dt = backgroundLastT === 0 ? 1 / 60 : Math.min(0.1, (nowMs - backgroundLastT) / 1000);
                 backgroundLastT = nowMs;
                 const bands = ctx.settings.bgReactive ? readAudioBands() : ZERO_AUDIO_BANDS;
-                const style = BACKGROUND_STYLES[effectiveBackgroundStyleId()];
+                const style = BACKGROUND_STYLES[backgroundMount.effectiveBackgroundStyleId()];
+                const bgState = backgroundMount.getBgState();
                 if (style && bgState) {
                     try { style.update(bgState, bands, dt, nowMs / 1000); }
-                    catch (e) { console.error('[3D-Hwy] bg update threw', effectiveBackgroundStyleId(), e); }
+                    catch (e) { console.error('[3D-Hwy] bg update threw', backgroundMount.effectiveBackgroundStyleId(), e); }
                 }
             }
 
@@ -3895,7 +3758,7 @@ function createFactory() {
                         // proven destroy/create paths so the new context binds.
                         try { bcCtrl.destroy(); } catch (e) {}
                         bcCtrl = null;
-                        syncButterchurnMode();
+                        backgroundMount.syncButterchurnMode();
                     }
                 }
             }
