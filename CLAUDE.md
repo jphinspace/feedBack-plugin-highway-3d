@@ -86,7 +86,12 @@ src/
       math.js                pure helpers (effectiveVfov, vibratoSemisAtTime, darkenHex, ...)
       chord-diagram-tracking.js  chord-diagram entrance/crossfade state machine (7 fields
                              returned each call, main.js still owns the bare `let`s)
-      arp-and-slide-prepasses.js  arpeggio-persist-key + slide-target-set pre-passes
+      arp-and-slide-prepasses.js  arpeggio-persist-key + slide-target-set pre-passes, the
+                             arpeggio lane-rail authored-marker/bounds memoization cache, and
+                             update()'s chord-merge (mergeHandShapeSynthChords) + arp-ghost-
+                             infer (fillArpeggioGhostInferFlags) memoization caches -- all five
+                             are the same chart-static-input-identity-memoization shape, bundled
+                             into one file since none is big enough to warrant its own
       lookahead-math.js        5-fn lookahead-camera-mode pure math (lookaheadEndTime/
                              BootstrapTime/ComputeFretBounds/TargetWorldX/SmoothCamStep)
     render/
@@ -116,6 +121,11 @@ src/
                              (applyNoteCamTargets, writes ctx.cam)
       score-fx.js              Score FX (notedetect game-scoring layer) -- "+N" pops, milestone
                              bursts, multiplier ring-pulses; drawNotedetectLabels too
+      material-retint.js       live palette/vibrancy/glow material-retint passes
+                             (applyPaletteToMaterials/recolorGemGradients/applyVibrancy/
+                             applyGlow) -- every material-array dep is a live getter, since
+                             this factory is constructed before createNoteGemVisuals() (which
+                             takes recolorGemGradients as its own construction-time dep) runs
     geometry/                 initScene() feature clusters -- construction-time only,
                               verified via whole-file bare-reassignment grep, no `ctx` needed
       note-gem-visuals.js      note/gem geometry + every gem/outline/sustain material
@@ -141,20 +151,22 @@ src/
       listeners.js              createNotedetectListeners -- hit/miss + Score FX event binding
 ```
 
-`src/main.js` is down to ~4,070 lines (from an original 12,388 -- 67% reduction): a boot preamble (imports, `initFretSpacing()`, `installGlobals()`, the `h3dBcApplySettings` / `h3dSetFretSpacing` window hooks) followed by `createFactory()` — the per-instance renderer, still mid-decomposition and carrying a documented `max-lines` exemption until it drops under 1,500 lines. Its internals are laid out as:
+`src/main.js` is down to ~3,809 lines (from an original 12,388 -- 69% reduction): a boot preamble (imports, `initFretSpacing()`, `installGlobals()`, the `h3dBcApplySettings` / `h3dSetFretSpacing` window hooks) followed by `createFactory()` — the per-instance renderer, still mid-decomposition and carrying a documented `max-lines` exemption until it drops under 1,500 lines. Its internals are laid out as:
 
 - Per-instance state (Three.js refs, pools, camera state, lifecycle flags)
-- `initScene()` — one-time WebGL setup: scene, camera, lights, materials, pools, the ~19
+- `initScene()` — one-time WebGL setup: scene, camera, lights, materials, pools, the ~20
   `createX(deps)` construction calls for the modules above
 - `loadSettings()` — reads all 52 settings into `ctx.settings.x` (see "Settings" below)
 - `buildBoard()` — static fretboard geometry: fretboard plane + string meshes inline, delegates
   nut/headstock to `nutHeadstockBuilder` and fret wires/dots/inlay labels to `fretMarkersBuilder`
-- `_applyPaletteToMaterials()` / `_recolorGemGradients()` / `_applyVibrancy()` / `_applyGlow()` /
-  `_applyCinematic()` — live material-retint passes fired by the settings listener, not full
-  rebuilds (`_applyBgTheme()` is the same idea but now lives in `backgroundMount`)
-- `update(bundle)` — the big per-frame function: still ~584 lines of camera-target wiring,
-  `_noteFrame` snapshot assembly, and the ~15 `moduleX.drawY(...)` call sites that replaced
-  what used to be inline code (each call site names the module it delegates to)
+- `_applyCinematic()` — live cinematic-mode toggle fired by the settings listener; the four
+  palette/vibrancy/glow retint passes it used to sit alongside now live in `materialRetint`
+  (`instance/render/material-retint.js`, called as `materialRetint.applyX()` — `_applyBgTheme()`
+  is the same "live retint, not full rebuild" idea but lives in `backgroundMount`)
+- `update(bundle)` — the big per-frame function: ~515 lines of chart-static memoization
+  (delegated to `arpAndSlidePrepasses`), camera-target wiring, `_noteFrame` snapshot assembly,
+  and the ~15 `moduleX.drawY(...)` call sites that replaced what used to be inline code (each
+  call site names the module it delegates to)
 - `drawArpBrackets()` — arpeggio bracket drawing helper, called from both chords.js and
   single-notes.js
 - `camUpdate()` — smooth camera lerp + self-correcting NDC look-at (writes `ctx.cam`)
