@@ -123,7 +123,9 @@ src/
                              bursts, multiplier ring-pulses; drawNotedetectLabels too
       material-retint.js       live palette/vibrancy/glow material-retint passes
                              (applyPaletteToMaterials/recolorGemGradients/applyVibrancy/
-                             applyGlow) -- every material-array dep is a live getter, since
+                             applyGlow) plus the per-frame applyVerdictGlow() (note-state
+                             provider verdict brightness apply + noteVerdictState reset) --
+                             every material-array dep is a live getter, since
                              this factory is constructed before createNoteGemVisuals() (which
                              takes recolorGemGradients as its own construction-time dep) runs
     geometry/                 initScene() feature clusters -- construction-time only,
@@ -149,12 +151,16 @@ src/
       huds.js                   drawSectionHud() / drawToneHud()
     notedetect/
       listeners.js              createNotedetectListeners -- hit/miss + Score FX event binding
+      verdict-prune.js          per-frame notedetect housekeeping: pruneChordVerdicts()
+                             (_chordVerdicts/_susVerdictLatch Map GC + backward-seek wipe) and
+                             pruneNotedetectMarks() (expired hit/miss-mark splice prune) -- both
+                             run unconditionally every frame, not chart-static memoization
 ```
 
-`src/main.js` is down to ~3,809 lines (from an original 12,388 -- 69% reduction): a boot preamble (imports, `initFretSpacing()`, `installGlobals()`, the `h3dBcApplySettings` / `h3dSetFretSpacing` window hooks) followed by `createFactory()` — the per-instance renderer, still mid-decomposition and carrying a documented `max-lines` exemption until it drops under 1,500 lines. Its internals are laid out as:
+`src/main.js` is down to ~3,739 lines (from an original 12,388 -- 70% reduction): a boot preamble (imports, `initFretSpacing()`, `installGlobals()`, the `h3dBcApplySettings` / `h3dSetFretSpacing` window hooks) followed by `createFactory()` — the per-instance renderer, still mid-decomposition and carrying a documented `max-lines` exemption until it drops under 1,500 lines. Its internals are laid out as:
 
 - Per-instance state (Three.js refs, pools, camera state, lifecycle flags)
-- `initScene()` — one-time WebGL setup: scene, camera, lights, materials, pools, the ~20
+- `initScene()` — one-time WebGL setup: scene, camera, lights, materials, pools, the ~21
   `createX(deps)` construction calls for the modules above
 - `loadSettings()` — reads all 52 settings into `ctx.settings.x` (see "Settings" below)
 - `buildBoard()` — static fretboard geometry: fretboard plane + string meshes inline, delegates
@@ -163,10 +169,10 @@ src/
   palette/vibrancy/glow retint passes it used to sit alongside now live in `materialRetint`
   (`instance/render/material-retint.js`, called as `materialRetint.applyX()` — `_applyBgTheme()`
   is the same "live retint, not full rebuild" idea but lives in `backgroundMount`)
-- `update(bundle)` — the big per-frame function: ~515 lines of chart-static memoization
-  (delegated to `arpAndSlidePrepasses`), camera-target wiring, `_noteFrame` snapshot assembly,
-  and the ~15 `moduleX.drawY(...)` call sites that replaced what used to be inline code (each
-  call site names the module it delegates to)
+- `update(bundle)` — the big per-frame function: ~450 lines of per-frame notedetect housekeeping
+  (delegated to `verdictPrune`), chart-static memoization (delegated to `arpAndSlidePrepasses`),
+  camera-target wiring, `_noteFrame` snapshot assembly, and the ~15 `moduleX.drawY(...)` call
+  sites that replaced what used to be inline code (each call site names the module it delegates to)
 - `drawArpBrackets()` — arpeggio bracket drawing helper, called from both chords.js and
   single-notes.js
 - `camUpdate()` — smooth camera lerp + self-correcting NDC look-at (writes `ctx.cam`)
