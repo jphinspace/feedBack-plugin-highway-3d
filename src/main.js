@@ -488,11 +488,6 @@ function createFactory() {
     // Handshape start-times where ghost fret numbers show but [ ] brackets are suppressed
     // (synth-chord onset-match cases — not genuine arpeggios).
     let _arpSynthOnsetHsSet = new Set();
-    /** Per-frame: ``handShapeIsArpeggioForLaneRail`` baked once — lane slices were O(96 × hs × infer). */
-    let _arpLaneRailHsScratch = [];
-    let _arpRailBoundLoScratch = [];
-    let _arpRailBoundHiScratch = [];
-
     // ── Cross-frame caches for chart-static derivations ──────────────
     // The merge + arp-flag fills below depend only on chart-static
     // input arrays (handShapes / chords / chordTemplates / notes),
@@ -534,13 +529,6 @@ function createFactory() {
     let _slideTargetNotesRef = null;
     let _slideTargetChordsRef = null;
 
-    let _laneRailFlagsRefHs = null;
-    let _laneRailFlagsRefTpl = null;
-
-    let _laneRailBoundsRefHs = null;
-    let _laneRailBoundsRefChords = null;
-    let _laneRailBoundsRefTpl = null;
-    let _laneRailBoundsRefNotes = null;
     let _lastHwW = 0, _lastHwH = 0;
     // Frame counter for throttling the CSS-box drift check in draw()
     // (getBoundingClientRect is a forced layout read; see the comment
@@ -1614,7 +1602,7 @@ function createFactory() {
             _applyNoteCamTargets: noteCameraTargets.applyNoteCamTargets, validString, filterValidNotes,
         });
 
-        arpAndSlidePrepasses = createArpAndSlidePrepasses({ chordInference, _scrArpPersistKeys });
+        arpAndSlidePrepasses = createArpAndSlidePrepasses({ chordInference, arpeggioLaneRail, _scrArpPersistKeys });
 
         frameState = createFrameState({
             validString, filterValidNotes, ctx, mGlow, mAccentCore,
@@ -2420,49 +2408,11 @@ function createFactory() {
         } = arpAndSlidePrepasses.computeSlideTargetSet(
             notes, bundle.chords, _slideTargetSet, _slideTargetNotesRef, _slideTargetChordsRef));
 
-        /** Arpeggio lane purple rails — authored-marker cache + bounds cache. */
-        let laneRailArpHsFlags = null;
-        let laneRailBoundLo = null;
-        let laneRailBoundHi = null;
-        const hsLaneRail = bundle.handShapes;
-        const notesArrForRails = notes || [];
-        if (hsLaneRail && hsLaneRail.length) {
-            const nHsL = hsLaneRail.length;
-            while (_arpLaneRailHsScratch.length < nHsL) _arpLaneRailHsScratch.push(false);
-            while (_arpRailBoundLoScratch.length < nHsL) {
-                _arpRailBoundLoScratch.push(0);
-                _arpRailBoundHiScratch.push(0);
-            }
-            // Authored-marker flags depend only on (handShapes, templates).
-            if (_laneRailFlagsRefHs !== hsLaneRail
-                || _laneRailFlagsRefTpl !== bundle.chordTemplates) {
-                arpeggioLaneRail.fillLaneRailHandShapeFlags(hsLaneRail, bundle.chordTemplates, _arpLaneRailHsScratch);
-                _laneRailFlagsRefHs = hsLaneRail;
-                _laneRailFlagsRefTpl = bundle.chordTemplates;
-            }
-            // Bounds cache depends on (handShapes, chords, templates, notes).
-            if (_laneRailBoundsRefHs !== hsLaneRail
-                || _laneRailBoundsRefChords !== chords
-                || _laneRailBoundsRefTpl !== bundle.chordTemplates
-                || _laneRailBoundsRefNotes !== notesArrForRails) {
-                arpeggioLaneRail.fillArpeggioRailShapeBoundsCaches(
-                    hsLaneRail,
-                    chords ?? [],
-                    bundle.chordTemplates,
-                    notesArrForRails,
-                    _arpLaneRailHsScratch,
-                    _arpRailBoundLoScratch,
-                    _arpRailBoundHiScratch,
-                );
-                _laneRailBoundsRefHs = hsLaneRail;
-                _laneRailBoundsRefChords = chords;
-                _laneRailBoundsRefTpl = bundle.chordTemplates;
-                _laneRailBoundsRefNotes = notesArrForRails;
-            }
-            laneRailArpHsFlags = _arpLaneRailHsScratch;
-            laneRailBoundLo = _arpRailBoundLoScratch;
-            laneRailBoundHi = _arpRailBoundHiScratch;
-        }
+        // Arpeggio lane purple rails — authored-marker cache + bounds cache.
+        // See instance/model/arp-and-slide-prepasses.js's computeLaneRailCaches.
+        const { laneRailArpHsFlags, laneRailBoundLo, laneRailBoundHi } = arpAndSlidePrepasses.computeLaneRailCaches(
+            bundle.handShapes, chords, bundle.chordTemplates, notes || [],
+        );
         const beats = bundle.beats;
         // Rebuild the fret-label visibility set whenever the chart changes.
         if (notes !== _fretLabelNotesRef) {

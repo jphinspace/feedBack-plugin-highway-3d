@@ -6,7 +6,21 @@ import { _noteKey, lowerBoundT } from '../../core/chart-util.js';
 // (instance/render/single-notes.js) as explicit parameters (arpPersistKeys,
 // slideTargetSet); bundled into one file since neither is big enough to
 // warrant its own.
-export function createArpAndSlidePrepasses({ chordInference, _scrArpPersistKeys }) {
+export function createArpAndSlidePrepasses({ chordInference, arpeggioLaneRail, _scrArpPersistKeys }) {
+    // Lane-rail memoization state (Stage 7, post-3e) -- moved verbatim out
+    // of update() alongside the two pre-passes above. Used nowhere else in
+    // main.js (verified via whole-file grep before the move), so it's
+    // private state of this factory rather than threaded deps -- same
+    // "own it outright" upgrade chords.js's `_scrChordNote` got.
+    let _arpLaneRailHsScratch = [];
+    let _arpRailBoundLoScratch = [];
+    let _arpRailBoundHiScratch = [];
+    let _laneRailFlagsRefHs = null;
+    let _laneRailFlagsRefTpl = null;
+    let _laneRailBoundsRefHs = null;
+    let _laneRailBoundsRefChords = null;
+    let _laneRailBoundsRefTpl = null;
+    let _laneRailBoundsRefNotes = null;
     // Notes in active arpeggio handshapes must keep rendering their
     // fretboard ghost + brackets until arpBounds.end, even after their
     // onset+sustain exits the normal back-window (t0 = now-0.5s). Builds a
@@ -106,5 +120,53 @@ export function createArpAndSlidePrepasses({ chordInference, _scrArpPersistKeys 
         return { slideTargetSet, slideTargetNotesRef, slideTargetChordsRef };
     }
 
-    return { computeArpPersistKeys, computeSlideTargetSet };
+    // Arpeggio lane purple-rail authored-marker + bounds caches, keyed off
+    // (handShapes, chordTemplates) and (handShapes, chords, chordTemplates,
+    // notes) reference identity respectively -- both chart-static, so a
+    // dense arrangement skips the O(hs) fill + O(hs × notes) bounds scan
+    // most frames. hsLaneRail empty/falsy returns all-null (the "no
+    // arpeggio lane rail this frame" case).
+    function computeLaneRailCaches(hsLaneRail, chords, chordTemplates, notesArrForRails) {
+        if (!hsLaneRail || !hsLaneRail.length) {
+            return { laneRailArpHsFlags: null, laneRailBoundLo: null, laneRailBoundHi: null };
+        }
+        const nHsL = hsLaneRail.length;
+        while (_arpLaneRailHsScratch.length < nHsL) _arpLaneRailHsScratch.push(false);
+        while (_arpRailBoundLoScratch.length < nHsL) {
+            _arpRailBoundLoScratch.push(0);
+            _arpRailBoundHiScratch.push(0);
+        }
+        // Authored-marker flags depend only on (handShapes, templates).
+        if (_laneRailFlagsRefHs !== hsLaneRail || _laneRailFlagsRefTpl !== chordTemplates) {
+            arpeggioLaneRail.fillLaneRailHandShapeFlags(hsLaneRail, chordTemplates, _arpLaneRailHsScratch);
+            _laneRailFlagsRefHs = hsLaneRail;
+            _laneRailFlagsRefTpl = chordTemplates;
+        }
+        // Bounds cache depends on (handShapes, chords, templates, notes).
+        if (_laneRailBoundsRefHs !== hsLaneRail
+            || _laneRailBoundsRefChords !== chords
+            || _laneRailBoundsRefTpl !== chordTemplates
+            || _laneRailBoundsRefNotes !== notesArrForRails) {
+            arpeggioLaneRail.fillArpeggioRailShapeBoundsCaches(
+                hsLaneRail,
+                chords ?? [],
+                chordTemplates,
+                notesArrForRails,
+                _arpLaneRailHsScratch,
+                _arpRailBoundLoScratch,
+                _arpRailBoundHiScratch,
+            );
+            _laneRailBoundsRefHs = hsLaneRail;
+            _laneRailBoundsRefChords = chords;
+            _laneRailBoundsRefTpl = chordTemplates;
+            _laneRailBoundsRefNotes = notesArrForRails;
+        }
+        return {
+            laneRailArpHsFlags: _arpLaneRailHsScratch,
+            laneRailBoundLo: _arpRailBoundLoScratch,
+            laneRailBoundHi: _arpRailBoundHiScratch,
+        };
+    }
+
+    return { computeArpPersistKeys, computeSlideTargetSet, computeLaneRailCaches };
 }
