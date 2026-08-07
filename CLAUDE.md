@@ -81,6 +81,17 @@ src/
                              else genuinely written elsewhere (scene/cam/ren/wrap/ambLight/
                              bgGroup/mLaneOdd/mLaneEven/bcCtrl/backgroundLastT) is live
                              getters/setters
+    helpers.js                small helpers shared by 2+ createX(deps) factories, found by
+                             scanning every construction call for repeated dep names:
+                             camBaseDistU/camLowFretPullbackU/setLabelMap (zero deps, plain
+                             exports) and createHelpers() -- validString/filterValidNotes
+                             (getNStr() live getter; own _oobStringWarned + a WeakMap cache,
+                             each with an exposed reset), xFret/xFretMid/boardSpanX
+                             (getLeftyCached()), sY (getInvertedCached()/getNStr()),
+                             firstEventTimeGreaterThan, drawArpBrackets (getPArpBracket() --
+                             this factory is built once per createFactory() call, same
+                             lifetime as chordInference which needs validString/
+                             filterValidNotes immediately, well before pArpBracket exists)
     model/
       chord-inference.js     hand-shape/arpeggio inference, chord shape signatures
       math.js                pure helpers (effectiveVfov, vibratoSemisAtTime, darkenHex, ...)
@@ -166,7 +177,7 @@ src/
                              run unconditionally every frame, not chart-static memoization
 ```
 
-`src/main.js` is down to ~3,480 lines (from an original 12,388 -- 72% reduction): a boot preamble (imports, `initFretSpacing()`, `installGlobals()`, the `h3dBcApplySettings` / `h3dSetFretSpacing` window hooks) followed by `createFactory()` — the per-instance renderer, still mid-decomposition and carrying a documented `max-lines` exemption until it drops under 1,500 lines. Its internals are laid out as:
+`src/main.js` is down to ~3,318 lines (from an original 12,388 -- 73% reduction): a boot preamble (imports, `initFretSpacing()`, `installGlobals()`, the `h3dBcApplySettings` / `h3dSetFretSpacing` window hooks) followed by `createFactory()` — the per-instance renderer, still mid-decomposition and carrying a documented `max-lines` exemption until it drops under 1,500 lines. Its internals are laid out as:
 
 - Per-instance state (Three.js refs, pools, camera state, lifecycle flags)
 - `initScene()` — one-time WebGL setup: scene, camera, lights, materials, pools, the ~21
@@ -182,8 +193,9 @@ src/
   (delegated to `verdictPrune`), chart-static memoization (delegated to `arpAndSlidePrepasses`),
   camera-target wiring, `_noteFrame` snapshot assembly, and the ~15 `moduleX.drawY(...)` call
   sites that replaced what used to be inline code (each call site names the module it delegates to)
-- `drawArpBrackets()` — arpeggio bracket drawing helper, called from both chords.js and
-  single-notes.js
+- `drawArpBrackets()` — now `instance/helpers.js`'s export of the same name (called from both
+  chords.js and single-notes.js), alongside `validString`/`filterValidNotes`/`xFret`/`xFretMid`/
+  `boardSpanX`/`sY`/`firstEventTimeGreaterThan` (all moved out of this factory the same way)
 - `camUpdate()` / `applySize()` — now `cameraLifecycle.camUpdate()` / `cameraLifecycle.applySize()`
   (`instance/render/camera-lifecycle.js`): smooth camera lerp + self-correcting NDC look-at
   (writes `ctx.cam`) / DPR + canvas size + aspect clamping (writes `ctx.cam`)
@@ -368,7 +380,7 @@ const noteState = {
 };
 ```
 
-Anything that indexes a per-string array MUST be guarded by `validString(s)`. The function checks that `s` is an integer in `[0, nStr)` (returning `false` otherwise so the caller can skip), warns once when an out-of-range index is seen, and keeps the `mStr / mGlow / mSus / projMeshArr` lookups safe. It does NOT clamp — out-of-range strings are dropped, not silently mapped to a valid one. `filterValidNotes(notes)` is the chord-note equivalent (allocates only when something would actually be dropped).
+Anything that indexes a per-string array MUST be guarded by `validString(s)` (`instance/helpers.js`). The function checks that `s` is an integer in `[0, nStr)` (returning `false` otherwise so the caller can skip), warns once when an out-of-range index is seen, and keeps the `mStr / mGlow / mSus / projMeshArr` lookups safe. It does NOT clamp — out-of-range strings are dropped, not silently mapped to a valid one. `filterValidNotes(notes)` (same file) is the chord-note equivalent (allocates only when something would actually be dropped).
 
 ## Object pools
 
