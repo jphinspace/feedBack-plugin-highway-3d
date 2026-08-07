@@ -49,6 +49,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
     RENDER_ORDER_LAYER_STACK,
@@ -59,8 +61,19 @@ import {
 } from '../src/core/render-order.js';
 import { K, FRET_WIRE_IDLE_HEX, FRET_WIRE_ACTIVE_HEX } from '../src/core/constants.js';
 
-const MAIN_JS = new URL('../src/main.js', import.meta.url);
-const NOTE_JS = new URL('../src/instance/render/note.js', import.meta.url);
+const MAIN_JS = path.join(fileURLToPath(new URL('.', import.meta.url)), '..', 'src', 'main.js');
+const INSTANCE_DIR = path.join(fileURLToPath(new URL('.', import.meta.url)), '..', 'src', 'instance');
+
+/** Recursively collects every .js file under `dir`. */
+function collectJsFiles(dir) {
+    const out = [];
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) out.push(...collectJsFiles(full));
+        else if (entry.name.endsWith('.js')) out.push(full);
+    }
+    return out;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -69,12 +82,16 @@ const NOTE_JS = new URL('../src/instance/render/note.js', import.meta.url);
 let _src;
 /**
  * Returns the cached renderer source under test (for call-site regexes) --
- * main.js plus note.js (drawNote() and its helpers moved there in Stage 7
- * Phase 3b), concatenated so a call-site regex doesn't care which file its
- * target currently lives in.
+ * main.js plus every file under src/instance/ (drawNote(), the notedetect
+ * listeners, and a growing set of initScene() slices have all moved out of
+ * main.js across Stage 7), concatenated so a call-site regex doesn't care
+ * which file its target currently lives in.
  */
 function src() {
-    if (!_src) _src = fs.readFileSync(MAIN_JS, 'utf8') + '\n' + fs.readFileSync(NOTE_JS, 'utf8');
+    if (!_src) {
+        const files = [MAIN_JS, ...collectJsFiles(INSTANCE_DIR)];
+        _src = files.map(f => fs.readFileSync(f, 'utf8')).join('\n');
+    }
     return _src;
 }
 

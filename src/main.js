@@ -86,6 +86,9 @@ import { createArpeggioLaneRail } from './instance/render/arpeggio-lane-rail.js'
 import { createNoteRenderer } from './instance/render/note.js';
 import { createNotedetectListeners } from './instance/notedetect/listeners.js';
 import { createCtx } from './instance/ctx.js';
+import { pool } from './core/pool.js';
+import { createSustainRailVisuals } from './instance/geometry/sustain-rail.js';
+import { createLaneDividers, createFretColumnMarkerPool } from './instance/geometry/lane-and-labels.js';
 import {
     bnvSampleAt, canvasSize, darkenHex, disposeGroupTree, effectiveVfov, noteHasVibrato,
     teachingDegreeLabel, teachingFingerLabel, tremoloOffsetWorldX, vibratoSemisAtTime,
@@ -1371,41 +1374,6 @@ function createFactory() {
         pbBeg = pbEnd = pbReportTick = function () {};
     }
 
-    function pool(parent, mk) {
-        const a = [];
-        let n = 0;
-        return {
-            get() {
-                if (n < a.length) {
-                    const o = a[n++];
-                    o.visible = true;
-                    if (o.center && o.center.isVector2) o.center.set(0.5, 0.5);
-                    return o;
-                }
-                const o = mk(); parent.add(o); a.push(o); n++; return o;
-            },
-            reset() { for (let i = 0; i < n; i++) a[i].visible = false; n = 0; },
-            // Pre-allocate `cap` slots at construction so the first dense
-            // playback frames don't pay the new-Mesh allocation cost
-            // mid-RAF (felt as a stall on 7/8-string charts where the
-            // visible-note count outruns the lazy-grow path). Lazy growth
-            // past `cap` still works — this is amortisation, not a cap.
-            //
-            // Coerce `cap` to a non-negative int32: a float would still
-            // work but a callsite passing `Infinity` (or `NaN`) would
-            // otherwise spin the while-loop until OOM. `cap | 0`
-            // truncates floats, clamps Infinity → 0, and turns NaN → 0;
-            // Math.max(0, …) keeps negatives out.
-            warm(cap) {
-                // Local rename to avoid shadowing the pool's outer
-                // `n` (the in-use index advanced by get() / reset()).
-                const targetLen = Math.max(0, cap | 0);
-                while (a.length < targetLen) { const o = mk(); o.visible = false; parent.add(o); a.push(o); }
-                return this;
-            },
-        };
-    }
-
     // Cached wrapper for drawChordDiagram. When entranceT === 1 (scale
     // transform is identity) the diagram is rendered once to an
     // OffscreenCanvas and reused every subsequent frame via drawImage +
@@ -1947,64 +1915,13 @@ function createFactory() {
         pBeat = pool(beatG, () => new T.Line(gBeat, mBeatQ));
         pSec  = pool(lblG,  () => new T.Sprite(textSprites.txtMat('', '#0dd', true, 'section')));
 
-        // Chord sustain length indicator — thin horizontal plane rails.
-        // Unit plane (1×1 in XZ) laid flat; scaled to (railWidth, 1, railLen).
-        // A horizontal plane seen from the camera looking down-forward is
-        // face-on and has real apparent thickness — unlike T.Line (always 1px).
-        // depthTest:false so they never occlude gems; renderOrder 11 places
-        // them above lane dividers (2) and chord fill (10), at the same level
-        // as chord frame edges (11), and BELOW sustain trails (12/13), note
-        // gems (dynamic ≥50), and arp brackets (18). The bloom halo (10) sits
-        // behind the core rail (11). Keeping susrail behind note sus trails
-        // prevents the rail border from covering individual note tails
-        // (sustain/vibrato/tremolo/bend). (Was 14/16 which rendered on top of
-        // 12/13 sus trails, causing the outer border to overlap tails.)
-        gSusRail = new T.PlaneGeometry(1, 1);
-        gSusRail.rotateX(-Math.PI / 2); // lay flat in XZ plane
-        mSusRailBase = new T.MeshBasicMaterial({
-            color: CHORD_BOX_TEAL_HEX,
-            transparent: true, opacity: 0.85,
-            depthTest: false, depthWrite: false,
-            fog: false, side: T.DoubleSide, forceSinglePass: true,
-        });
-        pSusRail = pool(noteG, () => {
-            const m = new T.Mesh(gSusRail, mSusRailBase.clone());
-            m.renderOrder = 5; // below strings (7) so strings render on top
-            return m;
-        });
-
-        // Bloom glow for chord sustain rails — wider plane with a gaussian
-        // falloff texture (bright centre → transparent edges in X direction)
-        // and additive blending, so it brightens whatever is behind it.
-        // renderOrder 4 places it behind the core rail (5).
-        _bloomGaussTex = _makeGaussTex(T);
-        gSusRailBloom = new T.PlaneGeometry(1, 1);
-        gSusRailBloom.rotateX(-Math.PI / 2);
-        mSusRailBloomBase = new T.MeshBasicMaterial({
-            color: CHORD_BOX_TEAL_HEX,
-            map: _bloomGaussTex,
-            transparent: true, opacity: 0.55,
-            blending: T.AdditiveBlending,
-            depthTest: false, depthWrite: false,
-            fog: false, side: T.DoubleSide, forceSinglePass: true,
-        });
-        pSusRailBloom = pool(noteG, () => {
-            const m = new T.Mesh(gSusRailBloom, mSusRailBloomBase.clone());
-            m.renderOrder = 4; // below strings (7) so strings render on top
-            return m;
-        });
-
-        // Rotatable plane pool for technique markers (pm, mt, hm, hp, H/P, bend).
-        // Unlike T.Sprite, a PlaneGeometry mesh accepts rotation.z = approachRot
-        // so markers stay coplanar with the gem as it tilts from vertical to flat.
-        gTechPlane = new T.PlaneGeometry(1, 1);
-        pTechPlane = pool(noteG, () => {
-            const m = new T.Mesh(gTechPlane, new T.MeshBasicMaterial({
-                transparent: true, depthTest: false, depthWrite: false, side: T.DoubleSide, forceSinglePass: true,
-            }));
-            m.renderOrder = 1000;
-            return m;
-        });
+        // Sustain rail (core + bloom) + technique-marker plane pool -- see
+        // instance/geometry/sustain-rail.js.
+        ({
+            gSusRail, mSusRailBase, pSusRail,
+            _bloomGaussTex, gSusRailBloom, mSusRailBloomBase, pSusRailBloom,
+            gTechPlane, pTechPlane,
+        } = createSustainRailVisuals({ noteG }));
 
         // ── InstancedMesh temporaries ──────────────────────────────────────
         _imM4    = new T.Matrix4();
@@ -2107,20 +2024,10 @@ function createFactory() {
             return m;
         });
 
-        // Vertical fret dividers within active lane
-        const gLaneDivider = new T.BoxGeometry(0.15 * K, 0.15 * K, 1);
-        mLaneDivider = new T.MeshBasicMaterial({
-            color: 0x46DDE6, transparent: true, opacity: 1.00, fog: false, depthWrite: false,
-        });
-        mLaneDividerArp = new T.MeshBasicMaterial({
-            color: ARPEGGIO_RIM_BLUE_HEX,
-            transparent: true, opacity: 0.08, fog: false, depthWrite: false,
-        });
-        mLaneDividerExt = new T.MeshBasicMaterial({
-            color: 0x364D5F, transparent: true, opacity: 0.4, fog: false, depthWrite: false,
-        });
-        _ownedSharedMats.push(mLaneDivider, mLaneDividerArp, mLaneDividerExt);
-        pLaneDivider = pool(noteG, () => new T.Mesh(gLaneDivider, mLaneDivider));
+        // Lane fret dividers -- see instance/geometry/lane-and-labels.js.
+        ({
+            mLaneDivider, mLaneDividerArp, mLaneDividerExt, pLaneDivider,
+        } = createLaneDividers({ noteG, _ownedSharedMats }));
 
         // Chord frame palette (frame alpha 128, fill gradient alpha 32; MeshBasic).
         const chR = CHORD_BOX_TEAL_HEX >> 16 & 255;
@@ -2608,14 +2515,8 @@ function createFactory() {
         // manually with a short fade-in so the number appears at its
         // final size the moment it becomes visible rather than seeming to
         // emerge from a tiny dim spec at the horizon.
-        pFretColMarker = pool(lblG, () => {
-            const _sp = new T.Sprite(textSprites.txtMat('0', '#666666', false, 'noteFret').clone());
-            // fog=false: prevents scene fog from dimming the sprite as it enters the
-            // far end of the highway.  Opacity is managed by the manual fade-in ramp
-            // so the number appears smoothly instead of emerging as a dim spec.
-            _sp.material.fog = false;
-            return _sp;
-        });
+        // Fret-column reference marker pool -- see instance/geometry/lane-and-labels.js.
+        ({ pFretColMarker } = createFretColumnMarkerPool({ lblG, textSprites }));
 
         POOL_REGISTRY = {
             pNote, pNoteEdge, pAccentHalo, pSus, pSusOutline, pSusRibbon, pSusRibbonOl,

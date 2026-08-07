@@ -13,6 +13,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
+const SUSTAIN_RAIL_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'geometry', 'sustain-rail.js');
 
 test('sustain rails are gated on multi-note chords with a known box width within AHEAD', () => {
     // Each chord in a sequence (including repeats) draws a rail from its onset
@@ -40,7 +41,8 @@ test('sustain-rail pool meshes keep renderOrder 5 so strings (7) stay on top', (
     // of the rail. Chord frame edges are Z-proportional [48,698] and note gems
     // are Z-proportional [50,700], so the flat seed value does not conflict —
     // emitSusStrip() assigns its own Z-proportional RO per segment at draw time.
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
+    // pSusRail moved to instance/geometry/sustain-rail.js in Stage 7 Track A.
+    const src = fs.readFileSync(SUSTAIN_RAIL_JS, 'utf8');
     assert.match(
         src,
         /pSusRail\s*=\s*pool\([^)]*,\s*\(\)\s*=>\s*\{[\s\S]*?m\.renderOrder\s*=\s*5\s*;[\s\S]*?\}\s*\)/,
