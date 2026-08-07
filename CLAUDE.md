@@ -72,8 +72,15 @@ src/
                              "Settings" section below)
     settings-listener.js      createSettingsListener -- the live settings-bus subscriber;
                              outlives initScene(), reads ctx.settings.x / ctx.board.* directly
-                             (a stable ctx reference), a few remaining live getters only for
-                             genuine main.js closure `let`s (fretG, bgState, _tuningLabelSprites)
+                             (a stable ctx reference), a few remaining live getters for genuine
+                             main.js closure `let`s (fretG, _tuningLabelSprites) plus
+                             background-mount.js's getBgState()
+    background-mount.js       createBackgroundMount -- background-style mount/unmount/rebuild +
+                             the two-axis scene-color theme applier (_applyBgTheme). bgState/
+                             bgStage/bgMountedStyleId are private (own-it-outright); everything
+                             else genuinely written elsewhere (scene/cam/ren/wrap/ambLight/
+                             bgGroup/mLaneOdd/mLaneEven/bcCtrl/backgroundLastT) is live
+                             getters/setters
     model/
       chord-inference.js     hand-shape/arpeggio inference, chord shape signatures
       math.js                pure helpers (effectiveVfov, vibratoSemisAtTime, darkenHex, ...)
@@ -120,24 +127,31 @@ src/
       chord-accent-visuals.js   chord-frame gradient textures + PM/FH strum X-mark visuals
       dom-and-scene.js          highwayCanvas/_ctxLost live getter-setter pair (long-lived
                              visibility/canvas-replaced listeners, outlive initScene())
+      nut-headstock.js          guitar nut + headstock geometry, called from buildBoard() on
+                             every rebuild (palette/theme/lefty/nStr changes), not just init
+      fret-markers.js           fret wires (shared TubeGeometry) + fret dots + fret inlay
+                             number labels, also called from buildBoard() on every rebuild
     overlay/                  2D-canvas overlay renderers, each `(ctx, opts)`
-      chord-diagram.js         drawChordDiagram() -- top-left chord fingering diagram
+      chord-diagram.js         drawChordDiagram() -- top-left chord fingering diagram, plus
+                             createChordDiagramCache() -- the OffscreenCanvas render-cache
+                             wrapper around it (module-instance singleton, no per-init deps)
       lyrics.js                 drawLyrics() -- top-centre syllable-highlighted lyrics
       huds.js                   drawSectionHud() / drawToneHud()
     notedetect/
       listeners.js              createNotedetectListeners -- hit/miss + Score FX event binding
 ```
 
-`src/main.js` is down to ~4,476 lines (from an original 12,388 -- 64% reduction): a boot preamble (imports, `initFretSpacing()`, `installGlobals()`, the `h3dBcApplySettings` / `h3dSetFretSpacing` window hooks) followed by `createFactory()` — the per-instance renderer, still mid-decomposition and carrying a documented `max-lines` exemption until it drops under 1,500 lines. Its internals are laid out as:
+`src/main.js` is down to ~4,070 lines (from an original 12,388 -- 67% reduction): a boot preamble (imports, `initFretSpacing()`, `installGlobals()`, the `h3dBcApplySettings` / `h3dSetFretSpacing` window hooks) followed by `createFactory()` — the per-instance renderer, still mid-decomposition and carrying a documented `max-lines` exemption until it drops under 1,500 lines. Its internals are laid out as:
 
 - Per-instance state (Three.js refs, pools, camera state, lifecycle flags)
-- `initScene()` — one-time WebGL setup: scene, camera, lights, materials, pools, the ~15
+- `initScene()` — one-time WebGL setup: scene, camera, lights, materials, pools, the ~19
   `createX(deps)` construction calls for the modules above
 - `loadSettings()` — reads all 52 settings into `ctx.settings.x` (see "Settings" below)
-- `buildBoard()` — static fretboard geometry: strings, fret wires, fret dots, board plane
+- `buildBoard()` — static fretboard geometry: fretboard plane + string meshes inline, delegates
+  nut/headstock to `nutHeadstockBuilder` and fret wires/dots/inlay labels to `fretMarkersBuilder`
 - `_applyPaletteToMaterials()` / `_recolorGemGradients()` / `_applyVibrancy()` / `_applyGlow()` /
-  `_applyBgTheme()` / `_applyCinematic()` — live material-retint passes fired by the settings
-  listener, not full rebuilds
+  `_applyCinematic()` — live material-retint passes fired by the settings listener, not full
+  rebuilds (`_applyBgTheme()` is the same idea but now lives in `backgroundMount`)
 - `update(bundle)` — the big per-frame function: still ~584 lines of camera-target wiring,
   `_noteFrame` snapshot assembly, and the ~15 `moduleX.drawY(...)` call sites that replaced
   what used to be inline code (each call site names the module it delegates to)
