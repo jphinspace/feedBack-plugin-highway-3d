@@ -52,7 +52,6 @@ import {
 import {
     RENDER_ORDER_LAYER_STACK, hwyPostHitTailFadeMul, renderOrderForLayerAtZ
 } from './core/render-order.js';
-import { SLIDE_RIBBON_INDICES_ARR, SLIDE_RIBBON_SAMPLES } from './core/slide-ribbon.js';
 import { _makeGaussTex } from './core/texture.js';
 import {
     FRET_WIDTH_MID, _recomputeFretSpacingDerived, dZ, fretLabelScaleForFret, fretMid, fretX,
@@ -88,8 +87,12 @@ import { createNotedetectListeners } from './instance/notedetect/listeners.js';
 import { createCtx } from './instance/ctx.js';
 import { pool } from './core/pool.js';
 import { createNoteGemVisuals } from './instance/geometry/note-gem-visuals.js';
+import { createNoteGemPools } from './instance/geometry/note-gem-pools.js';
+import { createTechniqueInstancedMeshes } from './instance/geometry/technique-instanced-meshes.js';
 import { createSustainRailVisuals } from './instance/geometry/sustain-rail.js';
-import { createLaneDividers, createFretColumnMarkerPool } from './instance/geometry/lane-and-labels.js';
+import {
+    createFretColumnMarkerPool, createHighwayLanePlane, createLaneDividers,
+} from './instance/geometry/lane-and-labels.js';
 import { createTapChevronAndLabelPools } from './instance/geometry/tap-chevron-and-label-pools.js';
 import { createBeatAndSectionLabels } from './instance/render/beat-and-section-labels.js';
 import { finalizeInstancedMeshBatches } from './instance/render/finalize-instanced-meshes.js';
@@ -1627,59 +1630,10 @@ function createFactory() {
         }));
 
         // ── Pools ──────────────────────────────────────────────────────
-        pNote = pool(noteG, () => new T.Mesh(gNote, mStr[0]));
-        // Pool default is the always-invisible mEdgeTransparent — every
-        // consumer reassigns .material before render (to a verdict edge
-        // material array), so the placeholder is never displayed.
-        pNoteEdge = pool(noteG, () => new T.Mesh(gNote, mEdgeTransparent));
-        pAccentHalo = pool(noteG, () => new T.Mesh(gNote, mAccentHaloFar[0]));
-        pSus = pool(noteG, () => new T.Mesh(gSus, mSus[0]));
-        pSusOutline = pool(noteG, () => new T.Mesh(gSus, mSusOutline));
-        const mkSlideRibbonGeo = () => {
-            const nVert = 4 * (SLIDE_RIBBON_SAMPLES + 1);
-            const g = new T.BufferGeometry();
-            g.setAttribute('position', new T.Float32BufferAttribute(new Float32Array(nVert * 3), 3));
-            // SLIDE_RIBBON_INDICES_ARR is the plain-Array form (see module-init
-            // comment) shared across pool meshes; setIndex() rewraps it into a
-            // fresh Uint16BufferAttribute per geometry, so the share is safe.
-            g.setIndex(SLIDE_RIBBON_INDICES_ARR);
-            // Static cross-section normals: each ring is an axis-aligned quad,
-            // so vertex normals point radially in the XY plane regardless of
-            // the slide's Z-direction curvature. Pre-fill once and skip the
-            // per-frame computeVertexNormals() pass that previously ran on
-            // every sustained-slide update (Copilot perf finding on PR #215).
-            const SQRT_HALF = Math.SQRT1_2;
-            const normals = new Float32Array(nVert * 3);
-            for (let k = 0; k <= SLIDE_RIBBON_SAMPLES; k++) {
-                const o = k * 12;
-                // v0 (-X,-Y), v1 (+X,-Y), v2 (+X,+Y), v3 (-X,+Y)
-                normals[o]     = -SQRT_HALF; normals[o + 1]  = -SQRT_HALF; normals[o + 2]  = 0;
-                normals[o + 3] =  SQRT_HALF; normals[o + 4]  = -SQRT_HALF; normals[o + 5]  = 0;
-                normals[o + 6] =  SQRT_HALF; normals[o + 7]  =  SQRT_HALF; normals[o + 8]  = 0;
-                normals[o + 9] = -SQRT_HALF; normals[o + 10] =  SQRT_HALF; normals[o + 11] = 0;
-            }
-            g.setAttribute('normal', new T.Float32BufferAttribute(normals, 3));
-            return g;
-        };
-        // Ribbon meshes mutate vertex positions every frame in
-        // slideRibbonUpdatePositions but the mesh itself stays at (0,0,0)
-        // and the geometry's bounding sphere is never recomputed. With
-        // frustum culling on, Three.js tests the (0,0,0)-centred bounds
-        // and culls the ribbon as soon as the camera pans away from world
-        // origin, so slides flicker in/out. Disable culling on these
-        // meshes — the ribbon footprint is small and they're already
-        // gated by t0/t1 reachability before render.
-        pSusRibbon = pool(noteG, () => {
-            const m = new T.Mesh(mkSlideRibbonGeo(), mSus[0]);
-            m.frustumCulled = false;
-            return m;
-        });
-        pSusRibbonOl = pool(noteG, () => {
-            const m = new T.Mesh(mkSlideRibbonGeo(), mSusOutline);
-            m.frustumCulled = false;
-            m.renderOrder = -3;
-            return m;
-        });
+        // Note/sustain/slide-ribbon pools -- see instance/geometry/note-gem-pools.js.
+        ({
+            pNote, pNoteEdge, pAccentHalo, pSus, pSusOutline, pSusRibbon, pSusRibbonOl,
+        } = createNoteGemPools({ noteG, gNote, mStr, mEdgeTransparent, mAccentHaloFar, gSus, mSus, mSusOutline }));
         // Tap-chevron material + label/beat/section pools -- see
         // instance/geometry/tap-chevron-and-label-pools.js.
         ({ mTapChevron, pTapChevron, pLbl, pBeat, pSec } = createTapChevronAndLabelPools({
@@ -1694,106 +1648,20 @@ function createFactory() {
             gTechPlane, pTechPlane,
         } = createSustainRailVisuals({ noteG }));
 
-        // ── InstancedMesh temporaries ──────────────────────────────────────
-        _imM4    = new T.Matrix4();
-        _imPos   = new T.Vector3();
-        _imSca   = new T.Vector3();
-        _imQ     = new T.Quaternion();
-        _imAZ    = new T.Vector3(0, 0, 1);
-        _imColor = new T.Color();
+        // InstancedMesh scratch objects + PM/FH tech marker InstancedMeshes --
+        // see instance/geometry/technique-instanced-meshes.js.
+        ({
+            _imM4, _imPos, _imSca, _imQ, _imAZ, _imColor,
+            imPMTech, _imGPMTech, _imPMTechMat, imFHTech, _imGFHTech, _imFHTechMat,
+        } = createTechniqueInstancedMeshes({
+            noteG, gTechPlane, textSprites, IM_TECH_CAP, _imPMTechAlphaArr, _imFHTechAlphaArr,
+        }));
 
-        // ── Shared ShaderMaterial templates ───────────────────────────────
-        // Vertex shader used by PM-X and FH-X on individual note gems.
-        // Three.js injects `USE_INSTANCING` + `instanceMatrix` attribute
-        // into the prefix when an InstancedMesh uses a ShaderMaterial.
-        const _imTechVert = [
-            'attribute float instanceAlpha;',
-            'varying float vAlpha;',
-            'varying vec2 vUv;',
-            'void main() {',
-            '    vUv = uv;',
-            '    vAlpha = instanceAlpha;',
-            '    vec4 pos = vec4(position, 1.0);',
-            '    #ifdef USE_INSTANCING',
-            '    pos = instanceMatrix * pos;',
-            '    #endif',
-            '    gl_Position = projectionMatrix * modelViewMatrix * pos;',
-            '}',
-        ].join('\n');
-        const _imTechFrag = [
-            'uniform sampler2D map;',
-            'varying float vAlpha;',
-            'varying vec2 vUv;',
-            'void main() {',
-            '    vec4 t = texture2D(map, vUv);',
-            '    if (t.a * vAlpha < 0.01) discard;',
-            '    gl_FragColor = vec4(t.rgb, t.a * vAlpha);',
-            '}',
-        ].join('\n');
-
-        // ── PM / FH tech marker InstancedMeshes ───────────────────────────
-        // Each IM gets a geometry clone so instanceAlpha is a separate buffer.
-        const _mkTechIM = (spriteMat, alphaArr) => {
-            const geo = gTechPlane.clone();
-            const alphaAttr = new T.InstancedBufferAttribute(alphaArr, 1);
-            alphaAttr.setUsage(T.DynamicDrawUsage);
-            geo.setAttribute('instanceAlpha', alphaAttr);
-            const mat = new T.ShaderMaterial({
-                uniforms: { map: { value: spriteMat.map } },
-                vertexShader: _imTechVert,
-                fragmentShader: _imTechFrag,
-                transparent: true, depthTest: false, depthWrite: false, side: T.DoubleSide, forceSinglePass: true,
-            });
-            const im = new T.InstancedMesh(geo, mat, IM_TECH_CAP);
-            im.instanceMatrix.setUsage(T.DynamicDrawUsage);
-            im.frustumCulled = false;
-            im.count = 0;
-            noteG.add(im);
-            return { im, geo, mat };
-        };
-        { const r = _mkTechIM(textSprites.palmMuteXSpriteMat(),    _imPMTechAlphaArr);
-          imPMTech = r.im; _imGPMTech = r.geo; _imPMTechMat = r.mat; imPMTech.renderOrder = 702; }
-        { const r = _mkTechIM(textSprites.fretHandMuteXSpriteMat(), _imFHTechAlphaArr);
-          imFHTech = r.im; _imGFHTech = r.geo; _imFHTechMat = r.mat; imFHTech.renderOrder = 700; }
-
-        // Dynamic fret number labels (heat-coloured, updated each frame)
-        pFretLbl = pool(lblG, () => new T.Sprite(textSprites.txtMat('0', '#888', false, 'fretRow')));
-
-        // Highlight lane plane over active fret range. With the anchor-driven
-        // segmented lanes we render up to fret-count × HIGHWAY_LANE_TIME_SLICES (96)
-        // pLane meshes per frame, so:
-        //   - geometry is a shared PlaneGeometry(1,1) (was per-mesh, never differed)
-        //   - 2 shared MeshBasicMaterials (odd / even stripe colour) replace the
-        //     per-mesh material clones; the per-frame opacity still travels via
-        //     the materials but is set once outside the inner loop, not per-mesh.
-        gLanePlane = new T.PlaneGeometry(1, 1);
-        mLaneOdd = new T.MeshBasicMaterial({
-            color: HIGHWAY_LANE_STRIPE_ODD_HEX, transparent: true, opacity: 0, depthWrite: false,
-        });
-        mLaneEven = new T.MeshBasicMaterial({
-            color: HIGHWAY_LANE_STRIPE_EVEN_HEX, transparent: true, opacity: 0, depthWrite: false,
-        });
-        // Tracked for explicit disposal in teardown — these materials may
-        // not be reachable via scene.traverse() if no lane was ever rendered.
-        _ownedSharedMats.push(mLaneOdd, mLaneEven);
-        _ownedSharedGeos.push(gLanePlane);
-        pLane = pool(noteG, () => new T.Mesh(gLanePlane, mLaneOdd));
-
-        gGhostFretPlane = new T.PlaneGeometry(1, 1);
-        _ownedSharedGeos.push(gGhostFretPlane);
-        const mGhostFretLblPh = new T.MeshBasicMaterial({
-            color: 0xffffff, transparent: true, depthTest: false, depthWrite: false,
-        });
-        _ownedSharedMats.push(mGhostFretLblPh);
-        pGhostFretLbl = pool(noteG, () => {
-            const m = new T.Mesh(gGhostFretPlane, mGhostFretLblPh);
-            // Must be above the proj frame (renderOrder=14) and opaque
-            // geometry — same contract as technique labels (renderOrder=1000):
-            // depthTest:false alone is insufficient, renderOrder=1000 needed.
-            m.renderOrder = 1000;
-            m.frustumCulled = false;
-            return m;
-        });
+        // Fret-number-row label pool, highway lane plane, and ghost fret
+        // label pool -- see instance/geometry/lane-and-labels.js.
+        ({
+            pFretLbl, gLanePlane, mLaneOdd, mLaneEven, pLane, gGhostFretPlane, pGhostFretLbl,
+        } = createHighwayLanePlane({ noteG, lblG, textSprites, _ownedSharedMats, _ownedSharedGeos }));
 
         // Lane fret dividers -- see instance/geometry/lane-and-labels.js.
         ({
