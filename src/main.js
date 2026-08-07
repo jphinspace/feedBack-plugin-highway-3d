@@ -115,6 +115,7 @@ import { createHitSparks } from './instance/render/hit-sparks.js';
 import { createBloomComposer } from './instance/render/bloom-composer.js';
 import { createLookaheadMath } from './instance/model/lookahead-math.js';
 import { createNoteCameraTargets } from './instance/render/note-camera-targets.js';
+import { createScoreFx } from './instance/render/score-fx.js';
 import {
     bnvSampleAt, canvasSize, darkenHex, disposeGroupTree, effectiveVfov, noteHasVibrato,
     teachingDegreeLabel, teachingFingerLabel, tremoloOffsetWorldX, vibratoSemisAtTime,
@@ -787,38 +788,13 @@ function createFactory() {
     // silent — see the live-latch handling in the per-gem loop below).
     let _susVerdictLatch = new Map();
 
-    // ── Score FX (notedetect game-scoring layer, notedetect ≥1.13) ──
-    // Two channels: (1) per-note "+N" score pops, sourced from the
-    // note-state provider's new { points, mult, popKey } fields at the
-    // moment a gem's verdict lands; (2) session-level bursts/pulses from
-    // the new `notedetect:fx` event (streak milestones, multiplier tier
-    // changes, streak breaks). Everything renders on the 2D overlay
-    // canvas (same layer as drawNotedetectLabels) — no Three.js objects,
-    // no textSprites.txtMat() cache entries, nothing to dispose. Pools are fixed-
-    // size slot arrays created once per factory instance; when all slots
-    // are busy a new effect is simply dropped.
-    const _FX_POP_LIFE_MS = 700;
-    const _FX_BURST_LIFE_MS = 900;
-    const _FX_BURST_N = 36;
-    const _fxPops = Array.from({ length: 24 }, () => (
-        { active: false, x: 0, y: 0, z: 0, bornMs: 0, text: '', mult: 1 }
-    ));
-    const _fxBursts = Array.from({ length: 4 }, () => ({
-        active: false, bornMs: 0,
-        px: new Float32Array(_FX_BURST_N), py: new Float32Array(_FX_BURST_N),
-        vx: new Float32Array(_FX_BURST_N), vy: new Float32Array(_FX_BURST_N),
-    }));
-    // popKey -> expiry ms. Dedupes pops (chord members share the chord's
-    // popKey; sustains keep returning points for the whole glow window).
-    const _fxSeen = new Map();
+    // Score FX (notedetect game-scoring layer) -- see
+    // instance/render/score-fx.js, (re)built in initScene(). _fxOnFx/
+    // _fxOnSkin/_fxElemSeen stay here -- they're notedetect/listeners.js's
+    // concern (already-extracted, Phase 3c), not score-fx.js's.
+    let scoreFx = null;
     let _fxOnFx = null;          // notedetect:fx listener (window)
     let _fxOnSkin = null;        // notedetect:skin bus listener
-    // Generation counter: bumped by teardown() so the deferred window-
-    // copy fallback (a zero-delay task the listener removal can't cancel)
-    // bails instead of re-arming ring/burst state after teardown — or,
-    // worse, leaking a stale event into a subsequent init's fresh state.
-    let _fxGen = 0;
-    let _fxLastFxDetail = null;  // reference dedup: window + instanceRoot dispatches share one detail
     // Details seen via element-scoped (bubbled) dispatch. A WeakSet, not a
     // single slot: one judged hit can emit several fx in the same task
     // (milestone + multiplier tier-up), and the deferred window-copy
@@ -826,72 +802,6 @@ function createFactory() {
     // after the SECOND overwrote any last-detail slot. GC reclaims
     // entries once notedetect drops the detail objects.
     let _fxElemSeen = new WeakSet();
-    let _fxRingMs = -1e9;        // multiplier ring-pulse anchor
-    let _fxRingMult = 1;
-    // Canvas-side palette per notedetect skin (mirrors the accents in
-    // notedetect's assets/plugin.css; fonts are document-loaded by that
-    // stylesheet so the overlay canvas can use the family names).
-    const _FX_PALETTES = {
-        neon:    { accent: '#00f0ff', accent2: '#ff2ec4', font: 'Orbitron' },
-        esports: { accent: '#e8b43a', accent2: '#f5f5f4', font: 'Rajdhani' },
-        metal:   { accent: '#ffb347', accent2: '#ff6b35', font: 'Russo One' },
-    };
-    let _fxPalette = _FX_PALETTES.neon;
-    function _fxResolvePalette() {
-        let skin = null;
-        try { skin = localStorage.getItem('feedBack_notedetect_skin'); } catch (e) {}
-        _fxPalette = _FX_PALETTES[skin] || _FX_PALETTES.neon;
-    }
-    function _fxSpawnPop(popKey, points, mult, x, y, z) {
-        if (_fxSeen.has(popKey)) return;
-        const nowMs = noteDetectFrameNowMs || performance.now();
-        _fxSeen.set(popKey, nowMs + 4000);
-        for (let i = 0; i < _fxPops.length; i++) {
-            const p = _fxPops[i];
-            if (p.active) continue;
-            p.active = true;
-            p.x = x; p.y = y; p.z = z;
-            p.bornMs = nowMs;
-            p.text = '+' + points;
-            p.mult = mult || 1;
-            return;
-        }
-    }
-    function _fxSpawnBurst(nowMs) {
-        for (let i = 0; i < _fxBursts.length; i++) {
-            const b = _fxBursts[i];
-            if (b.active) continue;
-            b.active = true;
-            b.bornMs = nowMs;
-            for (let j = 0; j < _FX_BURST_N; j++) {
-                const a = (j / _FX_BURST_N) * Math.PI * 2;
-                const sp = 2 + (j % 5) * 0.8;
-                b.px[j] = 0; b.py[j] = 0;
-                b.vx[j] = Math.cos(a) * sp;
-                b.vy[j] = Math.sin(a) * sp - 1.2;
-            }
-            return;
-        }
-    }
-    function _fxHandle(d) {
-        // Reference dedup — notedetect dispatches the SAME detail object
-        // on window and on its instanceRoot; whichever arrives first wins.
-        if (d === _fxLastFxDetail) return;
-        _fxLastFxDetail = d;
-        const nowMs = performance.now();
-        if (d.fxType === 'milestone') {
-            _fxSpawnBurst(nowMs);
-        } else if (d.fxType === 'multiplier' && d.mult > (d.prevMult || 1)) {
-            _fxRingMs = nowMs;
-            _fxRingMult = d.mult;
-        }
-        // NOTE: 'streakBreak' is deliberately unhandled. It used to arm a
-        // full-screen red flash; that effect was removed outright (it washed
-        // the whole panel mid-song, including the notes you were trying to
-        // read). The event is simply ignored now. The other streak feedback —
-        // the hit-heat spark escalation gated on _streakFx in drawNote — is
-        // unaffected. Don't reintroduce a full-panel fill here.
-    }
 
     // Object pools
     let pNote, pSus, pLbl, pBeat, pSec;
@@ -1486,6 +1396,16 @@ function createFactory() {
         // factory (see dom-and-scene.js's doc comment).
         _applyCinematic();
 
+        // Score FX (notedetect game-scoring layer) -- see
+        // instance/render/score-fx.js. Constructed here (before note.js's
+        // construction below, which injects scoreFx.fxSpawnPop as a dep,
+        // and before the notedetect listener setup further down, which
+        // injects scoreFx.fxHandle/fxResolvePalette/getFxGen).
+        scoreFx = createScoreFx({
+            getCam: () => cam, getProbe: () => _probe, sY, getNStr: () => nStr,
+            noteDetectLabels, getNoteDetectFrameNowMs: () => noteDetectFrameNowMs,
+        });
+
         bloomComposer = createBloomComposer({
             getRenderer: () => ren, getScene: () => scene, getCamera: () => cam,
             canvasSize, getHighwayCanvas: () => highwayCanvas,
@@ -1607,7 +1527,7 @@ function createFactory() {
             _scrGhostUpcomingCount, _techMeshMatClones, _sparkSeen,
             NOTEDETECT_TIME_EPS, noteDetectHitMarks, noteDetectMissMarks, noteDetectLabels,
             textSprites, techMaterials,
-            validString, _setLabelMap, _firstEventTimeGreaterThan, _fxSpawnPop, _sparkBurst,
+            validString, _setLabelMap, _firstEventTimeGreaterThan, _fxSpawnPop: scoreFx.fxSpawnPop, _sparkBurst,
             xFretMid, sY,
             noteVerdictState,
         });
@@ -1791,8 +1711,8 @@ function createFactory() {
         } = createNotedetectListeners({
             noteDetectHitMarks, noteDetectMissMarks, _fxElemSeen,
             NOTEDETECT_TIME_EPS, NOTEDETECT_TTL_MS,
-            _fxHandle, _fxResolvePalette,
-            getFxGen: () => _fxGen,
+            _fxHandle: scoreFx.fxHandle, _fxResolvePalette: scoreFx.fxResolvePalette,
+            getFxGen: scoreFx.getFxGen,
             getHighwayCanvas: () => highwayCanvas,
         }));
 
@@ -2998,7 +2918,7 @@ function createFactory() {
             // Score-pop dedup too: a practice loop / rewind re-judges
             // the same popKeys, and the wall-time TTL alone would
             // suppress their fresh "+N" pops for up to 4 s.
-            _fxSeen.clear();
+            scoreFx.clearFxSeen();
         }
         if (noteDetectHasProvider && _chordVerdicts.size > 0) {
             if (_chordVerdictsLastNow !== null && now < _chordVerdictsLastNow - 0.25) {
@@ -3516,135 +3436,7 @@ function createFactory() {
         }
     }
 
-    function drawNotedetectLabels(ctx, W, H) {
-        if (!noteDetectLabels.length || !cam || !_probe) return;
-        ctx.save();
-        ctx.font = 'bold 12px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        for (const item of noteDetectLabels) {
-            _probe.set(item.x, item.y, item.z);
-            _probe.project(cam);
-            if (_probe.z < -1 || _probe.z > 1) continue;
-            const sx = (_probe.x * 0.5 + 0.5) * W;
-            const sy = (-_probe.y * 0.5 + 0.5) * H;
-            for (let i = 0; i < item.labels.length; i++) {
-                const label = item.labels[i];
-                const y = sy + (i - (item.labels.length - 1) / 2) * 15;
-                ctx.lineWidth = 4;
-                ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-                ctx.strokeText(label.text, sx, y);
-                ctx.fillStyle = label.color;
-                ctx.fillText(label.text, sx, y);
-            }
-        }
-        ctx.restore();
-    }
-
-    // Score FX overlay pass — "+N" pops rising off their gems, milestone
-    // particle bursts / multiplier ring-pulses / streak-break flickers
-    // anchored on the strike line. Same overlay layer + projection
-    // pattern as drawNotedetectLabels; costs one early-out when nothing
-    // is active.
-    function drawScoreFx(ctx, W, H) {
-        if (!cam || !_probe) return;
-        const nowMs = noteDetectFrameNowMs || performance.now();
-        // TTL-prune the pop dedup keys (bounded: only notes hit in the
-        // last few seconds).
-        if (_fxSeen.size) {
-            for (const [k, exp] of _fxSeen) {
-                if (exp <= nowMs) _fxSeen.delete(k);
-            }
-        }
-        let anyPop = false;
-        for (let i = 0; i < _fxPops.length; i++) {
-            if (_fxPops[i].active) { anyPop = true; break; }
-        }
-        let anyBurst = false;
-        for (let i = 0; i < _fxBursts.length; i++) {
-            if (_fxBursts[i].active) { anyBurst = true; break; }
-        }
-        const ringAge = nowMs - _fxRingMs;
-        if (!anyPop && !anyBurst && ringAge >= 600) return;
-
-        const pal = _fxPalette;
-        ctx.save();
-
-        // Strike-line center in screen px — anchor for bursts + pulses.
-        let cx = W / 2, cy = H * 0.72, centerOk = false;
-        {
-            const fretMidY = (sY(0) + sY(nStr - 1)) / 2;
-            _probe.set(ctx.cam.curX, fretMidY, 0);
-            _probe.project(cam);
-            if (_probe.z >= -1 && _probe.z <= 1) {
-                cx = (_probe.x * 0.5 + 0.5) * W;
-                cy = (-_probe.y * 0.5 + 0.5) * H;
-                centerOk = true;
-            }
-        }
-
-        // Multiplier ring-pulse: one expanding ring on tier-up; the ×4
-        // tier pulses in the secondary accent like the HUD badge.
-        if (centerOk && ringAge < 600) {
-            const t = ringAge / 600;
-            const ease = 1 - Math.pow(1 - t, 2);
-            ctx.beginPath();
-            ctx.arc(cx, cy, 20 + ease * Math.min(W, H) * 0.28, 0, Math.PI * 2);
-            ctx.strokeStyle = _fxRingMult >= 4 ? pal.accent2 : pal.accent;
-            ctx.globalAlpha = 0.6 * (1 - t);
-            ctx.lineWidth = 3;
-            ctx.stroke();
-            ctx.globalAlpha = 1;
-        }
-
-        // Milestone bursts.
-        if (anyBurst && centerOk) {
-            for (let i = 0; i < _fxBursts.length; i++) {
-                const b = _fxBursts[i];
-                if (!b.active) continue;
-                const age = nowMs - b.bornMs;
-                if (age >= _FX_BURST_LIFE_MS) { b.active = false; continue; }
-                const t = age / _FX_BURST_LIFE_MS;
-                ctx.globalAlpha = 1 - t;
-                for (let j = 0; j < _FX_BURST_N; j++) {
-                    b.px[j] += b.vx[j];
-                    b.py[j] += b.vy[j];
-                    b.vy[j] += 0.08;
-                    ctx.fillStyle = (j & 1) ? pal.accent : pal.accent2;
-                    ctx.fillRect(cx + b.px[j] - 2, cy + b.py[j] - 2, 4, 4);
-                }
-                ctx.globalAlpha = 1;
-            }
-        }
-
-        // "+N" pops: rise off the gem and fade over the back half.
-        if (anyPop) {
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            for (let i = 0; i < _fxPops.length; i++) {
-                const p = _fxPops[i];
-                if (!p.active) continue;
-                const age = nowMs - p.bornMs;
-                if (age >= _FX_POP_LIFE_MS) { p.active = false; continue; }
-                _probe.set(p.x, p.y, p.z);
-                _probe.project(cam);
-                if (_probe.z < -1 || _probe.z > 1) continue;
-                const t = age / _FX_POP_LIFE_MS;
-                const sx = (_probe.x * 0.5 + 0.5) * W;
-                const sy2 = (-_probe.y * 0.5 + 0.5) * H - t * 30;
-                ctx.globalAlpha = t < 0.4 ? 1 : 1 - (t - 0.4) / 0.6;
-                ctx.font = `bold ${13 + (p.mult - 1) * 2}px '${pal.font}', sans-serif`;
-                ctx.lineWidth = 4;
-                ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-                ctx.strokeText(p.text, sx, sy2);
-                ctx.fillStyle = pal.accent;
-                ctx.fillText(p.text, sx, sy2);
-            }
-            ctx.globalAlpha = 1;
-        }
-
-        ctx.restore();
-    }
+    // drawNotedetectLabels / drawScoreFx -- see instance/render/score-fx.js.
 
     // Horizontal-FOV-hold ("Hor+"). Returns the vertical fov (deg) the
     // camera should use for the given pane aspect. With the bridge off (or
@@ -3933,13 +3725,8 @@ function createFactory() {
         noteDetectHitMarks = [];
         noteDetectMissMarks = [];
         noteDetectLabels = [];
-        for (const p of _fxPops) p.active = false;
-        for (const b of _fxBursts) b.active = false;
-        _fxSeen.clear();
-        _fxGen++;   // invalidate any pending deferred window-copy fallbacks
-        _fxLastFxDetail = null;
+        scoreFx.teardownScoreFx();
         _fxElemSeen = new WeakSet();
-        _fxRingMs = -1e9;
         _chordVerdicts = new Map();
         if (bcCtrl) { try { bcCtrl.destroy(); } catch (e) {} bcCtrl = null; }
         unmountBackgroundStyle();
@@ -4451,8 +4238,8 @@ function createFactory() {
                 if (bundle.lyricsVisible && bundle.lyrics?.length) {
                     lyricsBottom = drawLyrics(bundle.lyrics, bundle.currentTime, lyricsCtx, lyricsCanvas.width, lyricsCanvas.height, lyricsCache) || 0;
                 }
-                drawNotedetectLabels(lyricsCtx, lyricsCanvas.width, lyricsCanvas.height);
-                drawScoreFx(lyricsCtx, lyricsCanvas.width, lyricsCanvas.height);
+                scoreFx.drawNotedetectLabels(lyricsCtx, lyricsCanvas.width, lyricsCanvas.height);
+                scoreFx.drawScoreFx(lyricsCtx, lyricsCanvas.width, lyricsCanvas.height);
 
                 // Corner-stacking: overlays drawn first claim the topmost slot;
                 // later overlays are pushed down by the accumulated height + gap.
