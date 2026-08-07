@@ -597,11 +597,11 @@ function createFactory() {
     // pass. bgState is the active style's per-panel state object.
     let bgGroup = null, bgStage = null, bgState = null;
     let bgMountedStyleId = null;
-    let bgStyleId = 'particles', bgIntensity = 0.5, bgReactive = true;
-    // Active scene color theme (background + highway surface). Read in
-    // loadSettings, applied by _applyBgTheme (clear + fog + board plane).
-    let bgThemeId = 'default';   // BACKGROUND axis (clear + fog)
-    let hwThemeId = 'default';   // HIGHWAY axis (board + lane + laneDim)
+    let bgStyleId = 'particles', bgIntensity = 0.5;
+    // bgReactive / bgThemeId / hwThemeId live on ctx.settings (Stage 7
+    // Track 3e) -- bgReactive read only in draw(); bgThemeId/hwThemeId
+    // (BACKGROUND / HIGHWAY axis, applied by _applyBgTheme -- clear + fog
+    // + board plane) read only in _applyBgTheme()/buildBoard().
     // _boardPlaneMat lives on ctx.board now (see instance/ctx.js) -- the
     // fretboard/highway-surface plane material, kept so the theme can
     // recolor it live without rebuilding the board. Set in buildBoard().
@@ -626,17 +626,14 @@ function createFactory() {
     // Track 3e) -- both read only inside update()'s _noteFrame block.
     // Camera-X smoothing dial (issue #34). 0 = twitchy (track every
     // upcoming fret), 1 = calm (ignore small intra-cluster shifts).
-    // Cached here and refreshed via the bg listener to avoid a
-    // per-frame localStorage hit inside update().
-    let cameraSmoothing = 0.5;
-    // Per-axis follow-ups: zoom (tgtDist hysteresis) and vertical-tilt
-    // (tgtLookY NDC self-correction) each get their own dial. Same
-    // 0..1 shape; same caching pattern. Both mirror cameraSmoothing's
-    // value when not explicitly stored, so existing users who only
-    // ever moved the camera-smoothing slider get the same calmness on
-    // the new axes by default.
-    let zoomSmoothing = 0.5;
-    let tiltSmoothing = 0.5;
+    // cameraSmoothing / zoomSmoothing / tiltSmoothing live on ctx.settings
+    // (Stage 7 Track 3e) -- read only in update() (first two) or
+    // camUpdate() (tiltSmoothing). Per-axis follow-ups: zoom (tgtDist
+    // hysteresis) and vertical-tilt (tgtLookY NDC self-correction) each
+    // get their own dial, mirroring cameraSmoothing's value when not
+    // explicitly stored (loadSettings()) so existing users who only ever
+    // moved the camera-smoothing slider get the same calmness on the new
+    // axes by default.
     // Camera lock: when true, pin the camera to a fixed wide view of
     // frets 1-12 unless an upcoming note would otherwise be off-screen.
     // The lock disengages while any note above fret 12 is in the
@@ -688,24 +685,20 @@ function createFactory() {
     // update() for the first group).
     let inlayLabelsVisible = SETTING_DEFAULTS.inlayLabelsVisible;
     let nutHeadstockVisible    = SETTING_DEFAULTS.nutHeadstockVisible;
-    let tuningLabelsVisible    = SETTING_DEFAULTS.tuningLabelsVisible;
-    let nutColor               = SETTING_DEFAULTS.nutColor;
-    let headstockColor         = SETTING_DEFAULTS.headstockColor;
-    // projectionVisible (board "note preview" ghost) and the three
-    // slideArrow* previews live on ctx.settings (Stage 7 Track 3e) -- all
-    // read only inside update()'s _noteFrame block.
+    // tuningLabelsVisible / nutColor / headstockColor live on ctx.settings
+    // (Stage 7 Track 3e) -- read only in _syncOpenStringPitchLabels() /
+    // buildBoard(). projectionVisible (board "note preview" ghost) and the
+    // three slideArrow* previews also live there -- all read only inside
+    // update()'s _noteFrame block.
     let _vibrancyIdleOp = 0.4  + 0.6  * SETTING_DEFAULTS.vibrancy;
     let _vibrancyProjOp = 0.15 + 0.35 * SETTING_DEFAULTS.vibrancy;
-    // Custom image asset (issue #19). Data URL is the bytes that
-    // drive the 'image' bg style's texture; name is display-only
-    // metadata that settings.html shows next to the file picker.
-    let bgCustomImageDataUrl = '';
-    let bgCustomImageName = '';
-    // Custom video asset (issue #19 follow-up). Stores the
-    // server-side filename only; bytes live on disk via routes.py.
-    // The renderer composes the served URL from this filename in
-    // BACKGROUND_STYLES.video.build.
-    let bgCustomVideoName = '';
+    // bgCustomImageDataUrl / bgCustomImageName / bgCustomVideoName live on
+    // ctx.settings (Stage 7 Track 3e) -- read only in mountBackgroundStyle().
+    // Data URL is the bytes that drive the 'image' bg style's texture; name
+    // is display-only metadata settings.html shows next to the file picker.
+    // Video stores the server-side filename only; bytes live on disk via
+    // routes.py -- the renderer composes the served URL from this filename
+    // in BACKGROUND_STYLES.video.build.
     let settingsListener = null;
     let backgroundLastT = 0;  // ms timestamp for dt
 
@@ -1281,7 +1274,7 @@ function createFactory() {
 
     function _syncOpenStringPitchLabels(bundle) {
         if (!tuningLblG || !T || !bundle) return;
-        if (!tuningLabelsVisible) {
+        if (!ctx.settings.tuningLabelsVisible) {
             tuningLblG.visible = false;
             if (_tuningLabelSprites.length) _disposeOpenStringPitchSprites();
             _lastOpenStringLblSig = '';
@@ -1802,13 +1795,13 @@ function createFactory() {
         const panelKey = settingsPanelKey(highwayCanvas);
         bgStyleId = readSetting(panelKey, 'style');
         bgIntensity = readSetting(panelKey, 'intensity');
-        bgReactive = readSetting(panelKey, 'reactive');
+        ctx.settings.bgReactive = readSetting(panelKey, 'reactive');
         // Per-render opt-out (captured from the mount bundle in init): force
         // the reactive background off for THIS instance, overriding the shared
         // setting without writing it back. Re-applied here so it sticks across
         // setting reloads.
-        if (backgroundReactiveOptOut) bgReactive = false;
-        if (bgStyleId === 'butterchurn') bgReactive = false; // Butterchurn owns the <audio> tap
+        if (backgroundReactiveOptOut) ctx.settings.bgReactive = false;
+        if (bgStyleId === 'butterchurn') ctx.settings.bgReactive = false; // Butterchurn owns the <audio> tap
         const newPaletteId = readSetting(panelKey, 'palette');
         let newPalette;
         if (newPaletteId === 'custom') {
@@ -1834,7 +1827,7 @@ function createFactory() {
             backgroundPaletteSig = newSig;
             _applyPaletteToMaterials();
         }
-        bgThemeId = readSetting(panelKey, 'bgTheme');
+        ctx.settings.bgThemeId = readSetting(panelKey, 'bgTheme');
         // Highway axis. ONE-TIME BACKWARD-COMPAT BACKFILL: the first time we
         // load with no stored hwTheme (pre-split installs, or anyone who only
         // ever touched the old single "Scene colors" control), seed hwTheme
@@ -1847,25 +1840,25 @@ function createFactory() {
         // disagree with what's rendered. Written without emitSettingChange so the
         // backfill can't re-enter the change listener.
         if (hasStoredSetting(panelKey, 'hwTheme')) {
-            hwThemeId = readSetting(panelKey, 'hwTheme');
+            ctx.settings.hwThemeId = readSetting(panelKey, 'hwTheme');
         } else {
-            hwThemeId = bgThemeId;
-            settingsMemFallback.hwTheme = String(bgThemeId);
-            try { localStorage.setItem('h3d_bg_hwTheme', String(bgThemeId)); } catch (_) { /* storage blocked — mem fallback still seeds the read */ }
+            ctx.settings.hwThemeId = ctx.settings.bgThemeId;
+            settingsMemFallback.hwTheme = String(ctx.settings.bgThemeId);
+            try { localStorage.setItem('h3d_bg_hwTheme', String(ctx.settings.bgThemeId)); } catch (_) { /* storage blocked — mem fallback still seeds the read */ }
         }
         ctx.settings.showFretOnNote = readSetting(panelKey, 'showFretOnNote');
         ctx.settings.fretNumberGhostScope = readSetting(panelKey, 'fretNumberGhostScope');
-        cameraSmoothing = readSetting(panelKey, 'cameraSmoothing');
+        ctx.settings.cameraSmoothing = readSetting(panelKey, 'cameraSmoothing');
         // Mirror-at-first-read: zoom + tilt sliders inherit cameraSmoothing
         // when the user has never explicitly written them. Once the user
         // moves either slider, the corresponding hasStoredSetting() flips
         // true and the read becomes independent.
-        zoomSmoothing = hasStoredSetting(panelKey, 'zoomSmoothing')
+        ctx.settings.zoomSmoothing = hasStoredSetting(panelKey, 'zoomSmoothing')
             ? readSetting(panelKey, 'zoomSmoothing')
-            : cameraSmoothing;
-        tiltSmoothing = hasStoredSetting(panelKey, 'tiltSmoothing')
+            : ctx.settings.cameraSmoothing;
+        ctx.settings.tiltSmoothing = hasStoredSetting(panelKey, 'tiltSmoothing')
             ? readSetting(panelKey, 'tiltSmoothing')
-            : cameraSmoothing;
+            : ctx.settings.cameraSmoothing;
         cameraLockLow = readSetting(panelKey, 'cameraLockLow');
         cameraLockZoom = readSetting(panelKey, 'cameraLockZoom');
         ctx.settings.cameraMode = readSetting(panelKey, 'cameraMode');
@@ -1895,9 +1888,9 @@ function createFactory() {
         ctx.settings.toneHudPosition        = readSetting(panelKey, 'toneHudPosition');
         ctx.settings.toneHudSize            = readSetting(panelKey, 'toneHudSize');
         nutHeadstockVisible    = readSetting(panelKey, 'nutHeadstockVisible');
-        tuningLabelsVisible    = readSetting(panelKey, 'tuningLabelsVisible');
-        nutColor               = readSetting(panelKey, 'nutColor');
-        headstockColor         = readSetting(panelKey, 'headstockColor');
+        ctx.settings.tuningLabelsVisible    = readSetting(panelKey, 'tuningLabelsVisible');
+        ctx.settings.nutColor               = readSetting(panelKey, 'nutColor');
+        ctx.settings.headstockColor         = readSetting(panelKey, 'headstockColor');
         ctx.settings.projectionVisible      = readSetting(panelKey, 'projectionVisible');
         ctx.settings.slideArrowApproachVisible = readSetting(panelKey, 'slideArrowApproachVisible');
         ctx.settings.slideArrowNeckVisible     = readSetting(panelKey, 'slideArrowNeckVisible');
@@ -1926,11 +1919,11 @@ function createFactory() {
         try {
             const gDataUrl = (memDataUrl !== undefined) ? memDataUrl : localStorage.getItem('h3d_bg_customImageDataUrl');
             const gName    = (memName    !== undefined) ? memName    : localStorage.getItem('h3d_bg_customImageName');
-            bgCustomImageDataUrl = (gDataUrl != null) ? gDataUrl : SETTING_DEFAULTS.customImageDataUrl;
-            bgCustomImageName    = (gName    != null) ? gName    : SETTING_DEFAULTS.customImageName;
+            ctx.settings.bgCustomImageDataUrl = (gDataUrl != null) ? gDataUrl : SETTING_DEFAULTS.customImageDataUrl;
+            ctx.settings.bgCustomImageName    = (gName    != null) ? gName    : SETTING_DEFAULTS.customImageName;
         } catch (_) {
-            bgCustomImageDataUrl = (memDataUrl !== undefined) ? memDataUrl : SETTING_DEFAULTS.customImageDataUrl;
-            bgCustomImageName    = (memName    !== undefined) ? memName    : SETTING_DEFAULTS.customImageName;
+            ctx.settings.bgCustomImageDataUrl = (memDataUrl !== undefined) ? memDataUrl : SETTING_DEFAULTS.customImageDataUrl;
+            ctx.settings.bgCustomImageName    = (memName    !== undefined) ? memName    : SETTING_DEFAULTS.customImageName;
         }
         // Custom video filename: also a single global slot, same
         // mem-first precedence as the image keys (a quota-failed
@@ -1938,9 +1931,9 @@ function createFactory() {
         const memVideoName = settingsMemFallback.customVideoName;
         try {
             const gVideoName = (memVideoName !== undefined) ? memVideoName : localStorage.getItem('h3d_bg_customVideoName');
-            bgCustomVideoName = (gVideoName != null) ? gVideoName : SETTING_DEFAULTS.customVideoName;
+            ctx.settings.bgCustomVideoName = (gVideoName != null) ? gVideoName : SETTING_DEFAULTS.customVideoName;
         } catch (_) {
-            bgCustomVideoName = (memVideoName !== undefined) ? memVideoName : SETTING_DEFAULTS.customVideoName;
+            ctx.settings.bgCustomVideoName = (memVideoName !== undefined) ? memVideoName : SETTING_DEFAULTS.customVideoName;
         }
     }
     // Live-swap palette by mutating existing materials in place.
@@ -2176,8 +2169,8 @@ function createFactory() {
             result = style.build(stage, {
                 intensity: bgIntensity,
                 palette: activePalette,
-                customImageDataUrl: bgCustomImageDataUrl,
-                customVideoName: bgCustomVideoName,
+                customImageDataUrl: ctx.settings.bgCustomImageDataUrl,
+                customVideoName: ctx.settings.bgCustomVideoName,
                 cam: cam,
             }) || null;
         } catch (e) {
@@ -2282,13 +2275,13 @@ function createFactory() {
     // unchanged). Only colored highway themes opt into a coordinated lane.
     function _applyBgTheme() {
         // --- Background axis: clear + fog ---
-        const bg = backgroundAxisColors(bgThemeId);
+        const bg = backgroundAxisColors(ctx.settings.bgThemeId);
         if (!_venueSceneOverride) {
             if (scene && scene.fog) scene.fog.color.setHex(bg.fog);
             if (ren) ren.setClearColor(bg.clear, butterchurnModeActive() ? 0 : 1);
         }
         // --- Highway axis: board plane + lane ---
-        const hw = highwayAxisColors(hwThemeId);
+        const hw = highwayAxisColors(ctx.settings.hwThemeId);
         if (ctx.board._boardPlaneMat) ctx.board._boardPlaneMat.color.setHex(hw.board);
         // Lit lane strip + its dimmer alternating row. Fall back to the
         // hardcoded stock lane colors when the highway theme omits them.
@@ -2420,7 +2413,7 @@ function createFactory() {
         // theme (default theme = the original 0x08080e). Kept on
         // ctx.board._boardPlaneMat so _applyBgTheme can recolor it live without
         // rebuilding the board.
-        const pm = new T.MeshLambertMaterial({ color: highwayAxisColors(hwThemeId).board, transparent: true, opacity: 0.6 });
+        const pm = new T.MeshLambertMaterial({ color: highwayAxisColors(ctx.settings.hwThemeId).board, transparent: true, opacity: 0.6 });
         ctx.board._boardPlaneMat = pm;
         const p = new T.Mesh(pg, pm);
         p.rotation.x = -Math.PI / 2;
@@ -2488,8 +2481,8 @@ function createFactory() {
             const zBack = -1.38 * K;
             const zJoint = -0.58 * K;
 
-            const nutInt = _h3dHexOrDefault(nutColor, SETTING_DEFAULTS.nutColor);
-            const hsInt = _h3dHexOrDefault(headstockColor, SETTING_DEFAULTS.headstockColor);
+            const nutInt = _h3dHexOrDefault(ctx.settings.nutColor, SETTING_DEFAULTS.nutColor);
+            const hsInt = _h3dHexOrDefault(ctx.settings.headstockColor, SETTING_DEFAULTS.headstockColor);
             const nutBase = new T.Color(nutInt);
             const nutHi = nutBase.clone().lerp(new T.Color(0xffffff), 0.14);
             const nutGro = nutBase.clone().multiplyScalar(0.72);
@@ -3514,9 +3507,9 @@ function createFactory() {
         let camT0 = now - CAM_TGT_BEHIND;
         let camT1 = now + camAhead;
         let camWX, camWSum, camDistMin, camDistMax, camDistGot;
-        const camDistHystF = CAM_DIST_HYST_T + (CAM_DIST_HYST_C - CAM_DIST_HYST_T) * zoomSmoothing;
+        const camDistHystF = CAM_DIST_HYST_T + (CAM_DIST_HYST_C - CAM_DIST_HYST_T) * ctx.settings.zoomSmoothing;
         if (!(ctx.settings.cameraMode === 'lookahead')) {
-            cs = cameraSmoothing;
+            cs = ctx.settings.cameraSmoothing;
             camAhead = CAM_TGT_AHEAD_T + (CAM_TGT_AHEAD_C - CAM_TGT_AHEAD_T) * cs;
             camTau = CAM_TGT_TAU_T + (CAM_TGT_TAU_C - CAM_TGT_TAU_T) * cs;
             camHystF = CAM_TGT_HYST_T + (CAM_TGT_HYST_C - CAM_TGT_HYST_T) * cs;
@@ -4032,8 +4025,8 @@ function createFactory() {
         // setting — twitchy = re-frame aggressively (narrow band, strong
         // nudge); calm = let small drift ride (wide band, weak nudge).
         const DESIRED_NDC_Y = -0.35;
-        const tiltBand   = CAM_TILT_BAND_T + (CAM_TILT_BAND_C - CAM_TILT_BAND_T) * tiltSmoothing;
-        const tiltStr    = CAM_TILT_STR_T  + (CAM_TILT_STR_C  - CAM_TILT_STR_T)  * tiltSmoothing;
+        const tiltBand   = CAM_TILT_BAND_T + (CAM_TILT_BAND_C - CAM_TILT_BAND_T) * ctx.settings.tiltSmoothing;
+        const tiltStr    = CAM_TILT_STR_T  + (CAM_TILT_STR_C  - CAM_TILT_STR_T)  * ctx.settings.tiltSmoothing;
         if (_probe.y < DESIRED_NDC_Y - tiltBand || _probe.y > DESIRED_NDC_Y + tiltBand) {
             // _probe.y too low → fretboard near bottom → ctx.cam.tgtLookY decreases → camera tilts down → fretboard rises
             // _probe.y too high → fretboard near top  → ctx.cam.tgtLookY increases → camera tilts up   → fretboard drops
@@ -4608,7 +4601,7 @@ function createFactory() {
                 const nowMs = performance.now();
                 const dt = backgroundLastT === 0 ? 1 / 60 : Math.min(0.1, (nowMs - backgroundLastT) / 1000);
                 backgroundLastT = nowMs;
-                const bands = bgReactive ? readAudioBands() : ZERO_AUDIO_BANDS;
+                const bands = ctx.settings.bgReactive ? readAudioBands() : ZERO_AUDIO_BANDS;
                 const style = BACKGROUND_STYLES[effectiveBackgroundStyleId()];
                 if (style && bgState) {
                     try { style.update(bgState, bands, dt, nowMs / 1000); }

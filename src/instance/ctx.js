@@ -135,6 +135,23 @@ export function createCtx(id) {
             toneHudVisible: SETTING_DEFAULTS.toneHudVisible,
             toneHudPosition: SETTING_DEFAULTS.toneHudPosition,
             toneHudSize: SETTING_DEFAULTS.toneHudSize,
+            // Batch 3: single-function settings spread across
+            // _applyBgTheme()/buildBoard() (theme + board colors),
+            // _syncOpenStringPitchLabels(), update()/camUpdate() (camera
+            // smoothing dials), draw() (bgReactive), and
+            // mountBackgroundStyle() (custom asset refs).
+            cameraSmoothing: SETTING_DEFAULTS.cameraSmoothing,
+            zoomSmoothing: SETTING_DEFAULTS.zoomSmoothing,
+            tiltSmoothing: SETTING_DEFAULTS.tiltSmoothing,
+            bgReactive: SETTING_DEFAULTS.reactive,
+            bgThemeId: SETTING_DEFAULTS.bgTheme,
+            hwThemeId: SETTING_DEFAULTS.hwTheme,
+            nutColor: SETTING_DEFAULTS.nutColor,
+            headstockColor: SETTING_DEFAULTS.headstockColor,
+            tuningLabelsVisible: SETTING_DEFAULTS.tuningLabelsVisible,
+            bgCustomImageDataUrl: SETTING_DEFAULTS.customImageDataUrl,
+            bgCustomImageName: SETTING_DEFAULTS.customImageName,
+            bgCustomVideoName: SETTING_DEFAULTS.customVideoName,
         },
     };
 }
