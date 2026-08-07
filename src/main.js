@@ -112,6 +112,7 @@ import { createArpAndSlidePrepasses } from './instance/model/arp-and-slide-prepa
 import { createFrameState } from './instance/render/note-state.js';
 import { createLookaheadPrepasses } from './instance/render/lookahead-prepasses.js';
 import { createHitSparks } from './instance/render/hit-sparks.js';
+import { createBloomComposer } from './instance/render/bloom-composer.js';
 import {
     bnvSampleAt, canvasSize, darkenHex, disposeGroupTree, effectiveVfov, noteHasVibrato,
     teachingDegreeLabel, teachingFingerLabel, tremoloOffsetWorldX, vibratoSemisAtTime,
@@ -662,7 +663,11 @@ function createFactory() {
     // _streakFx / _bloom also live there -- read only inside update()'s
     // _noteFrame block (first four) or draw() (_bloom). _sparks also moved
     // there.
-    let _composer = null, _bloomPass = null, _bloomLoad = null, _bloomW = 0, _bloomH = 0;
+    // Bloom composer (#4) -- see instance/render/bloom-composer.js.
+    // bloomComposer is constructed once in initScene(); its internal
+    // composer/bloomPass state is reset to null by disposeBloomComposer()
+    // in teardown() and rebuilt lazily on the next draw() that requests it.
+    let bloomComposer = null;
     // Hit-spark particle system (#3) -- see instance/render/hit-sparks.js.
     // _sparkPts/_sparkBurst/_sparkUpdate are populated by createHitSparks()
     // in initScene(); the backing Float32Arrays are private to that module.
@@ -1470,6 +1475,11 @@ function createFactory() {
         // `let`s -- must run after the destructure above, not inside the
         // factory (see dom-and-scene.js's doc comment).
         _applyCinematic();
+
+        bloomComposer = createBloomComposer({
+            getRenderer: () => ren, getScene: () => scene, getCamera: () => cam,
+            canvasSize, getHighwayCanvas: () => highwayCanvas,
+        });
 
         fretG = new T.Group(); scene.add(fretG);
         tuningLblG = new T.Group(); scene.add(tuningLblG);
@@ -2287,38 +2297,6 @@ function createFactory() {
         if (!ambLight || !dirLight) return;
         ambLight.intensity = ctx.settings._cinematic ? 0.45 : 0.85;
         dirLight.intensity = ctx.settings._cinematic ? 1.15 : 0.8;
-    }
-    // #4 Bloom: lazy-load the vendored postprocessing addons and build an
-    // EffectComposer (RenderPass -> UnrealBloomPass -> OutputPass/ACES). Returns
-    // the composer once ready, or null (caller falls back to a direct render).
-    function _bloomEnsure() {
-        if (_composer) return _composer;
-        if (_bloomLoad || !ren || !scene || !cam) return null;
-        const A = '/static/vendor/three/addons/';
-        _bloomLoad = Promise.all([
-            import(A + 'postprocessing/EffectComposer.js'),
-            import(A + 'postprocessing/RenderPass.js'),
-            import(A + 'postprocessing/UnrealBloomPass.js'),
-            import(A + 'postprocessing/OutputPass.js'),
-        ]).then(([EC, RP, UB, OP]) => {
-            try {
-                const sz = canvasSize(highwayCanvas) || { w: 1280, h: 720 };
-                const w = Math.max(2, sz.w | 0), h = Math.max(2, sz.h | 0);
-                // Multisampled (WebGL2 MSAA) HalfFloat target so anti-aliasing
-                // survives the bloom path — EffectComposer's default target has no
-                // `samples`, which is why bloom-on looked jagged (worst on non-Retina
-                // DPR1 displays that have no supersampling cushion).
-                const _bloomRT = new T.WebGLRenderTarget(w, h, { type: T.HalfFloatType, samples: 4 });
-                const comp = new EC.EffectComposer(ren, _bloomRT);
-                comp.addPass(new RP.RenderPass(scene, cam));
-                _bloomPass = new UB.UnrealBloomPass(new T.Vector2(w, h), 0.65, 0.5, 0.82); // strength, radius, threshold (high → only emissive blooms)
-                comp.addPass(_bloomPass);
-                comp.addPass(new OP.OutputPass());
-                comp.setSize(w, h);
-                _bloomW = w; _bloomH = h; _composer = comp;
-            } catch (e) { console.warn('[3D-Hwy] bloom init failed', e); _composer = null; }
-        }).catch((e) => console.warn('[3D-Hwy] bloom modules failed', e));
-        return null;
     }
     function buildBoard() {
         // Dispose before clearing (traverse: nut/headstock may live in a Group).
@@ -4241,7 +4219,7 @@ function createFactory() {
         for (const g of _ownedSharedGeos) g?.dispose?.();
         _ownedSharedGeos.length = 0;
         if (_sparkPts) { try { _sparkPts.geometry.dispose(); _sparkPts.material.dispose(); } catch (e) {} _sparkPts = null; }
-        if (_composer) { try { _composer.dispose(); if (_bloomPass && _bloomPass.dispose) _bloomPass.dispose(); } catch (e) {} _composer = null; _bloomPass = null; }
+        if (bloomComposer) bloomComposer.disposeBloomComposer();
         if (ren) { ren.dispose(); ren = null; }
         scene = cam = noteG = beatG = lblG = fretG = tuningLblG = null;
         ambLight = dirLight = null;
@@ -4634,12 +4612,8 @@ function createFactory() {
                 _streakHeat += (Math.min(1, noteVerdictState.streakHits / 16) - _streakHeat) * 0.08;   // #7 ease heat
             }
             {
-                const comp = (ctx.settings._bloom && !splitscreenActive()) ? _bloomEnsure() : null;
+                const comp = (ctx.settings._bloom && !splitscreenActive()) ? bloomComposer.getResizedBloomComposer() : null;
                 if (comp) {
-                    const bsz = canvasSize(highwayCanvas);
-                    if (bsz && bsz.w > 0 && bsz.h > 0 && (bsz.w !== _bloomW || bsz.h !== _bloomH)) {
-                        comp.setSize(bsz.w | 0, bsz.h | 0); _bloomW = bsz.w | 0; _bloomH = bsz.h | 0;
-                    }
                     if (ren.toneMapping !== T.ACESFilmicToneMapping) ren.toneMapping = T.ACESFilmicToneMapping;
                     pbBeg(6); comp.render(); pbEnd(6);
                 } else {
