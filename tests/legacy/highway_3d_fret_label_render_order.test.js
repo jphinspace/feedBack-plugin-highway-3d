@@ -24,14 +24,20 @@ const path = require('node:path');
 
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 const NOTE_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'note.js');
+const CHORDS_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'chords.js');
 
 let _src;
 /**
  * Returns the cached 3D highway screen source under test -- main.js plus
- * note.js (drawNote() and its helpers moved there in Stage 7 Phase 3b).
+ * note.js (drawNote() and its helpers, Stage 7 Phase 3b) plus chords.js
+ * (the chord loop, Stage 7 Track B / 3-ctx-2).
  */
 function src() {
-    if (!_src) _src = fs.readFileSync(SCREEN_JS, 'utf8') + '\n' + fs.readFileSync(NOTE_JS, 'utf8');
+    if (!_src) {
+        _src = fs.readFileSync(SCREEN_JS, 'utf8') + '\n'
+            + fs.readFileSync(NOTE_JS, 'utf8') + '\n'
+            + fs.readFileSync(CHORDS_JS, 'utf8');
+    }
     return _src;
 }
 

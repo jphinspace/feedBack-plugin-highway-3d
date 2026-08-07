@@ -20,6 +20,7 @@ const path = require('node:path');
 
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 const NOTE_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'note.js');
+const CHORDS_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'chords.js');
 
 test('lean sustain rendering is the default (_leanSus starts true)', () => {
     const src = fs.readFileSync(SCREEN_JS, 'utf8');
@@ -40,7 +41,12 @@ test('the full-quality look is an opt-out via localStorage h3d_full_sus', () => 
 });
 
 test('exactly one element is gated behind the lean flag, and it is the rail bloom', () => {
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
+    // The chord loop (including this gate) moved to
+    // instance/render/chords.js in Stage 7 Track B (3-ctx-2). Check
+    // main.js + chords.js together so the "exactly one across the
+    // renderer" guarantee still holds regardless of which file the gate
+    // lives in.
+    const src = fs.readFileSync(SCREEN_JS, 'utf8') + '\n' + fs.readFileSync(CHORDS_JS, 'utf8');
     // Only the additive rail bloom may hide behind the lean flag. If a future
     // edit re-gates the trail or ribbon outline behind !_leanSus, this count
     // climbs above 1 and the test fails — that's the regression guard.

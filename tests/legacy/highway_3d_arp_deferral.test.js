@@ -11,6 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
+const CHORDS_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'chords.js');
 
 // chordShapeCoveredByStandaloneNotes moved to
 // src/instance/model/chord-inference.js in Stage 7 Phase 1c (it's called from
@@ -32,8 +33,9 @@ test('chordShapeCoveredByStandaloneNotes helper exists with the expected signatu
 test('deferChordGems gates both synth and explicit+covered branches on note-stream coverage', () => {
     // Either branch firing without coverage produces the empty-lavender-frame
     // regression PR #262 fixed. Pin both predicates so a refactor that drops
-    // one gate fails the test.
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
+    // one gate fails the test. The chord loop moved to
+    // instance/render/chords.js in Stage 7 Track B (3-ctx-2).
+    const src = fs.readFileSync(CHORDS_JS, 'utf8');
     assert.match(
         src,
         /const\s+deferChordGems\s*=\s*\(\s*ch\.h3dSynth\s*&&\s*noteStreamCoversArpShape\(\)\s*\)\s*\|\|\s*inferredArpPattern\s*\|\|\s*\(\s*hsHintFrame\.explicit\s*&&\s*hsHintFrame\.covered\s*&&\s*noteStreamCoversArpShape\(\)\s*\)/,
@@ -45,7 +47,7 @@ test('noteStreamCoversArpShape is computed lazily (called, not eagerly bound)', 
     // Eager allocation regressed perf on dense charts (Copilot review on PR
     // #262). The shape must be a callable so short-circuit evaluation skips
     // the note-stream scan when neither gating branch needs it.
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
+    const src = fs.readFileSync(CHORDS_JS, 'utf8');
     assert.match(
         src,
         /const\s+noteStreamCoversArpShape\s*=\s*(?:\(\s*\)\s*=>|function(?:\s+\w+)?\s*\(\s*\))/,
