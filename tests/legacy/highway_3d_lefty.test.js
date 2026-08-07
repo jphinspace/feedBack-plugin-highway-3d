@@ -21,6 +21,11 @@ const CLAUDE_MD = path.join(ROOT, 'CLAUDE.md');
 // camUpdate (the shoulder-offset computation) moved to
 // instance/render/camera-lifecycle.js (Stage 7, post-3e).
 const CAMERA_LIFECYCLE_JS = path.join(ROOT, 'src', 'instance', 'render', 'camera-lifecycle.js');
+// xFret/xFretMid/boardSpanX moved to instance/helpers.js (Stage 7, post-3e)
+// -- they read the lefty flag through a getLeftyCached() live getter there
+// instead of the bare _leftyCached closure variable (which stays in
+// main.js and is passed into createHelpers() as that getter's source).
+const HELPERS_JS = path.join(ROOT, 'src', 'instance', 'helpers.js');
 
 function src(file) {
     return fs.readFileSync(file, 'utf8');
@@ -33,18 +38,19 @@ test('3D Highway defines lefty-aware fret-position helpers', () => {
         /let\s+_leftyCached\s*=\s*false\s*;/,
         'renderer must cache the bundle lefty flag',
     );
+    const helpers = src(HELPERS_JS);
     assert.match(
-        screen,
-        /const\s+xFret\s*=\s*f\s*=>\s*\(\s*_leftyCached\s*\?\s*-fretX\(f\)\s*:\s*fretX\(f\)\s*\)/,
+        helpers,
+        /const\s+xFret\s*=\s*f\s*=>\s*\(\s*getLeftyCached\(\)\s*\?\s*-fretX\(f\)\s*:\s*fretX\(f\)\s*\)/,
         'xFret must mirror fret edges when lefty is active',
     );
     assert.match(
-        screen,
-        /const\s+xFretMid\s*=\s*f\s*=>\s*\(\s*_leftyCached\s*\?\s*-fretMid\(f\)\s*:\s*fretMid\(f\)\s*\)/,
+        helpers,
+        /const\s+xFretMid\s*=\s*f\s*=>\s*\(\s*getLeftyCached\(\)\s*\?\s*-fretMid\(f\)\s*:\s*fretMid\(f\)\s*\)/,
         'xFretMid must mirror fret centers when lefty is active',
     );
     assert.match(
-        screen,
+        helpers,
         /const\s+boardSpanX\s*=\s*\(\s*\)\s*=>\s*\{[\s\S]*?const\s+x0\s*=\s*xFret\(0\)\s*;[\s\S]*?const\s+xN\s*=\s*xFret\(NFRETS\)\s*;[\s\S]*?min\s*:\s*Math\.min\(x0,\s*xN\)[\s\S]*?max\s*:\s*Math\.max\(x0,\s*xN\)[\s\S]*?center\s*:\s*\(x0\s*\+\s*xN\)\s*\/\s*2[\s\S]*?width\s*:\s*Math\.abs\(xN\s*-\s*x0\)/,
         'boardSpanX must derive min/max/center/width from the lefty-aware xFret helper',
     );

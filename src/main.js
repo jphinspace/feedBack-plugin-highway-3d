@@ -125,6 +125,7 @@ import { createBackgroundMount } from './instance/background-mount.js';
 import { createMaterialRetint } from './instance/render/material-retint.js';
 import { createVerdictPrune } from './instance/notedetect/verdict-prune.js';
 import { createCameraLifecycle } from './instance/render/camera-lifecycle.js';
+import { camBaseDistU, camLowFretPullbackU, createHelpers, setLabelMap } from './instance/helpers.js';
 import {
     bnvSampleAt, canvasSize, darkenHex, disposeGroupTree, effectiveVfov, noteHasVibrato,
     teachingDegreeLabel, teachingFingerLabel, tremoloOffsetWorldX, vibratoSemisAtTime,
@@ -183,15 +184,8 @@ window.h3dSetFretSpacing = mode => {
     emitSettingChange('fretSpacing');
 };
 
-// Camera tgtDist building blocks. Both the dynamic (camera-follow)
-// and locked (frets 1-12) branches compose tgtDist from these, so
-// any future tuning of the base zoom curve or low-fret pullback
-// lands in both branches without drift.
-//   span    — camDistMax - camDistMin in fret-span units
-//   minFret — lowest fretted note in the camera window (or 1 for
-//             the locked branch, which assumes nut chords)
-const camBaseDistU = span => 65 + Math.max(span, 4) * 3;
-const camLowFretPullbackU = minFret => Math.max(0, 5 - minFret) * 4;
+// camBaseDistU/camLowFretPullbackU (camera tgtDist building blocks) -- see
+// instance/helpers.js.
 
 /* ======================================================================
  *  Factory — feedBack#36 setRenderer contract
@@ -857,63 +851,45 @@ function createFactory() {
     // Active string count for the current arrangement (resolved each
     // frame from bundle.stringCount and clamped to MAX_RENDER_STRINGS).
     let nStr = NSTR;
-    // Set true once a chart with out-of-range s indices has triggered
-    // its warning. Reset only on teardown or when nStr changes (e.g.
-    // arrangement switch from guitar to bass) — same-nStr songs share
-    // the suppression, which is fine for what is purely a developer
-    // aid log.
-    let _oobStringWarned = false;
-
-    // Per-string bounds check used by every loop that indexes a
-    // per-string array (noteState.*, nextNoteByString, lastFretForString,
-    // mStr/mGlow/mSus, ...). Skipping out-of-range s upstream keeps
-    // sparse-array extension out of those arrays AND keeps drawNote's
-    // material lookup safe in one place.
-    function validString(s) {
-        const ok = Number.isInteger(s) && s >= 0 && s < nStr;
-        if (!ok && !_oobStringWarned) {
-            _oobStringWarned = true;
-            let msg = '[3D-Hwy] dropping notes with s out of range [0,' + nStr + ')';
-            if (nStr === S_COL.length) msg += ' (extended-range chart beyond palette size)';
-            console.warn(msg);
-        }
-        return ok;
-    }
-
-    // filter() allocates a new array per chord per frame, even though
-    // the vast majority of charts have no out-of-range strings. Scan
-    // first; only allocate when there's actually something to drop.
-    // The unfiltered array is reused as-is in the common case.
-    //
-    // Result is cached by ``ch.notes`` identity — call sites (chord
-    // render loop, camera pre-pass, strGlow / accent prepasses, cjNext
-    // peek) hit the same chord-notes array many times per frame, and
-    // the array contents are chart-static for the lifetime of the
-    // arrangement. The cache stores either the input array itself
-    // (common case) or the filtered copy, so the identity-preservation
-    // contract callers depend on is unchanged.
-    // NOTE: this cache (and _chordSigCache / _chordShapeCache, now in
-    // instance/model/chord-inference.js) keys on the notes/chord object but
-    // its result depends on validString() → nStr. If first computed while
-    // nStr is still the default 6 (an early frame before song_info applies
-    // stringCount), string-6+ notes get filtered out and would stay gone
-    // forever. The nStr-change handler resets all three via
-    // _resetStringDependentCaches() so extended-range (7+ string) charts
-    // recompute once the real string count arrives.
-    let _filterValidNotesCache = new WeakMap();
-    function filterValidNotes(notes) {
-        const cached = _filterValidNotesCache.get(notes);
-        if (cached !== undefined) return cached;
-        let filtered = notes;
-        for (let i = 0; i < notes.length; i++) {
-            if (!validString(notes[i].s)) {
-                filtered = notes.filter(cn => validString(cn.s));
-                break;
-            }
-        }
-        _filterValidNotesCache.set(notes, filtered);
-        return filtered;
-    }
+    // ── src/instance/helpers.js's per-instance factory ──────────────────
+    // validString/filterValidNotes/xFret/xFretMid/boardSpanX/sY/
+    // firstEventTimeGreaterThan/drawArpBrackets -- all shared by 2+ of the
+    // createX(deps) factories below, so they moved out to their own file
+    // (Stage 7, post-3e) instead of staying bare functions in this closure.
+    // Constructed HERE (before chordInference, which needs validString/
+    // filterValidNotes immediately) rather than inside initScene(): unlike
+    // most post-3e slices, chordInference/arpeggioLaneRail are built ONCE
+    // per createFactory() call (not per song/per initScene()), so this
+    // factory's construction-time deps must all exist by now too --
+    // _leftyCached/_invertedCached/_scrEventTimes/_scrEventTimesLen are
+    // declared right here (moved up from their old spot further down in
+    // this closure) instead of where they used to sit inline with the
+    // functions that read them. pArpBracket doesn't exist yet at this
+    // point (it's built partway through the FIRST initScene() call) --
+    // drawArpBrackets reads it through a live getter instead, so that's
+    // fine even called this early.
+    let _leftyCached = false;
+    let _invertedCached = false;
+    // Sorted scalar view of "next event time per string ∪ recent event
+    // time per string" -- populated once per frame in update() after
+    // _drawNextByString and _drawRecentByString are set. Capacity is fixed
+    // (Float64Array) to keep the buffer in stable memory; _scrEventTimesLen
+    // tracks the live prefix -- see helpers.js's firstEventTimeGreaterThan().
+    const _scrEventTimes = new Float64Array(MAX_RENDER_STRINGS * 2);
+    let _scrEventTimesLen = 0;
+    const {
+        validString, filterValidNotes, resetOobStringWarned, resetFilterValidNotesCache,
+        xFret, xFretMid, boardSpanX, sY,
+        firstEventTimeGreaterThan: _firstEventTimeGreaterThan, drawArpBrackets,
+    } = createHelpers({
+        ctx,
+        getLeftyCached: () => _leftyCached,
+        getInvertedCached: () => _invertedCached,
+        getNStr: () => nStr,
+        getPArpBracket: () => pArpBracket,
+        _scrEventTimes,
+        getScrEventTimesLen: () => _scrEventTimesLen,
+    });
     // Chord/arpeggio/hand-shape inference (chordShapeSignature,
     // mergeHandShapeSynthChords, fillArpeggioGhostInferFlags, ...) now lives
     // in instance/model/chord-inference.js. validString/filterValidNotes are
@@ -932,7 +908,7 @@ function createFactory() {
     // _chordSigCache/_chordShapeCache now live in chord-inference.js, hence
     // the delegated half of this reset.
     function _resetStringDependentCaches() {
-        _filterValidNotesCache = new WeakMap();
+        resetFilterValidNotesCache();
         chordInference.resetStringDependentCaches();
         // chordInference.mergeHandShapeSynthChords() is nStr-dependent too: its synth
         // notes come from chordNotesFromTemplate() -> validString(). The
@@ -999,44 +975,10 @@ function createFactory() {
     const _scrArpPersistKeys = new Set();
     // Reusable Set for active-fret cooldown tracking — cleared each frame.
     const _scrActiveFrets = new Set();
-    // Sorted scalar view of "next event time per string ∪ recent event
-    // time per string" — populated once per frame in update() after
-    // _drawNextByString and _drawRecentByString are set. drawNote() and
-    // the chord render loop both need "earliest event time strictly
-    // greater than t" to deadline-cap gem visibility; the previous
-    // implementation re-scanned both per-string arrays (2 * nStr
-    // lookups) per note/chord per frame, which is hot in dense
-    // PM/FH/arpeggio passages. With this scratch the same query is
-    // O(log N) over at most 2 * MAX_RENDER_STRINGS = 16 entries via
-    // _firstEventTimeGreaterThan(). Capacity is fixed (Float64Array)
-    // to keep the buffer in stable memory; _scrEventTimesLen tracks
-    // the live prefix.
-    const _scrEventTimes    = new Float64Array(MAX_RENDER_STRINGS * 2);
-    let   _scrEventTimesLen = 0;
-    function _firstEventTimeGreaterThan(t) {
-        let lo = 0, hi = _scrEventTimesLen;
-        while (lo < hi) {
-            const mid = (lo + hi) >>> 1;
-            if (_scrEventTimes[mid] <= t) lo = mid + 1;
-            else hi = mid;
-        }
-        return lo < _scrEventTimesLen ? _scrEventTimes[lo] : Infinity;
-    }
-
-    // Camera state
-    let _leftyCached = false;
-    const xFret = f => (_leftyCached ? -fretX(f) : fretX(f));
-    const xFretMid = f => (_leftyCached ? -fretMid(f) : fretMid(f));
-    const boardSpanX = () => {
-        const x0 = xFret(0);
-        const xN = xFret(NFRETS);
-        return {
-            min: Math.min(x0, xN),
-            max: Math.max(x0, xN),
-            center: (x0 + xN) / 2,
-            width: Math.abs(xN - x0),
-        };
-    };
+    // _scrEventTimes/_scrEventTimesLen (declared above, alongside the rest
+    // of instance/helpers.js's construction), _firstEventTimeGreaterThan,
+    // and the lefty/invert-aware board math (xFret/xFretMid/boardSpanX/sY)
+    // -- all now come from that same createHelpers() destructure.
 
     // Camera pose, aspect, and bootstrap/lookahead state (tgtX/curX,
     // tgtDist/curDist, tgtLookY/curLookY, _fretRowFitBoost, aspectScale,
@@ -1088,7 +1030,6 @@ function createFactory() {
     // Lifecycle flags
     let _isReady = false;
     let _destroyed = false;
-    let _invertedCached = false;
     let _invertedForBoard = false;
     let _leftyForBoard = false;
     let _initToken = 0;
@@ -1114,9 +1055,6 @@ function createFactory() {
         if (ambLight) ambLight.intensity = focused ? 0.85 : 0.4;
         if (dirLight) dirLight.intensity = focused ? 0.8 : 0.35;
     }
-
-    // ── String-to-Y (respects invert) ─────────────────────────────────
-    const sY = s => S_BASE + (_invertedCached ? s : (nStr - 1 - s)) * S_GAP;
 
     function _disposeOpenStringPitchSprites() {
         // Tuning-label materials are clones of cached textSprites.txtMat() entries, so
@@ -1533,7 +1471,7 @@ function createFactory() {
             _scrGhostUpcomingCount, _techMeshMatClones, _sparkSeen,
             NOTEDETECT_TIME_EPS, noteDetectHitMarks, noteDetectMissMarks, noteDetectLabels,
             textSprites, techMaterials,
-            validString, _setLabelMap, _firstEventTimeGreaterThan, _fxSpawnPop: scoreFx.fxSpawnPop, _sparkBurst,
+            validString, _setLabelMap: setLabelMap, _firstEventTimeGreaterThan, _fxSpawnPop: scoreFx.fxSpawnPop, _sparkBurst,
             xFretMid, sY,
             noteVerdictState,
         });
@@ -1548,7 +1486,7 @@ function createFactory() {
             chordFrameGradTex, chordFrameGradTexArp,
             textSprites, chordInference, noteRenderer,
             validString, filterValidNotes, lowerBoundT, anchorLaneBoundsAt, getChartAnchorAt,
-            _firstEventTimeGreaterThan, xFret, xFretMid, sY, _setLabelMap,
+            _firstEventTimeGreaterThan, xFret, xFretMid, sY, _setLabelMap: setLabelMap,
             drawArpBrackets, ctx, _encodeChordVerdictKey,
             _chordVerdicts,
             _noteStreamBracketStrings: _scrNoteStreamBracketStrings,
@@ -1569,7 +1507,7 @@ function createFactory() {
         });
 
         fretColumnMarkers = createFretColumnMarkers({
-            pFretColMarker, textSprites, _setLabelMap, sY, xFretMid, validString, _fretMarkerWaveCache,
+            pFretColMarker, textSprites, _setLabelMap: setLabelMap, sY, xFretMid, validString, _fretMarkerWaveCache,
         });
 
         lookaheadMath = createLookaheadMath({
@@ -2084,24 +2022,8 @@ function createFactory() {
     //                           draw() after each init.
     // textSprites.txtMat() rasterises into the unbounded cache these draws hit
     // anyway; ren.initTexture() forces the GPU upload now.
-    // Swap a pooled label sprite's cached texture WITHOUT recompiling.
-    // Setting material.needsUpdate bumps material.version, which forces
-    // Three.js through getParameters/getProgramCacheKey on the next
-    // render. Swapping one non-null texture for another does NOT change
-    // the compiled program (the USE_MAP define is unchanged); only a
-    // null <-> non-null transition does, and pooled label sprites are
-    // constructed with a non-null map, so in practice this never
-    // recompiles. (Note: the DOMINANT getParameters churn turned out to
-    // be Three's transparent-DoubleSide two-pass path — see the
-    // forceSinglePass comment in _spriteMat2MeshMat — this helper
-    // removes the label-swap contribution on top of that.)
-    function _setLabelMap(sprite, srcMat) {
-        const m = sprite.material;
-        if (m.map === srcMat.map) return;
-        const nullnessChanged = (m.map == null) !== (srcMat.map == null);
-        m.map = srcMat.map;
-        if (nullnessChanged) m.needsUpdate = true;
-    }
+    // setLabelMap() (pooled label sprite texture swap without recompiling)
+    // -- see instance/helpers.js.
 
     let _chartPrewarmed = false;
     function _prewarmTex(mat) {
@@ -2593,92 +2515,8 @@ function createFactory() {
         pbReportTick();
     }
 
-    /**
-     * Draw  [ GEM ]  bracket pair for an arpeggio note.
-     *
-     * While the note is approaching (bracketDt > 0) the brackets travel at the
-     * same Z as the gem.  Once the note hits the line (bracketDt <= 0) the
-     * brackets sit at Z = 0 (the fretboard plane) and persist until arpEnd.
-     * They fade in with approach and fade out in the last 0.25 s of the arpeggio.
-     *
-     * Fretted notes: `[ ]` — 3 BoxGeometry bars per side (vertical + 2 caps).
-     * Open strings:  `< >` — 2 diagonal arms per side, tips at note edges.
-     *
-     * openHalfW (optional) — half-width of the open note body; when supplied,
-     * the < > tips are placed at the actual edges of the note rather than a
-     * fixed offset.
-     */
-    function drawArpBrackets(x, y, bracketDt, arpEnd, now, s, isOpen = false, openHalfW = null) {
-        if (bracketDt >= AHEAD) return;
-        if (bracketDt < 0 && now > arpEnd + 0.05) return;
-        if (!pArpBracket) return;
-
-        let alpha;
-        if (bracketDt > 0) {
-            // Match the chord frame box visibility: full opacity throughout the
-            // entire AHEAD window so brackets appear the moment the frame enters
-            // view, not after a slow linear fade from alpha≈0 at 3 s out.
-            alpha = 1;
-        } else {
-            const remaining = arpEnd - now;
-            alpha = remaining > 0.25 ? 1 : Math.max(0, remaining / 0.25);
-        }
-        if (alpha < 0.01) return;
-
-        const bracketZ = bracketDt > 0 ? Math.min(0, dZ(bracketDt)) : 0;
-        const col = ctx.settings.activePalette[s % ctx.settings.activePalette.length];
-        const barThick = NW * 0.09;
-        const bracketH = NH * 1.05;
-        const capLen   = NW * 0.42;
-        const xOff     = (isOpen && openHalfW != null) ? openHalfW : NW * 0.95;
-        const zOff     = 0.006 * K;
-        const ord      = 18;
-
-        if (isOpen) {
-            // < > chevron — 2 diagonal arms per side.
-            // Arm goes from tip outward; angle from positive-X axis via atan2.
-            const armLen = Math.sqrt(capLen * capLen + (bracketH * 0.5) * (bracketH * 0.5));
-            const ang    = Math.atan2(bracketH * 0.5, capLen); // upper-right arm angle
-
-            const diagBar = (px, py, rz) => {
-                const b = pArpBracket.get();
-                b.material.color.setHex(col);
-                b.material.opacity = alpha;
-                b.renderOrder = ord;
-                b.position.set(px, py, bracketZ + zOff);
-                b.rotation.set(0, 0, rz);
-                b.scale.set(armLen, barThick, barThick);
-            };
-
-            // < tip at (x - xOff), arms open to the right
-            diagBar(x - xOff + capLen * 0.5, y + bracketH * 0.25,  ang);
-            diagBar(x - xOff + capLen * 0.5, y - bracketH * 0.25, -ang);
-
-            // > tip at (x + xOff), arms open to the left
-            diagBar(x + xOff - capLen * 0.5, y + bracketH * 0.25,  Math.PI - ang);
-            diagBar(x + xOff - capLen * 0.5, y - bracketH * 0.25, -Math.PI + ang);
-        } else {
-            const bar = (px, py, sw, sh) => {
-                const b = pArpBracket.get();
-                b.material.color.setHex(col);
-                b.material.opacity = alpha;
-                b.renderOrder = ord;
-                b.position.set(px, py, bracketZ + zOff);
-                b.rotation.set(0, 0, 0);
-                b.scale.set(sw, sh, barThick);
-            };
-
-            // Left bracket  [  – vertical bar then caps opening to the right
-            bar(x - xOff,                     y,                  barThick, bracketH);
-            bar(x - xOff + capLen * 0.5, y + bracketH * 0.5, capLen,   barThick);
-            bar(x - xOff + capLen * 0.5, y - bracketH * 0.5, capLen,   barThick);
-
-            // Right bracket  ]  – vertical bar then caps opening to the left
-            bar(x + xOff,                     y,                  barThick, bracketH);
-            bar(x + xOff - capLen * 0.5, y + bracketH * 0.5, capLen,   barThick);
-            bar(x + xOff - capLen * 0.5, y - bracketH * 0.5, capLen,   barThick);
-        }
-    }
+    // drawArpBrackets() (the  [ GEM ]  bracket-pair drawer, shared by
+    // chords.js and single-notes.js) -- see instance/helpers.js.
 
     // drawNotedetectLabels / drawScoreFx -- see instance/render/score-fx.js.
 
@@ -2874,7 +2712,7 @@ function createFactory() {
         pFretColMarker = null;
         _fretMarkerWaveCache.clear();
         gNote = gSus = gBeat = gTapChevron = null;
-        ctx.cam.tgtX = ctx.cam.curX = xFretMid(CAM_LOCK_CENTER_FRET); ctx.cam.tgtDist = ctx.cam.curDist = CAM_DIST_BASE; ctx.cam.tgtLookY = ctx.cam.curLookY = 0; ctx.cam._fretRowFitBoost = 1; nStr = NSTR; _oobStringWarned = false;
+        ctx.cam.tgtX = ctx.cam.curX = xFretMid(CAM_LOCK_CENTER_FRET); ctx.cam.tgtDist = ctx.cam.curDist = CAM_DIST_BASE; ctx.cam.tgtLookY = ctx.cam.curLookY = 0; ctx.cam._fretRowFitBoost = 1; nStr = NSTR; resetOobStringWarned();
         ctx.cam._lookaheadCamX = xFretMid(CAM_LOCK_CENTER_FRET);
         ctx.cam._lookaheadFretSpan = DEFAULT_LOOKAHEAD_FRET_SPAN;
         ctx.cam._lookaheadCamPrevNow = null;
@@ -3053,7 +2891,7 @@ function createFactory() {
             const leftyChanged = _leftyCached !== _leftyForBoard;
             if (_invertedCached !== _invertedForBoard || leftyChanged || newNStr !== nStr) {
                 if (newNStr !== nStr) {
-                    _oobStringWarned = false;
+                    resetOobStringWarned();
                     // Drop chord caches computed under the old string count
                     // so extended-range notes (string 6+) aren't left
                     // filtered out of cached shapes.
