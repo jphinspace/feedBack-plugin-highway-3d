@@ -111,6 +111,7 @@ import { createCameraBootstrap } from './instance/render/camera-bootstrap.js';
 import { createArpAndSlidePrepasses } from './instance/model/arp-and-slide-prepasses.js';
 import { createFrameState } from './instance/render/note-state.js';
 import { createLookaheadPrepasses } from './instance/render/lookahead-prepasses.js';
+import { createHitSparks } from './instance/render/hit-sparks.js';
 import {
     bnvSampleAt, canvasSize, darkenHex, disposeGroupTree, effectiveVfov, noteHasVibrato,
     teachingDegreeLabel, teachingFingerLabel, tremoloOffsetWorldX, vibratoSemisAtTime,
@@ -662,8 +663,10 @@ function createFactory() {
     // _noteFrame block (first four) or draw() (_bloom). _sparks also moved
     // there.
     let _composer = null, _bloomPass = null, _bloomLoad = null, _bloomW = 0, _bloomH = 0;
-    let _sparkPts = null, _sparkPos = null, _sparkCol = null, _sparkVel = null, _sparkLife = null;
-    const _SPARK_N = 256;
+    // Hit-spark particle system (#3) -- see instance/render/hit-sparks.js.
+    // _sparkPts/_sparkBurst/_sparkUpdate are populated by createHitSparks()
+    // in initScene(); the backing Float32Arrays are private to that module.
+    let _sparkPts = null, _sparkBurst = null, _sparkUpdate = null;
     const _sparkSeen = new Map();     // note-key -> expiry; one burst per hit
     let _juiceLastT = 0;              // frame-dt clock for the juice layer
     let _streakHeat = 0;  // #7 consecutive-hit escalation (streakHits itself lives on noteVerdictState — see its decl above)
@@ -1471,18 +1474,10 @@ function createFactory() {
         fretG = new T.Group(); scene.add(fretG);
         tuningLblG = new T.Group(); scene.add(tuningLblG);
         noteG = new T.Group(); scene.add(noteG);
-        // Hit sparks (#3): a pooled additive Points cloud; a small burst fires at a
-        // gem on a verified hit (spawned in the verdict block, advanced in the render loop).
-        _sparkPos = new Float32Array(_SPARK_N * 3); _sparkCol = new Float32Array(_SPARK_N * 3);
-        _sparkVel = new Float32Array(_SPARK_N * 3); _sparkLife = new Float32Array(_SPARK_N);
-        {
-            const sg = new T.BufferGeometry();
-            sg.setAttribute('position', new T.BufferAttribute(_sparkPos, 3).setUsage(T.DynamicDrawUsage));
-            sg.setAttribute('color', new T.BufferAttribute(_sparkCol, 3).setUsage(T.DynamicDrawUsage));
-            const sm = new T.PointsMaterial({ size: 1.0 * K, vertexColors: true, transparent: true, opacity: 0.8, depthWrite: false, blending: T.AdditiveBlending, sizeAttenuation: true });
-            _sparkPts = new T.Points(sg, sm); _sparkPts.frustumCulled = false; _sparkPts.renderOrder = 8;
-            scene.add(_sparkPts);
-        }
+        // Hit sparks (#3) -- see instance/render/hit-sparks.js. A pooled
+        // additive Points cloud; a small burst fires at a gem on a verified
+        // hit (spawned in the verdict block, advanced in the render loop).
+        ({ sparkPts: _sparkPts, sparkBurst: _sparkBurst, sparkUpdate: _sparkUpdate } = createHitSparks({ scene }));
         beatG = new T.Group(); scene.add(beatG);
         lblG = new T.Group(); scene.add(lblG);
 
@@ -2292,37 +2287,6 @@ function createFactory() {
         if (!ambLight || !dirLight) return;
         ambLight.intensity = ctx.settings._cinematic ? 0.45 : 0.85;
         dirLight.intensity = ctx.settings._cinematic ? 1.15 : 0.8;
-    }
-    function _sparkBurst(x, y, z, hex, count) {
-        if (!_sparkPts || count <= 0) return;
-        const r = ((hex >> 16) & 255) / 255, g = ((hex >> 8) & 255) / 255, b = (hex & 255) / 255;
-        let made = 0;
-        for (let i = 0; i < _SPARK_N && made < count; i++) {
-            if (_sparkLife[i] > 0) continue;
-            const j = i * 3, ang = Math.random() * Math.PI * 2, sp = (5 + Math.random() * 12) * K;
-            _sparkPos[j] = x; _sparkPos[j + 1] = y; _sparkPos[j + 2] = z;
-            _sparkVel[j] = Math.cos(ang) * sp; _sparkVel[j + 1] = (12 + Math.random() * 24) * K; _sparkVel[j + 2] = Math.sin(ang) * sp * 0.55;
-            _sparkCol[j] = r; _sparkCol[j + 1] = g; _sparkCol[j + 2] = b;
-            _sparkLife[i] = 0.30 + Math.random() * 0.16; made++;
-        }
-    }
-    function _sparkUpdate(dt) {
-        if (!_sparkPts) return;
-        const grav = 55 * K; let any = false;
-        for (let i = 0; i < _SPARK_N; i++) {
-            if (_sparkLife[i] <= 0) continue;
-            const j = i * 3;
-            _sparkLife[i] -= dt;
-            if (_sparkLife[i] <= 0) { _sparkCol[j] = _sparkCol[j + 1] = _sparkCol[j + 2] = 0; continue; }
-            any = true;
-            _sparkVel[j + 1] -= grav * dt;
-            _sparkPos[j] += _sparkVel[j] * dt; _sparkPos[j + 1] += _sparkVel[j + 1] * dt; _sparkPos[j + 2] += _sparkVel[j + 2] * dt;
-            const fade = 1 - Math.min(1, dt * 3.2);
-            _sparkCol[j] *= fade; _sparkCol[j + 1] *= fade; _sparkCol[j + 2] *= fade;
-        }
-        _sparkPts.geometry.attributes.position.needsUpdate = true;
-        _sparkPts.geometry.attributes.color.needsUpdate = true;
-        _sparkPts.visible = any;
     }
     // #4 Bloom: lazy-load the vendored postprocessing addons and build an
     // EffectComposer (RenderPass -> UnrealBloomPass -> OutputPass/ACES). Returns
