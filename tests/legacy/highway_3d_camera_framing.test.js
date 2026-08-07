@@ -24,6 +24,12 @@ const path = require('node:path');
 
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 const src = fs.readFileSync(SCREEN_JS, 'utf8');
+// Song-change detection (which resets _camSnapped) moved to
+// instance/render/camera-bootstrap.js in Stage 7 Track C; the
+// _measureStarts/_measureStartsRef reset it used to sit alongside stayed in
+// main.js, now gated on that function's returned boolean.
+const CAMERA_BOOTSTRAP_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'camera-bootstrap.js');
+const cameraBootstrapSrc = fs.readFileSync(CAMERA_BOOTSTRAP_JS, 'utf8');
 
 // ── Zoom-dependent framing ──────────────────────────────────────────────────
 
@@ -121,13 +127,20 @@ test('fret-bounds scan drives its window off lookaheadEndTime, not fixed seconds
 });
 
 test('measure-start cache is invalidated on song change', () => {
-    // The song-change reset (reconnect path) resets _camSnapped; it must also
-    // drop the measure-start cache, otherwise lookaheadEndTime sizes the window
-    // off the previous song's measure grid and over-zooms the first-data snap.
+    // The song-change reset (reconnect path) resets _camSnapped in
+    // camera-bootstrap.js and returns true; main.js must drop the
+    // measure-start cache when that happens, otherwise lookaheadEndTime
+    // sizes the window off the previous song's measure grid and
+    // over-zooms the first-data snap.
+    assert.match(
+        cameraBootstrapSrc,
+        /ctx\.cam\._camSnapped\s*=\s*false\s*;[\s\S]*?return\s+true\s*;/,
+        'detectSongChangeAndResetCamera must reset _camSnapped and report the change',
+    );
     assert.match(
         src,
-        /_camSnapped\s*=\s*false\s*;[\s\S]*?_measureStarts\s*=\s*\[\]\s*;\s*_measureStartsRef\s*=\s*null\s*;/,
-        'song-change reset must clear _measureStarts / _measureStartsRef alongside _camSnapped',
+        /if\s*\(\s*cameraBootstrap\.detectSongChangeAndResetCamera\(\s*bundle\s*\)\s*\)\s*\{[\s\S]*?_measureStarts\s*=\s*\[\]\s*;\s*_measureStartsRef\s*=\s*null\s*;/,
+        'main.js must clear _measureStarts / _measureStartsRef when detectSongChangeAndResetCamera reports a change',
     );
 });
 

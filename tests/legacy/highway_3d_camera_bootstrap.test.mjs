@@ -24,11 +24,14 @@ import { hwyFirstRelevantFrettedTime } from '../../src/core/chart-util.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 const src = fs.readFileSync(SCREEN_JS, 'utf8');
-// Camera target resolution moved to instance/render/camera-target.js in
-// Stage 7 Track C; camUpdate and the camera-bootstrap call site stayed in
-// main.js.
+// Camera target resolution moved to instance/render/camera-target.js, and
+// song-change detection + first-chart-data bootstrap moved to
+// instance/render/camera-bootstrap.js, both in Stage 7 Track C; camUpdate
+// and the two extracted functions' call sites stayed in main.js.
 const CAMERA_TARGET_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'camera-target.js');
 const cameraTargetSrc = fs.readFileSync(CAMERA_TARGET_JS, 'utf8');
+const CAMERA_BOOTSTRAP_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'camera-bootstrap.js');
+const cameraBootstrapSrc = fs.readFileSync(CAMERA_BOOTSTRAP_JS, 'utf8');
 
 function extractFn(source, name) {
     const start = source.indexOf('function ' + name);
@@ -40,14 +43,6 @@ function extractFn(source, name) {
         else if (source[i] === '}' && --depth === 0) return source.slice(start, i + 1);
     }
     throw new Error(`unbalanced braces extracting ${name}`);
-}
-
-function sourceBetween(startText, endText, text = src) {
-    const start = text.indexOf(startText);
-    assert.ok(start >= 0, `missing source anchor: ${startText}`);
-    const end = text.indexOf(endText, start);
-    assert.ok(end > start, `missing source end anchor: ${endText}`);
-    return text.slice(start, end);
 }
 
 test('long intros bootstrap from the earliest future fretted note', () => {
@@ -119,10 +114,8 @@ test('recent onsets inside the behind-window bootstrap at now', () => {
 });
 
 test('bootstrap runs once when complete chart arrays arrive', () => {
-    const bootstrap = sourceBetween(
-        '// ── Camera bootstrap (first chart data)',
-        '        pbBeg(4);',
-    );
+    // The whole file IS the camera-bootstrap section now (Stage 7 Track C).
+    const bootstrap = cameraBootstrapSrc;
     assert.match(
         bootstrap,
         /if\s*\(\s*!ctx\.cam\._camSnapped\s*&&\s*!ctx\.cam\._camPreScanned\s*&&\s*notes\s*&&\s*chords\s*\)/,
@@ -141,10 +134,7 @@ test('bootstrap runs once when complete chart arrays arrive', () => {
 });
 
 test('steady and lookahead modes initialize immediately from future chart data', () => {
-    const bootstrap = sourceBetween(
-        '// ── Camera bootstrap (first chart data)',
-        '        pbBeg(4);',
-    );
+    const bootstrap = cameraBootstrapSrc;
     assert.match(
         bootstrap,
         /cameraMode\s*===\s*'lookahead'[\s\S]*?lookaheadBoundsNow\s*\|\|\s*firstFrettedTime\s*!==\s*null/,
@@ -194,21 +184,26 @@ test('silent-intro hold hands off only when live framing is ready', () => {
 });
 
 test('song changes and teardown reset every bootstrap state field', () => {
-    const resetAssignments = src.match(
-        /ctx\.cam\._camSnapped\s*=\s*false\s*;\s*\r?\n\s*ctx\.cam\._camPreScanned\s*=\s*false\s*;\s*\r?\n\s*ctx\.cam\._camBootstrapHolding\s*=\s*false\s*;\s*\r?\n\s*ctx\.cam\._camBootstrapMode\s*=\s*null\s*;/g,
-    ) || [];
+    // Song-change reset now lives in camera-bootstrap.js
+    // (detectSongChangeAndResetCamera); the teardown reset stayed in
+    // main.js -- one occurrence expected in each file.
+    const pattern = /ctx\.cam\._camSnapped\s*=\s*false\s*;\s*\r?\n\s*ctx\.cam\._camPreScanned\s*=\s*false\s*;\s*\r?\n\s*ctx\.cam\._camBootstrapHolding\s*=\s*false\s*;\s*\r?\n\s*ctx\.cam\._camBootstrapMode\s*=\s*null\s*;/g;
+    const bootstrapAssignments = cameraBootstrapSrc.match(pattern) || [];
+    const mainAssignments = src.match(pattern) || [];
     assert.equal(
-        resetAssignments.length,
-        2,
-        'song-change and teardown paths must both reset bootstrap state',
+        bootstrapAssignments.length,
+        1,
+        'the song-change path in camera-bootstrap.js must reset bootstrap state',
+    );
+    assert.equal(
+        mainAssignments.length,
+        1,
+        'the teardown path in main.js must reset bootstrap state',
     );
 });
 
 test('Camera Director still layers after the bootstrapped auto-framing base', () => {
-    const bootstrap = sourceBetween(
-        '// ── Camera bootstrap (first chart data)',
-        '        pbBeg(4);',
-    );
+    const bootstrap = cameraBootstrapSrc;
     assert.doesNotMatch(
         bootstrap,
         /_freeCam|__h3dCamCtl/,
