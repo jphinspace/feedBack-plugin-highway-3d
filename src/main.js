@@ -481,26 +481,6 @@ function createFactory() {
     // wave's flight even as activeFrets shifts mid-song. Entries are
     // pruned each frame once their wave has passed `now`.
     let _fretMarkerWaveCache = new Map();
-    // Per-frame booleans: handShapes[i] passes inferArpeggioFromNotePattern
-    // once (see fillArpeggioGhostInferFlags) so the note loop skips O(hs×notes)
-    // rescans — ref fillArpeggioGhostInferFlags in update().
-    let _arpGhostHsInferScratch = [];
-    // Handshape start-times where ghost fret numbers show but [ ] brackets are suppressed
-    // (synth-chord onset-match cases — not genuine arpeggios).
-    let _arpSynthOnsetHsSet = new Set();
-    // ── Cross-frame caches for chart-static derivations ──────────────
-    // The merge + arp-flag fills below depend only on chart-static
-    // input arrays (handShapes / chords / chordTemplates / notes),
-    // not on `now`. The bundle hands us the same array refs every
-    // frame within an arrangement, so we can skip the recompute when
-    // the inputs are identity-equal to the previous frame's. On dense
-    // arrangements this avoids per-frame Set construction, nested
-    // O(hs × notes) scans, and a sort — significant FPS recovery.
-    let _mergeCacheResult = null;
-    let _mergeCacheChordsRef = null;
-    let _mergeCacheHsRef = null;
-    let _mergeCacheTplRef = null;
-
     // Fret connector-label visibility cache: tracks which (time, fret)
     // pairs may show their indicator number per the measure-skip rule
     // (show only the first note with a given fret in a measure; suppress
@@ -516,10 +496,6 @@ function createFactory() {
     // rendered a label this frame so that multiple strings at the same fret/onset
     // (arpeggio chords, synthetic chords) never produce stacked duplicate labels.
     const _frameLabeledKeys = new Set();
-
-    let _arpGhostInferRefHs = null;
-    let _arpGhostInferRefNotes = null;
-    let _arpGhostInferRefTpl = null;
 
     // Slide-target gem suppression. A Set of "t_s" keys for notes in
     // bundle.notes that are the linkNext destination of a preceding note
@@ -963,10 +939,12 @@ function createFactory() {
         chordInference.resetStringDependentCaches();
         // chordInference.mergeHandShapeSynthChords() is nStr-dependent too: its synth
         // notes come from chordNotesFromTemplate() -> validString(). The
-        // merge result is memoised by input identity (not nStr), so force a
-        // recompute or string-6+ template notes stay dropped from synth
-        // chords after the count grows.
-        _mergeCacheResult = null;
+        // merge cache (now owned by instance/model/arp-and-slide-prepasses.js,
+        // memoised by input identity, not nStr) needs the same drop or
+        // string-6+ template notes stay dropped from synth chords after the
+        // count grows. draw() only calls this after _isReady (initScene()
+        // already ran), so arpAndSlidePrepasses is always constructed here.
+        arpAndSlidePrepasses.resetMergeCache();
     }
 
     // ── Per-frame scratch arrays (hoisted to avoid per-frame allocation) ─────
@@ -2357,44 +2335,13 @@ function createFactory() {
         _chordVerdictsLastNow = now;
 
         const notes = bundle.notes;
-        // Skip the merge when inputs are identity-equal to the last
-        // frame's; mergeHandShapeSynthChords is chart-static.
-        let chords;
-        if (_mergeCacheResult !== null
-            && _mergeCacheChordsRef === bundle.chords
-            && _mergeCacheHsRef === bundle.handShapes
-            && _mergeCacheTplRef === bundle.chordTemplates) {
-            chords = _mergeCacheResult;
-        } else {
-            chords = chordInference.mergeHandShapeSynthChords(
-                bundle.chords,
-                bundle.handShapes,
-                bundle.chordTemplates,
-            );
-            _mergeCacheResult = chords;
-            _mergeCacheChordsRef = bundle.chords;
-            _mergeCacheHsRef = bundle.handShapes;
-            _mergeCacheTplRef = bundle.chordTemplates;
-        }
-
-        let arpGhostHsInfer = null;
-        const hsForArpGhost = bundle.handShapes;
-        if (hsForArpGhost && hsForArpGhost.length && notes && notes.length) {
-            const nHs = hsForArpGhost.length;
-            while (_arpGhostHsInferScratch.length < nHs) _arpGhostHsInferScratch.push(false);
-            // fillArpeggioGhostInferFlags is chart-static — skip if
-            // the input refs match the previous frame's.
-            if (_arpGhostInferRefHs !== hsForArpGhost
-                || _arpGhostInferRefNotes !== notes
-                || _arpGhostInferRefTpl !== bundle.chordTemplates) {
-                _arpSynthOnsetHsSet.clear();
-                chordInference.fillArpeggioGhostInferFlags(hsForArpGhost, bundle.chordTemplates, notes, _arpGhostHsInferScratch, _arpSynthOnsetHsSet);
-                _arpGhostInferRefHs = hsForArpGhost;
-                _arpGhostInferRefNotes = notes;
-                _arpGhostInferRefTpl = bundle.chordTemplates;
-            }
-            arpGhostHsInfer = _arpGhostHsInferScratch;
-        }
+        // Chord merge + arp-ghost-infer memoization -- see
+        // instance/model/arp-and-slide-prepasses.js's computeMergedChords/
+        // computeArpGhostHsInfer.
+        const chords = arpAndSlidePrepasses.computeMergedChords(bundle.chords, bundle.handShapes, bundle.chordTemplates);
+        const { arpGhostHsInfer, arpSynthOnsetHsSet } = arpAndSlidePrepasses.computeArpGhostHsInfer(
+            bundle.handShapes, bundle.chordTemplates, notes,
+        );
 
         // Arpeggio-persist + slide-target-suppression pre-passes -- see
         // instance/model/arp-and-slide-prepasses.js. Both feed
@@ -2643,7 +2590,7 @@ function createFactory() {
         const lastFretForString = _scrLastFretForString;
         singleNoteRenderer.drawSingleNotes(
             notes, anchors, bundle, now, t1, ndVerdictT0, activeFrets, lastFretForString,
-            arpGhostHsInfer, _arpPersistKeys, _slideTargetSet, _arpSynthOnsetHsSet,
+            arpGhostHsInfer, _arpPersistKeys, _slideTargetSet, arpSynthOnsetHsSet,
             _chordAccum, _noteFrame,
         );
 

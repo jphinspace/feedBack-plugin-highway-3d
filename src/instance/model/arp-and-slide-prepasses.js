@@ -21,6 +21,28 @@ export function createArpAndSlidePrepasses({ chordInference, arpeggioLaneRail, _
     let _laneRailBoundsRefChords = null;
     let _laneRailBoundsRefTpl = null;
     let _laneRailBoundsRefNotes = null;
+
+    // Chord-merge + arp-ghost-infer memoization state (Stage 7, post-3e) --
+    // moved verbatim out of update() alongside the lane-rail caches above.
+    // Both depend only on chart-static input arrays (handShapes / chords /
+    // chordTemplates / notes), not on `now` -- the bundle hands the same
+    // array refs every frame within an arrangement, so a recompute is
+    // skippable when the refs are identity-equal to the previous call's.
+    let _mergeCacheResult = null;
+    let _mergeCacheChordsRef = null;
+    let _mergeCacheHsRef = null;
+    let _mergeCacheTplRef = null;
+    let _arpGhostHsInferScratch = [];
+    let _arpGhostInferRefHs = null;
+    let _arpGhostInferRefNotes = null;
+    let _arpGhostInferRefTpl = null;
+    // Handshape start-times where ghost fret numbers show but [ ] brackets
+    // are suppressed (synth-chord onset-match cases -- not genuine
+    // arpeggios). Mutated in place by fillArpeggioGhostInferFlags and
+    // handed back to the caller each call -- not private-only, since
+    // single-notes.js reads it too (same shape as arpGhostHsInfer itself).
+    let _arpSynthOnsetHsSet = new Set();
+
     // Notes in active arpeggio handshapes must keep rendering their
     // fretboard ghost + brackets until arpBounds.end, even after their
     // onset+sustain exits the normal back-window (t0 = now-0.5s). Builds a
@@ -168,5 +190,58 @@ export function createArpAndSlidePrepasses({ chordInference, arpeggioLaneRail, _
         };
     }
 
-    return { computeArpPersistKeys, computeSlideTargetSet, computeLaneRailCaches };
+    // Merge chart-format real chord rows with hand-shape-synthesized ones,
+    // skipping the merge when the three inputs are identity-equal to the
+    // previous call's (mergeHandShapeSynthChords is chart-static).
+    function computeMergedChords(bundleChords, handShapes, chordTemplates) {
+        if (_mergeCacheResult !== null
+            && _mergeCacheChordsRef === bundleChords
+            && _mergeCacheHsRef === handShapes
+            && _mergeCacheTplRef === chordTemplates) {
+            return _mergeCacheResult;
+        }
+        const merged = chordInference.mergeHandShapeSynthChords(bundleChords, handShapes, chordTemplates);
+        _mergeCacheResult = merged;
+        _mergeCacheChordsRef = bundleChords;
+        _mergeCacheHsRef = handShapes;
+        _mergeCacheTplRef = chordTemplates;
+        return merged;
+    }
+
+    // The nStr-dependent caches this module owns need to drop together with
+    // main.js's/chord-inference.js's own nStr-dependent caches whenever the
+    // string count changes (e.g. a 7-string chart whose stringCount arrives
+    // after the first frame) -- called from main.js's
+    // _resetStringDependentCaches() as its third leg.
+    function resetMergeCache() {
+        _mergeCacheResult = null;
+    }
+
+    // Per-frame booleans: handShapes[i] passes inferArpeggioFromNotePattern
+    // once so the note loop skips an O(hs×notes) rescan. Chart-static --
+    // skip the fill when the three inputs are identity-equal to the
+    // previous call's. Returns { arpGhostHsInfer: null, ... } when there
+    // are no hand shapes / notes this frame (the "nothing to infer" case).
+    function computeArpGhostHsInfer(handShapes, chordTemplates, notes) {
+        if (!handShapes || !handShapes.length || !notes || !notes.length) {
+            return { arpGhostHsInfer: null, arpSynthOnsetHsSet: _arpSynthOnsetHsSet };
+        }
+        const nHs = handShapes.length;
+        while (_arpGhostHsInferScratch.length < nHs) _arpGhostHsInferScratch.push(false);
+        if (_arpGhostInferRefHs !== handShapes
+            || _arpGhostInferRefNotes !== notes
+            || _arpGhostInferRefTpl !== chordTemplates) {
+            _arpSynthOnsetHsSet.clear();
+            chordInference.fillArpeggioGhostInferFlags(handShapes, chordTemplates, notes, _arpGhostHsInferScratch, _arpSynthOnsetHsSet);
+            _arpGhostInferRefHs = handShapes;
+            _arpGhostInferRefNotes = notes;
+            _arpGhostInferRefTpl = chordTemplates;
+        }
+        return { arpGhostHsInfer: _arpGhostHsInferScratch, arpSynthOnsetHsSet: _arpSynthOnsetHsSet };
+    }
+
+    return {
+        computeArpPersistKeys, computeSlideTargetSet, computeLaneRailCaches,
+        computeMergedChords, resetMergeCache, computeArpGhostHsInfer,
+    };
 }
