@@ -110,6 +110,7 @@ import { createFretWireHitFlash } from './instance/render/fret-wire-hit-flash.js
 import { createCameraBootstrap } from './instance/render/camera-bootstrap.js';
 import { createArpAndSlidePrepasses } from './instance/model/arp-and-slide-prepasses.js';
 import { createFrameState } from './instance/render/note-state.js';
+import { createLookaheadPrepasses } from './instance/render/lookahead-prepasses.js';
 import {
     bnvSampleAt, canvasSize, darkenHex, disposeGroupTree, effectiveVfov, noteHasVibrato,
     teachingDegreeLabel, teachingFingerLabel, tremoloOffsetWorldX, vibratoSemisAtTime,
@@ -338,6 +339,9 @@ function createFactory() {
     // The per-string frame-state builder + string-highlight updater
     // (instance/render/note-state.js), (re)built in initScene().
     let frameState = null;
+    // Per-frame lookahead/gap prepasses (instance/render/lookahead-prepasses.js),
+    // (re)built in initScene().
+    let lookaheadPrepasses = null;
     // Magenta-red face fill for miss — see initScene() for construction
     // (uses mMissOutline ×4 + mEdgeTransparent ×2).
     let mMissEdgeArrays = null;
@@ -1094,17 +1098,15 @@ function createFactory() {
     let _fwHitEmissive = null;
     const _scrStrGlow            = new Array(MAX_RENDER_STRINGS).fill(0.5);
     const _scrAccentFillBoost    = new Array(MAX_RENDER_STRINGS).fill(0);
-    const _scrNextNoteByString   = new Array(MAX_RENDER_STRINGS).fill(null);
     const _scrLastFretForString  = new Array(MAX_RENDER_STRINGS).fill(undefined);
-    // Scratch buffer for the recent-past-event prepass (~0.6 s back) — avoids
-    // re-allocating a per-string Array every frame. Re-filled with -Infinity
-    // at the top of each prepass run.
-    const _scrRecentByString     = new Array(MAX_RENDER_STRINGS).fill(-Infinity);
-    // Scratch buffers for the ghost-preview gap prepass — refilled each
-    // frame to avoid the `new Array(nStr)` + `Object.create(null)` churn.
-    // The Map is cleared at the top of the prepass; live entries are
-    // consumed by drawNote() reads later in the same frame.
-    const _scrGhostLastT         = new Array(MAX_RENDER_STRINGS).fill(-Infinity);
+    // _scrNextNoteByString / _scrNextNoteByStringData / _scrRecentByString /
+    // _scrGhostLastT moved to be private state of
+    // instance/render/lookahead-prepasses.js -- verified nothing outside
+    // that prepass chain referenced them.
+    //
+    // _scrGhostPrevBuf stays here: it's ALSO handed to note.js/chords.js
+    // below as the same Map reference those modules read from later in the
+    // same frame, so it can't become private to lookahead-prepasses.js.
     const _scrGhostPrevBuf       = new Map();
     // Per-string count of upcoming-ghost slots (1/2) claimed so far this
     // frame (board ghost — up to 3 simultaneous previews per string).
@@ -1120,12 +1122,6 @@ function createFactory() {
     // _scrChordNote / _scrAtMinFretArr / _scrAtMinFretLen moved to be
     // private state of instance/render/chords.js -- verified nothing
     // outside the Chords loop referenced them.
-    // Scratch objects for the nextNoteByString prepass — chord notes need
-    // a merged `{ ...cn, t: ch.t }` object, but spread allocates every frame.
-    // One scratch object per string (max MAX_RENDER_STRINGS) is safe because:
-    // (a) the prepass writes each string's entry at most once per frame,
-    // (b) drawNote() reads nxFrame.t before the next frame's prepass can overwrite.
-    const _scrNextNoteByStringData = Array.from({ length: MAX_RENDER_STRINGS }, () => ({}));
     // Reusable Set for arpeggio persistence key lookup — cleared each frame
     // instead of reallocating a new Set.
     const _scrArpPersistKeys = new Set();
@@ -1691,6 +1687,8 @@ function createFactory() {
             validString, filterValidNotes, ctx, mGlow, mAccentCore,
             _scrStringSustain, _scrStringAnticipation, _scrFretHeat, _scrStrGlow, _scrAccentFillBoost,
         });
+
+        lookaheadPrepasses = createLookaheadPrepasses({ validString, filterValidNotes, _scrGhostPrevBuf });
 
         // ── Pre-warm pools (feedBack#226) ─────────────────────────────
         // Dense 7/8-string charts can outrun the lazy-grow path in the
@@ -3426,41 +3424,7 @@ function createFactory() {
         pbEnd(1);
         pbBeg(2);
         // ── Next-note-by-string lookahead (for anticipation projection) ──
-        // Ghost projection window is 0.6s; fretLastActiveTime needs +2s.
-        // Use lowerBoundT to skip past notes and break at +2s.
-        _scrNextNoteByString.fill(null, 0, nStr);
-        const nextNoteByString = _scrNextNoteByString;
-        if (notes) {
-            const _nnLo = lowerBoundT(notes, now);
-            for (let _ni = _nnLo; _ni < notes.length; _ni++) {
-                const n = notes[_ni];
-                if (n.t > now + 2) break;
-                if (!validString(n.s)) continue;
-                if (!nextNoteByString[n.s] || n.t < nextNoteByString[n.s].t) nextNoteByString[n.s] = n;
-                if (n.f > 0) fretLastActiveTime[n.f] = now;
-            }
-        }
-        if (chords) {
-            // Time-sorted: lowerBoundT skips past historical chords in O(log N)
-            // instead of walking the entire prefix every frame.
-            const _ncLo = lowerBoundT(chords, now);
-            for (let _ci = _ncLo; _ci < chords.length; _ci++) {
-                const ch = chords[_ci];
-                if (ch.t > now + 2) break;
-                if (!ch.notes || ch.t <= now) continue;
-                for (const cn of ch.notes) {
-                    if (!validString(cn.s)) continue;
-                    if (!nextNoteByString[cn.s] || ch.t < nextNoteByString[cn.s].t) {
-                        // Reuse per-string scratch object — avoids `{ ...cn, t }` spread allocation.
-                        const _sd = _scrNextNoteByStringData[cn.s];
-                        Object.assign(_sd, cn);
-                        _sd.t = ch.t;
-                        nextNoteByString[cn.s] = _sd;
-                    }
-                    if (cn.f > 0) fretLastActiveTime[cn.f] = now;
-                }
-            }
-        }
+        const nextNoteByString = lookaheadPrepasses.computeNextNoteByString(notes, chords, now, nStr, fretLastActiveTime);
 
         _drawNextByString = nextNoteByString;
         _drawChordTemplates = bundle.chordTemplates ?? null;
@@ -3506,200 +3470,28 @@ function createFactory() {
         _noteFrame._fretLabelAllowed = _fretLabelAllowed;
 
         // ── Recent-past event per string (for _nextAnyT deadline) ─────
-        // Once a note/chord passes `now` it leaves _drawNextByString,
-        // resetting _nextAnyT and letting old gems linger too long.
-        // Scan back at least CHORD_HWY_LINGER_S so the deadline logic
-        // can see every event that lands inside any active linger
-        // window (chord frame linger and gem linger both cap at
-        // CHORD_HWY_LINGER_S — a tighter scan would miss events in
-        // (now - CHORD_HWY_LINGER_S, now - 0.6) and let the frame
-        // linger past the next event).
-        {
-            // Hoisted scratch — avoids `new Array(nStr).fill(...)` every frame.
-            const _recArr = _scrRecentByString;
-            for (let i = 0; i < nStr; i++) _recArr[i] = -Infinity;
-            if (notes) {
-                let _ri = lowerBoundT(notes, now);
-                for (let i = _ri - 1; i >= 0; i--) {
-                    const n = notes[i];
-                    if (n.t < now - CHORD_HWY_LINGER_S) break;
-                    if (validString(n.s) && n.t > _recArr[n.s]) _recArr[n.s] = n.t;
-                }
-            }
-            if (chords) {
-                // Time-sorted: start at the last chord ≤ now instead of
-                // chords.length-1 (which walks past every future chord
-                // when `now` is early in the song).
-                //
-                // lowerBoundT returns the first index with t >= now. If
-                // chords share the same timestamp, walk forward through
-                // the t===now run to the LAST one (so all duplicates at
-                // `now` are included — the original `if (ch.t > now)
-                // continue` scan-from-end included them all). When no
-                // chord is exactly at `now`, start one slot back.
-                const _ncHi = lowerBoundT(chords, now);
-                let _ci = _ncHi;
-                if (_ci < chords.length && chords[_ci].t === now) {
-                    while (_ci + 1 < chords.length && chords[_ci + 1].t === now) _ci++;
-                } else {
-                    _ci -= 1;
-                }
-                for (; _ci >= 0; _ci--) {
-                    const ch = chords[_ci];
-                    if (ch.t < now - CHORD_HWY_LINGER_S) break;
-                    if (!ch.notes) continue;
-                    for (const cn of ch.notes) {
-                        if (validString(cn.s) && ch.t > _recArr[cn.s]) _recArr[cn.s] = ch.t;
-                    }
-                }
-            }
-            _drawRecentByString = _recArr;
-        }
+        _drawRecentByString = lookaheadPrepasses.computeRecentByString(notes, chords, now, nStr);
 
         // ── Sorted union of next/recent event times ──────────────────
-        // Populate the scalar scratch used by _firstEventTimeGreaterThan
-        // — at most 2 * nStr finite values, then sorted ascending.
-        // Float64Array.subarray returns a view, so .sort() runs in place
-        // over the live prefix without copying or allocating.
-        // Pulls directly from _drawNextByString / _drawRecentByString
-        // (closure-scoped, populated just above) so we're independent of
-        // the recent-event prepass's inner-block ``_recArr`` alias.
-        _scrEventTimesLen = 0;
-        for (let s = 0; s < nStr; s++) {
-            const nf = _drawNextByString[s];
-            if (nf) {
-                const tn = nf.t;
-                if (Number.isFinite(tn)) _scrEventTimes[_scrEventTimesLen++] = tn;
-            }
-            const rt = _drawRecentByString[s];
-            if (Number.isFinite(rt)) _scrEventTimes[_scrEventTimesLen++] = rt;
-        }
-        if (_scrEventTimesLen > 1) {
-            _scrEventTimes.subarray(0, _scrEventTimesLen).sort();
-        }
+        // Populate the scalar scratch used by _firstEventTimeGreaterThan.
+        // _scrEventTimes/_scrEventTimesLen stay main.js-resident (read via
+        // closure by _firstEventTimeGreaterThan, itself injected as a dep
+        // into note.js/chords.js) — the prepass just computes the new
+        // length and hands it back for reassignment.
+        _scrEventTimesLen = lookaheadPrepasses.computeEventTimesUnion(
+            _drawNextByString, _drawRecentByString, nStr, _scrEventTimes,
+        );
 
         // ── Ghost preview gap prepass ──────────────────────────────────
-        // For each note/chord in the upcoming 0.65s window, record the
-        // onset time of its immediate predecessor on the same string.
-        // drawNote() uses this to shrink the ghost preview window from
-        // the fixed 0.6s down to min(0.6, gap) so in dense passages the
-        // fret label doesn't float 0.6s ahead with no gem in sight.
-        //
-        // Two-pointer merge over time-sorted notes + chords so the
-        // predecessor is correct even when notes and chords interleave.
-        // Map with numeric key avoids per-frame string allocation;
-        // key = Math.round(t*1e4)*10 + s (unique for notes > 0.1 ms apart).
-        // Buffer is hoisted (_scrGhostPrevBuf) and cleared at the top of
-        // the prepass; per-string predecessor tracker likewise (_scrGhostLastT).
-        _scrGhostPrevBuf.clear();
-        const _ghostPrevBuf = _scrGhostPrevBuf;
-        {
-            for (let _i = 0; _i < nStr; _i++) _scrGhostLastT[_i] = -Infinity;
-            const _gLastT = _scrGhostLastT;
-            let _gni = notes ? lowerBoundT(notes, now - 1) : 0;
-            let _gci = 0;
-            if (chords) while (_gci < chords.length && chords[_gci].t < now - 1) _gci++;
-            while (true) {
-                const nt = (notes && _gni < notes.length) ? notes[_gni].t : Infinity;
-                const ct = (chords && _gci < chords.length) ? chords[_gci].t : Infinity;
-                const minT = nt <= ct ? nt : ct;
-                if (minT > now + 0.65 || minT === Infinity) break;
-                if (nt <= ct) {
-                    const n = notes[_gni++];
-                    if (validString(n.s)) {
-                        _ghostPrevBuf.set(Math.round(n.t * 1e4) * 10 + n.s, _gLastT[n.s]);
-                        _gLastT[n.s] = n.t;
-                    }
-                } else {
-                    const ch = chords[_gci++];
-                    if (ch.notes) for (const cn of ch.notes) {
-                        if (validString(cn.s)) {
-                            _ghostPrevBuf.set(Math.round(ch.t * 1e4) * 10 + cn.s, _gLastT[cn.s]);
-                            _gLastT[cn.s] = ch.t;
-                        }
-                    }
-                }
-            }
-        }
+        // Mutates _scrGhostPrevBuf in place (shared Map, also handed to
+        // note.js/chords.js at construction) — nothing to reassign here.
+        lookaheadPrepasses.computeGhostPrevGap(notes, chords, now, nStr);
 
-        // Ramp strGlow while the board ghost is visible so the flying note
-        // core + rim read as one solid string-coloured shape with proj.
-        // Window is (0, PROJ_WIN_MERGE=0.6s) — use lowerBoundT + break.
-        const PROJ_WIN_MERGE = 0.6;
-        if (notes) {
-            const _sgLo = lowerBoundT(notes, now);
-            for (let _ni = _sgLo; _ni < notes.length; _ni++) {
-                const n = notes[_ni];
-                if (!validString(n.s) || n.f <= 0) continue;
-                const dt = n.t - now;
-                if (dt >= PROJ_WIN_MERGE) break;
-                const nn = nextNoteByString[n.s];
-                if (!nn || Math.abs(nn.t - n.t) > NEXT_ON_STRING_T_EPS) continue;
-                const blend = 1 - dt / PROJ_WIN_MERGE;
-                noteState.strGlow[n.s] = Math.max(noteState.strGlow[n.s], 1.0 + blend * 1.2);
-            }
-        }
-        if (chords) {
-            const _projLo = lowerBoundT(chords, now);
-            for (let projChordIdx = _projLo; projChordIdx < chords.length; projChordIdx++) {
-                const ch = chords[projChordIdx];
-                if (!ch.notes || ch.t <= now) continue;
-                const dt = ch.t - now;
-                if (dt >= PROJ_WIN_MERGE) break;
-                const chordNotes = filterValidNotes(ch.notes);
-                for (const cn of chordNotes) {
-                    if (cn.f <= 0) continue;
-                    const nn = nextNoteByString[cn.s];
-                    if (!nn || Math.abs(nn.t - ch.t) > NEXT_ON_STRING_T_EPS) continue;
-                    const blend = 1 - dt / PROJ_WIN_MERGE;
-                    noteState.strGlow[cn.s] = Math.max(noteState.strGlow[cn.s], 1.0 + blend * 1.2);
-                }
-            }
-        }
-
-        // Accent: brighter note body (`mGlow` in drawNote) instead of the old '>' sprite.
-        // Notes are sorted — break once past the AHEAD window.
-        if (notes) {
-            const _acLo = lowerBoundT(notes, now - AHEAD);
-            for (let _ni = _acLo; _ni < notes.length; _ni++) {
-                const n = notes[_ni];
-                if (!validString(n.s) || !n.ac) continue;
-                const dt = n.t - now;
-                if (dt > AHEAD) break;
-                const susEnd = n.t + (n.sus || 0);
-                const hasSus = (n.sus || 0) > 0;
-                if (dt < -ACCENT_NOTE_LINGER_EPS && (!hasSus || now > susEnd)) continue;
-                noteState.strGlow[n.s] = Math.max(noteState.strGlow[n.s], ACCENT_NOTE_STR_GLOW);
-                noteState.accentFillBoost[n.s] = Math.max(
-                    noteState.accentFillBoost[n.s],
-                    ACCENT_NOTE_FILL_BOOST,
-                );
-            }
-        }
-        if (chords) {
-            const _acChordLo = lowerBoundT(chords, now - 30);
-            for (let _aci = _acChordLo; _aci < chords.length; _aci++) {
-                const ch = chords[_aci];
-                if (!ch.notes) continue;
-                const dt = ch.t - now;
-                if (dt > AHEAD) break;
-                const chordNotes = filterValidNotes(ch.notes);
-                if (!chordNotes.length) continue;
-                let maxSus = 0;
-                for (const x of chordNotes) if ((x.sus || 0) > maxSus) maxSus = x.sus;
-                const susEnd = ch.t + maxSus;
-                const hasChordSus = maxSus > 0;
-                if (dt < -ACCENT_NOTE_LINGER_EPS && (!hasChordSus || now > susEnd)) continue;
-                for (const cn of chordNotes) {
-                    if (!validString(cn.s) || !cn.ac) continue;
-                    noteState.strGlow[cn.s] = Math.max(noteState.strGlow[cn.s], ACCENT_NOTE_STR_GLOW);
-                    noteState.accentFillBoost[cn.s] = Math.max(
-                        noteState.accentFillBoost[cn.s],
-                        ACCENT_NOTE_FILL_BOOST,
-                    );
-                }
-            }
-        }
+        // Ramp strGlow while the board ghost is visible, then boost
+        // accented notes — both write into noteState.strGlow/
+        // .accentFillBoost, consumed next by frameState.updateStringHighlights().
+        lookaheadPrepasses.rampStrGlowForUpcomingMerge(notes, chords, now, nextNoteByString, noteState);
+        lookaheadPrepasses.applyAccentGlow(notes, chords, now, noteState);
 
         pbEnd(2);
         pbBeg(3);
