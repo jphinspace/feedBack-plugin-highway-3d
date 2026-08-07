@@ -108,6 +108,7 @@ import { updateChordDiagramTracking } from './instance/model/chord-diagram-track
 import { createFretNumberRow } from './instance/render/fret-number-row.js';
 import { createFretWireHitFlash } from './instance/render/fret-wire-hit-flash.js';
 import { createCameraBootstrap } from './instance/render/camera-bootstrap.js';
+import { createArpAndSlidePrepasses } from './instance/model/arp-and-slide-prepasses.js';
 import {
     bnvSampleAt, canvasSize, darkenHex, disposeGroupTree, effectiveVfov, noteHasVibrato,
     teachingDegreeLabel, teachingFingerLabel, tremoloOffsetWorldX, vibratoSemisAtTime,
@@ -330,6 +331,9 @@ function createFactory() {
     // The song-change/camera-bootstrap resolver
     // (instance/render/camera-bootstrap.js), (re)built in initScene().
     let cameraBootstrap = null;
+    // The arpeggio-persist / slide-target pre-pass computer
+    // (instance/model/arp-and-slide-prepasses.js), (re)built in initScene().
+    let arpAndSlidePrepasses = null;
     // Magenta-red face fill for miss — see initScene() for construction
     // (uses mMissOutline ×4 + mEdgeTransparent ×2).
     let mMissEdgeArrays = null;
@@ -1676,6 +1680,8 @@ function createFactory() {
             ctx, xFretMid, camBaseDistU, camLowFretPullbackU, lookaheadBootstrapTime, lookaheadComputeFretBounds,
             lookaheadTargetWorldX, _applyNoteCamTargets, validString, filterValidNotes,
         });
+
+        arpAndSlidePrepasses = createArpAndSlidePrepasses({ chordInference, _scrArpPersistKeys });
 
         // ── Pre-warm pools (feedBack#226) ─────────────────────────────
         // Dense 7/8-string charts can outrun the lazy-grow path in the
@@ -3354,95 +3360,17 @@ function createFactory() {
             arpGhostHsInfer = _arpGhostHsInferScratch;
         }
 
-        // ── Arpeggio-persist pre-pass ─────────────────────────────────
-        // Notes in active arpeggio handshapes must keep rendering their
-        // fretboard ghost + brackets until arpBounds.end, even after
-        // their onset+sustain exits the normal back-window (t0 = now-0.5s).
-        // Build a Set of "t_s" keys so the notes loop can skip the normal
-        // window check for these notes.
-        // Reuse hoisted Set — clear instead of reallocating every frame.
-        _scrArpPersistKeys.clear();
-        const _arpPersistKeys = _scrArpPersistKeys;
-        if (arpGhostHsInfer && bundle.handShapes && notes) {
-            for (let _hi = 0; _hi < bundle.handShapes.length; _hi++) {
-                if (!arpGhostHsInfer[_hi]) continue;
-                const _hs = bundle.handShapes[_hi];
-                const _lo = chordInference.hsStart(_hs), _hi2 = chordInference.hsEnd(_hs);
-                if (Number.isNaN(_lo) || Number.isNaN(_hi2)) continue;
-                if (now > _hi2 + 0.05) continue; // arpeggio already ended
-                // Only persist notes that have already exited the normal back-window
-                // (onset+sustain < t0). Notes still in the window enter the loop via
-                // the normal check; future notes are gated by the t1 check below.
-                const _nLo = lowerBoundT(notes, _lo - 0.01);
-                for (let _ni = _nLo; _ni < notes.length; _ni++) {
-                    const _n = notes[_ni];
-                    if (_n.t > _hi2 + 0.05) break;
-                    if (_n.t + (_n.sus || 0) < t0) {
-                        _arpPersistKeys.add(_noteKey(_n.t, _n.s));
-                    }
-                }
-            }
-        }
-
-        // ── Slide-target gem-suppression pre-pass (chart-static) ──────
-        // Detects notes in bundle.notes that are the slide/link destination
-        // of a preceding note. The gem (outline+core) is suppressed via
-        // skipBody=true, but the sustain/slide trail still renders because
-        // the trail block is now outside the !skipBody gate in drawNote().
-        //
-        // NOTE: an authored `linkNext` flag is NOT present in bundle.notes —
-        // note_to_wire() in lib/song.py emits only t, s, f, sus, sl, slu,
-        // bn, ho, po, hm, hp, pm, mt, vb, tr, ac, tp. So this is an
-        // intentional timing/fret heuristic, not a link-flag lookup.
-        //
-        // Two source patterns (source has sus > 0):
-        //   Case 1 — source has sl/slu: destination.f === source's slide target
-        //   Case 2 — same fret (hold), destination has sl/slu (hold→slide)
-        //
-        // Sources can be single notes OR chord notes (bundle.chords).
-        if (notes !== _slideTargetNotesRef || bundle.chords !== _slideTargetChordsRef) {
-            _slideTargetSet = null;
-            if (notes && notes.length) {
-                const stSet = new Set();
-                const checkSrc = (srcT, srcS, srcF, srcSus, srcSl) => {
-                    if (!(srcSus > 0)) return;
-                    const endT = srcT + srcSus;
-                    // Reuse the renderer's shared next-on-string tolerance
-                    // rather than a separate hardcoded literal.
-                    const EPS = NEXT_ON_STRING_T_EPS;
-                    let lo = 0, hi = notes.length;
-                    while (lo < hi) { const m = (lo + hi) >> 1; if (notes[m].t < endT - EPS) lo = m + 1; else hi = m; }
-                    for (let j = lo; j < notes.length; j++) {
-                        const q = notes[j];
-                        if (q.t > endT + EPS) break;
-                        if (q.s !== srcS || q.t <= srcT || Math.abs(q.t - endT) >= EPS) continue;
-                        const qSl = (Number.isFinite(q.sl) && q.sl >= 0) ? q.sl
-                                  : (Number.isFinite(q.slu) && q.slu >= 0) ? q.slu : -1;
-                        if (srcSl >= 0 && q.f === srcSl) { stSet.add(_noteKey(q.t, q.s)); break; } // case 1
-                        if (q.f === srcF && qSl >= 0)    { stSet.add(_noteKey(q.t, q.s)); break; } // case 2
-                    }
-                };
-                for (let i = 0; i < notes.length; i++) {
-                    const p = notes[i];
-                    checkSrc(p.t, p.s, p.f, p.sus,
-                        (Number.isFinite(p.sl) && p.sl >= 0) ? p.sl : (Number.isFinite(p.slu) && p.slu >= 0) ? p.slu : -1);
-                }
-                const rc = bundle.chords;
-                if (rc && rc.length) {
-                    for (let ci = 0; ci < rc.length; ci++) {
-                        const ch = rc[ci]; if (!ch.notes) continue;
-                        for (let ni = 0; ni < ch.notes.length; ni++) {
-                            const cn = ch.notes[ni];
-                            checkSrc(ch.t, cn.s, cn.f, cn.sus,
-                                (Number.isFinite(cn.sl) && cn.sl >= 0) ? cn.sl : (Number.isFinite(cn.slu) && cn.slu >= 0) ? cn.slu : -1);
-                        }
-                    }
-                }
-                if (stSet.size > 0) _slideTargetSet = stSet;
-            }
-            _slideTargetNotesRef = notes;
-            _slideTargetChordsRef = bundle.chords;
-        }
+        // Arpeggio-persist + slide-target-suppression pre-passes -- see
+        // instance/model/arp-and-slide-prepasses.js. Both feed
+        // singleNoteRenderer.drawSingleNotes() below.
+        const _arpPersistKeys = arpAndSlidePrepasses.computeArpPersistKeys(
+            arpGhostHsInfer, bundle.handShapes, notes, now, t0);
+        ({
+            slideTargetSet: _slideTargetSet,
+            slideTargetNotesRef: _slideTargetNotesRef,
+            slideTargetChordsRef: _slideTargetChordsRef,
+        } = arpAndSlidePrepasses.computeSlideTargetSet(
+            notes, bundle.chords, _slideTargetSet, _slideTargetNotesRef, _slideTargetChordsRef));
 
         /** Arpeggio lane purple rails — authored-marker cache + bounds cache. */
         let laneRailArpHsFlags = null;

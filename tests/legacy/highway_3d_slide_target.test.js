@@ -14,16 +14,17 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 const NOTE_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'note.js');
 // The standalone-note loop that consumes _slideTargetSet (renamed
 // slideTargetSet, a plain function parameter) moved to
-// instance/render/single-notes.js in Stage 7 Track B / Track C -- the
-// pre-pass that BUILDS _slideTargetSet stayed in main.js's update().
+// instance/render/single-notes.js in Stage 7 Track B / Track C; the
+// pre-pass that BUILDS it moved to instance/model/arp-and-slide-prepasses.js
+// in the same Track C pass.
 const SINGLE_NOTES_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'single-notes.js');
+const PREPASSES_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'model', 'arp-and-slide-prepasses.js');
 
-test('a _slideTargetSet pre-pass builds the suppressed-gem set from bundle.notes', () => {
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
+test('a slideTargetSet pre-pass builds the suppressed-gem set from notes', () => {
+    const src = fs.readFileSync(PREPASSES_JS, 'utf8');
     assert.match(
         src,
         /const\s+checkSrc\s*=\s*\([^)]*\)\s*=>\s*\{[\s\S]*?stSet\.add\(/,
@@ -31,8 +32,8 @@ test('a _slideTargetSet pre-pass builds the suppressed-gem set from bundle.notes
     );
     assert.match(
         src,
-        /if\s*\(\s*stSet\.size\s*>\s*0\s*\)\s*_slideTargetSet\s*=\s*stSet/,
-        '_slideTargetSet must be assigned from the pre-pass result',
+        /if\s*\(\s*stSet\.size\s*>\s*0\s*\)\s*slideTargetSet\s*=\s*stSet/,
+        'slideTargetSet must be assigned from the pre-pass result',
     );
 });
 
