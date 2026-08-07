@@ -89,6 +89,8 @@ import { createCtx } from './instance/ctx.js';
 import { pool } from './core/pool.js';
 import { createSustainRailVisuals } from './instance/geometry/sustain-rail.js';
 import { createLaneDividers, createFretColumnMarkerPool } from './instance/geometry/lane-and-labels.js';
+import { createBeatAndSectionLabels } from './instance/render/beat-and-section-labels.js';
+import { finalizeInstancedMeshBatches } from './instance/render/finalize-instanced-meshes.js';
 import {
     bnvSampleAt, canvasSize, darkenHex, disposeGroupTree, effectiveVfov, noteHasVibrato,
     teachingDegreeLabel, teachingFingerLabel, tremoloOffsetWorldX, vibratoSemisAtTime,
@@ -273,6 +275,9 @@ function createFactory() {
     // never-reallocated object whose fields update() overwrites each call.
     let noteRenderer = null;
     const _noteFrame = {};
+    // Beat lines + section labels (instance/render/beat-and-section-labels.js),
+    // (re)built in initScene() alongside noteRenderer.
+    let beatAndSectionLabels = null;
     // Magenta-red face fill for miss — see initScene() for construction
     // (uses mMissOutline ×4 + mEdgeTransparent ×2).
     let mMissEdgeArrays = null;
@@ -2544,6 +2549,10 @@ function createFactory() {
             validString, _setLabelMap, _firstEventTimeGreaterThan, _fxSpawnPop, _sparkBurst,
             xFretMid, sY,
             noteVerdictState,
+        });
+
+        beatAndSectionLabels = createBeatAndSectionLabels({
+            pBeat, mBeatM, mBeatQ, pSec, textSprites, boardSpanX, sY, xFret,
         });
 
         // ── Pre-warm pools (feedBack#226) ─────────────────────────────
@@ -6964,36 +6973,15 @@ function createFactory() {
             }
         }
 
-        // ── Beat lines ────────────────────────────────────────────────
-        if (beats) {
-            const board = boardSpanX();
-            const bw2 = board.width + 4 * K;
-            let lastM = -1;
-            for (const b of beats) {
-                const meas = b.measure !== lastM; lastM = b.measure;
-                if (b.time < t0 || b.time > t1) continue;
-                const bl2 = pBeat.get();
-                bl2.material = meas ? mBeatM : mBeatQ;
-                bl2.scale.set(bw2, 1, 1);
-                bl2.position.set(board.min - 2 * K, S_BASE - NH / 2 - 1.5 * K, dZ(b.time - now));
-            }
-        }
-
-        // ── Section labels ────────────────────────────────────────────
-        // Gated on sectionLabelsOnHighway (advanced setting, default off).
-        // The HUD card (drawSectionHud, called from the lyricsCtx block in
-        // draw()) is the primary surface for section info; the on-highway
-        // sprites are kept as an opt-in for users who want the in-scene cue.
-        if (sections && sectionLabelsOnHighway) {
-            const labelY = Math.max(sY(0), sY(nStr - 1)) + 8 * K;
-            for (const s of sections) {
-                if (s.time < t0 || s.time > t1) continue;
-                const sp = pSec.get();
-                sp.material = textSprites.txtMat(s.name, '#00cccc', true, 'section');
-                sp.scale.set(20 * K * _textSizeMul, 5 * K * _textSizeMul, 1);
-                sp.position.set(xFret(12), labelY, dZ(s.time - now));
-            }
-        }
+        // Beat lines + section labels -- see
+        // instance/render/beat-and-section-labels.js. Section labels stay
+        // gated on sectionLabelsOnHighway (advanced setting, default off)
+        // here -- the HUD card (drawSectionHud, called from the lyricsCtx
+        // block in draw()) is the primary surface for section info; the
+        // on-highway sprites are kept as an opt-in for users who want the
+        // in-scene cue.
+        beatAndSectionLabels.drawBeatLines(beats, now, t0, t1);
+        if (sectionLabelsOnHighway) beatAndSectionLabels.drawSectionLabels(sections, now, t0, t1, nStr, _textSizeMul);
 
         // ── Fret-column reference markers ─────────────────────────────
         // Every Nth measure, spawn a row of fret-number sprites on the
@@ -7369,30 +7357,13 @@ function createFactory() {
                 _diagPrevOpacity = Math.max(0, _diagPrevStartOpacity * (1 - fadedT / DIAG_CROSSFADE_S));
             }
         }
-        // ── Finalise InstancedMesh batches ────────────────────────────────
-        // Flush all 6 IMs: set visible instance count and mark buffers dirty.
-        // Must run after all drawNote() / chord-loop writes are done.
-        if (imPMTech) {
-            imPMTech.count = _imPMTechCount;
-            if (_imPMTechCount > 0) {
-                imPMTech.instanceMatrix.needsUpdate = true;
-                imPMTech.geometry.getAttribute('instanceAlpha').needsUpdate = true;
-            }
-        }
-        if (imFHTech) {
-            imFHTech.count = _imFHTechCount;
-            if (_imFHTechCount > 0) {
-                imFHTech.instanceMatrix.needsUpdate = true;
-                imFHTech.geometry.getAttribute('instanceAlpha').needsUpdate = true;
-            }
-        }
-        // These IMs are kept alive but always empty (count=0) — rendering
-        // is now handled by the pPMXFill / pMuteXLines / pFHXFill / pFHXLines
-        // pools which support per-chord Z-proportional renderOrder.
-        if (imPMXFill)  imPMXFill.count  = 0;
-        if (imPMXLines) imPMXLines.count = 0;
-        if (imFHXFill)  imFHXFill.count  = 0;
-        if (imFHXLines) imFHXLines.count = 0;
+        // Finalise InstancedMesh batches -- see
+        // instance/render/finalize-instanced-meshes.js. Must run after all
+        // drawNote() / chord-loop writes are done.
+        finalizeInstancedMeshBatches({
+            imPMTech, imFHTech, imPMXFill, imPMXLines, imFHXFill, imFHXLines,
+            _imPMTechCount, _imFHTechCount,
+        });
 
         pbEnd(5);
         pbEnd(0);
