@@ -1,11 +1,16 @@
-import { FRET_WIRE_HIT_DECAY, FRET_WIRE_HIT_INTENSITY, FRET_WIRE_HIT_OP, NFRETS } from '../../core/constants.js';
+import {
+    FRET_EMISSIVE, FRET_WIRE_ACTIVE_HEX, FRET_WIRE_ACTIVE_OP, FRET_WIRE_HIT_DECAY,
+    FRET_WIRE_HIT_INTENSITY, FRET_WIRE_HIT_OP, FRET_WIRE_IDLE_HEX, FRET_WIRE_IDLE_OP, NFRETS,
+} from '../../core/constants.js';
 import { anchorLaneBoundsAt } from '../../core/chart-util.js';
 
-// Fret-wire hit flash (apply) -- moved verbatim out of update() (Stage 7
-// Track C). Runs after the note + chord draw loops so it sees this frame's
-// verdicts (_fwHitIn) rather than the previous frame's -- the base tier
-// loop that seeds color/opacity/emissive sits elsewhere in initScene()/
-// buildBoard(), before any note has been drawn.
+// Fret-wire per-frame material updates -- moved verbatim out of update()
+// (Stage 7 Track C), two functions always called in the same relative
+// order each frame: the anchor highlight seeds the baseline wire color/
+// opacity/emissive every frame FIRST, then the hit flash (much later in
+// update(), after the note + chord draw loops) lerps toward the hit
+// colors on top of that baseline -- re-seeding the baseline every frame is
+// what lets a flash fade back out instead of latching.
 //
 // _fwHitGlow decays exponentially in CHART time, so the tail is frame-rate
 // independent and honours playback speed. Seeking backward resets it --
@@ -20,6 +25,37 @@ import { anchorLaneBoundsAt } from '../../core/chart-util.js';
 // and returned as the new value for main.js to reassign onto its own
 // closure `let`.
 export function createFretWireHitFlash({ ctx, _fwHitColor, _fwHitEmissive, _fwHitIn, _fwHitGlow, _fwChordAcc, mRimFlash, _rimFlashIn }) {
+    // Default all wires to gray; wires inside the active anchor range turn
+    // gold to match the dynamic highway lane boundary exactly. Uses
+    // laneBoundsFromAnchor() — the same helper the lane uses — so the gold
+    // fret wires on the board align with the lane edges:
+    //   dMin = fret - 1,  dMax = fret + width - 1
+    // e.g. { fret:3, width:4 } → dMin=2, dMax=6 → wires 2,3,4,5,6 gold.
+    function applyFretWireAnchorHighlight(anchors, now) {
+        if (ctx.board.fretWireMats.length) {
+            const _fwBounds = anchors && anchors.length
+                ? anchorLaneBoundsAt(anchors, now) : null;
+            const _fwMin = _fwBounds ? _fwBounds.dMin : -1;
+            const _fwMax = _fwBounds ? _fwBounds.dMax : -1;
+            for (let _f = 0; _f <= NFRETS; _f++) {
+                const _m = ctx.board.fretWireMats[_f];
+                if (!_m) continue;
+                if (_fwMin >= 0 && _f >= _fwMin && _f <= _fwMax) {
+                    _m.color.setHex(FRET_WIRE_ACTIVE_HEX);
+                    _m.opacity = FRET_WIRE_ACTIVE_OP;
+                } else {
+                    _m.color.setHex(FRET_WIRE_IDLE_HEX);
+                    _m.opacity = FRET_WIRE_IDLE_OP;
+                }
+                // Baseline emissive every frame: the hit-flash pass below
+                // lerps these toward FRET_WIRE_HIT_* in place, so they must
+                // be re-seeded or a flash would never fade back out.
+                _m.emissive.setHex(FRET_EMISSIVE);
+                _m.emissiveIntensity = 1;
+            }
+        }
+    }
+
     function applyFretWireHitFlash(now, _drawAnchors, _fwHitPrevTime) {
         if (ctx.board.fretWireMats.length && _fwHitColor) {
             // Resolve accumulated chord hits: a chord's flash frames the
@@ -97,5 +133,5 @@ export function createFretWireHitFlash({ ctx, _fwHitColor, _fwHitEmissive, _fwHi
         return _fwHitPrevTime;
     }
 
-    return { applyFretWireHitFlash };
+    return { applyFretWireAnchorHighlight, applyFretWireHitFlash };
 }

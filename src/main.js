@@ -3438,35 +3438,9 @@ function createFactory() {
         const sections = bundle.sections;
         const anchors = bundle.anchors;
 
-        // ── Fret wire anchor highlight ─────────────────────────────────
-        // Default all wires to gray; wires inside the active anchor range
-        // turn gold to match the dynamic highway lane boundary exactly.
-        // Uses laneBoundsFromAnchor() — the same helper the lane uses —
-        // so the gold fret wires on the board align with the lane edges:
-        //   dMin = fret - 1,  dMax = fret + width - 1
-        // e.g. { fret:3, width:4 } → dMin=2, dMax=6 → wires 2,3,4,5,6 gold.
-        if (ctx.board.fretWireMats.length) {
-            const _fwBounds = anchors && anchors.length
-                ? anchorLaneBoundsAt(anchors, now) : null;
-            const _fwMin = _fwBounds ? _fwBounds.dMin : -1;
-            const _fwMax = _fwBounds ? _fwBounds.dMax : -1;
-            for (let _f = 0; _f <= NFRETS; _f++) {
-                const _m = ctx.board.fretWireMats[_f];
-                if (!_m) continue;
-                if (_fwMin >= 0 && _f >= _fwMin && _f <= _fwMax) {
-                    _m.color.setHex(FRET_WIRE_ACTIVE_HEX);
-                    _m.opacity = FRET_WIRE_ACTIVE_OP;
-                } else {
-                    _m.color.setHex(FRET_WIRE_IDLE_HEX);
-                    _m.opacity = FRET_WIRE_IDLE_OP;
-                }
-                // Baseline emissive every frame: the hit-flash pass below
-                // lerps these toward FRET_WIRE_HIT_* in place, so they must
-                // be re-seeded or a flash would never fade back out.
-                _m.emissive.setHex(FRET_EMISSIVE);
-                _m.emissiveIntensity = 1;
-            }
-        }
+        // Fret-wire anchor highlight -- see
+        // instance/render/fret-wire-hit-flash.js.
+        fretWireHitFlash.applyFretWireAnchorHighlight(anchors, now);
 
         const lookaheadBoundsNow = (cameraMode === 'lookahead')
             ? lookaheadComputeFretBounds(now, anchors, notes, chords)
