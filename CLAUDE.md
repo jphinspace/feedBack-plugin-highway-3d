@@ -128,6 +128,15 @@ src/
                              every material-array dep is a live getter, since
                              this factory is constructed before createNoteGemVisuals() (which
                              takes recolorGemGradients as its own construction-time dep) runs
+      camera-lifecycle.js      camUpdate() (smooth camera lerp + self-correcting NDC look-at +
+                             the Hor+ wide-pane FOV hold + the fret-row fit guard) and
+                             applySize() (DPR + canvas size + aspect clamping + the .h3d-wrap
+                             overlay pin), called as cameraLifecycle.x() -- cam/_probe/wrap/ren/
+                             lyricsCanvas are plain deps (createDomAndScene-owned, stable per
+                             initScene() call); highwayCanvas/nStr/_leftyCached/_renderScale are
+                             live getters (change between initScene() calls without a full
+                             re-init). getAppliedSize() exposes the private _appliedW/_appliedH/
+                             _wrapPinned state draw()'s resize-detection fallback reads.
     geometry/                 initScene() feature clusters -- construction-time only,
                               verified via whole-file bare-reassignment grep, no `ctx` needed
       note-gem-visuals.js      note/gem geometry + every gem/outline/sustain material
@@ -157,7 +166,7 @@ src/
                              run unconditionally every frame, not chart-static memoization
 ```
 
-`src/main.js` is down to ~3,739 lines (from an original 12,388 -- 70% reduction): a boot preamble (imports, `initFretSpacing()`, `installGlobals()`, the `h3dBcApplySettings` / `h3dSetFretSpacing` window hooks) followed by `createFactory()` — the per-instance renderer, still mid-decomposition and carrying a documented `max-lines` exemption until it drops under 1,500 lines. Its internals are laid out as:
+`src/main.js` is down to ~3,480 lines (from an original 12,388 -- 72% reduction): a boot preamble (imports, `initFretSpacing()`, `installGlobals()`, the `h3dBcApplySettings` / `h3dSetFretSpacing` window hooks) followed by `createFactory()` — the per-instance renderer, still mid-decomposition and carrying a documented `max-lines` exemption until it drops under 1,500 lines. Its internals are laid out as:
 
 - Per-instance state (Three.js refs, pools, camera state, lifecycle flags)
 - `initScene()` — one-time WebGL setup: scene, camera, lights, materials, pools, the ~21
@@ -175,8 +184,9 @@ src/
   sites that replaced what used to be inline code (each call site names the module it delegates to)
 - `drawArpBrackets()` — arpeggio bracket drawing helper, called from both chords.js and
   single-notes.js
-- `camUpdate()` — smooth camera lerp + self-correcting NDC look-at (writes `ctx.cam`)
-- `applySize()` — DPR + canvas size + aspect clamping (writes `ctx.cam`)
+- `camUpdate()` / `applySize()` — now `cameraLifecycle.camUpdate()` / `cameraLifecycle.applySize()`
+  (`instance/render/camera-lifecycle.js`): smooth camera lerp + self-correcting NDC look-at
+  (writes `ctx.cam`) / DPR + canvas size + aspect clamping (writes `ctx.cam`)
 - `teardown()` — dispose all GPU resources + reset state
 - `canvasSize()` — resilient canvas-dimension lookup
 - **Returned API** — `init / draw / resize / destroy` (setRenderer contract)
@@ -263,9 +273,9 @@ Each entry names the function or banner you should grep for, plus key sub-blocks
 
 ### Camera
 - **Reference values** → `CAM_H_BASE`, `CAM_DIST_BASE`, `REF_ASPECT`, `FOCUS_D`, `CAM_LERP_BASE` in [core/constants.js](src/core/constants.js).
-- **Smooth lerp + look-at** → `camUpdate()`. BPM-scaled lerp speed (`CAM_LERP_BASE * bpm/120`).
+- **Smooth lerp + look-at** → `camUpdate()` in `instance/render/camera-lifecycle.js`. BPM-scaled lerp speed (`CAM_LERP_BASE * bpm/120`).
 - **Self-correcting framing** → bottom half of `camUpdate()`. Projects the fretboard mid-Y to NDC, nudges `tgtLookY` until that point sits at NDC Y ≈ `DESIRED_NDC_Y` (lower third of frame). This is what lets the camera adapt automatically to ultra-wide split-screen panels.
-- **Aspect compensation** → `aspectScale = Math.max(1, REF_ASPECT / Math.max(cam.aspect, 0.5))` in `applySize()`. Clamped to ≥ 1 so wide panels keep baseline depth (don't dolly in flat). Removing the `Math.max(1, …)` is the bug we already fixed; don't reintroduce it.
+- **Aspect compensation** → `aspectScale = Math.max(1, REF_ASPECT / Math.max(cam.aspect, 0.5))` in `applySize()` (same file). Clamped to ≥ 1 so wide panels keep baseline depth (don't dolly in flat). Removing the `Math.max(1, …)` is the bug we already fixed; don't reintroduce it.
 
 ### Beats and sections
 - **Beat lines** (downbeats highlighted) → `update()`, `// ── Beat lines ──` block. `mBeatM` (full opacity 0.25) for measure starts, `mBeatQ` (0.07) for other beats.
@@ -305,8 +315,8 @@ Each entry names the function or banner you should grep for, plus key sub-blocks
 
 ### Splitscreen
 - **Focus dim** → `_isFocused` flag, manipulated by `_updateFocusState()`. Fades ambient + directional light intensity in non-focused panels.
-- **Per-panel resize fallback** → search `_lastHwW` in the returned `draw()`. The renderer self-detects when the highway canvas backing-store dimensions change and re-runs `applySize()`. Needed because the splitscreen plugin overrides `hw.resize` and never calls `renderer.resize()`.
-- **Reduced DPR in split** → `applySize()` clamps DPR to 1.25 when splitscreen is active vs 2 otherwise (search `baseDPR`). Keeps four-panel quad layout from melting GPUs.
+- **Per-panel resize fallback** → search `_lastHwW` in the returned `draw()`. The renderer self-detects when the highway canvas backing-store dimensions change and re-runs `cameraLifecycle.applySize()`; the pinned/applied-size state it compares against comes from `cameraLifecycle.getAppliedSize()`. Needed because the splitscreen plugin overrides `hw.resize` and never calls `renderer.resize()`.
+- **Reduced DPR in split** → `applySize()` (`instance/render/camera-lifecycle.js`) clamps DPR to 1.25 when splitscreen is active vs 2 otherwise (search `baseDPR`). Keeps four-panel quad layout from melting GPUs.
 
 ### Splitscreen panel controls/settings
 - Per-panel background overrides use `localStorage` keys shaped as `h3d_bg_panel<N>_<key>`. When present, they override the global `h3d_bg_<key>` value for panel `N`; when absent, the global value still applies.
@@ -424,9 +434,9 @@ Style fields:
 
 Per feedBack#36, the factory returns `{ init, draw, resize, destroy }`:
 
-- **`init(canvas, bundle)`** tears down any prior state, sets `highwayCanvas`, lazily loads Three.js, runs `initScene()`, calls `applySize()` (with a `retrySize` rAF loop fallback if the canvas isn't laid out yet).
-- **`draw(bundle)`** is gated on `_isReady`. Re-resolves `nStr` / inverted / renderScale, then `update(bundle) → camUpdate(bundle) → ren.render → 2D overlays`. The `_lastHwW/_lastHwH` check at the top auto-resizes when the splitscreen plugin bypasses `resize()`.
-- **`resize(w, h)`** is gated on `_isReady`. Just calls `applySize()`.
+- **`init(canvas, bundle)`** tears down any prior state, sets `highwayCanvas`, lazily loads Three.js, runs `initScene()` (which constructs `cameraLifecycle`), calls `cameraLifecycle.applySize()` (with a `retrySize` rAF loop fallback if the canvas isn't laid out yet).
+- **`draw(bundle)`** is gated on `_isReady`. Re-resolves `nStr` / inverted / renderScale, then `update(bundle) → cameraLifecycle.camUpdate(bundle) → ren.render → 2D overlays`. The `_lastHwW/_lastHwH` check at the top auto-resizes when the splitscreen plugin bypasses `resize()`.
+- **`resize(w, h)`** is gated on `_isReady`. Just calls `cameraLifecycle.applySize()`.
 - **`destroy()`** is idempotent. Sets flags, runs `teardown()`, drops `highwayCanvas`. Tolerates being called on an instance that's been destroyed and re-init'd already (resets `_lastHwW/H`, `_diagChord`, etc.).
 
 The factory **returns a fresh instance per call**, so splitscreen's per-panel `setRenderer(feedBackViz_highway_3d())` gets independent state per panel — important because the chord diagram, projection meshes, etc. are all per-instance.
