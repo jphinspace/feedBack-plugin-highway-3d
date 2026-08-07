@@ -617,12 +617,12 @@ function createFactory() {
     // Active palette for this panel (issue #10). Materials and per-
     // frame color reads inside createFactory all consult this rather
     // than the module-level S_COL, so a palette swap re-tints the
-    // panel live without touching module-level state.
-    let activePalette = PALETTES.default;
-    // Content signature of the colors last applied to materials; lets
-    // loadSettings force a retint when the in-place custom palette
-    // changes values without changing array identity.
-    let backgroundPaletteSig = '';
+    // panel live without touching module-level state. activePalette /
+    // backgroundPaletteSig live on ctx.settings (Stage 7 Track 3e, final
+    // batch) -- backgroundPaletteSig is loadSettings()-internal (content
+    // signature of the colors last applied, forces a retint when the
+    // in-place custom palette changes values without changing array
+    // identity).
     // Fret digits on the board ghost (hollow preview at Z=0), not on
     // flying note bodies — see fretNumberGhostScope for chord-hand vs all.
     // showFretOnNote / fretNumberGhostScope live on ctx.settings (Stage 7
@@ -1242,14 +1242,14 @@ function createFactory() {
         const arrIdx = si && si.arrangement_index != null ? si.arrangement_index : '';
         let palSig = '';
         const nLab = labels.length;
-        if (activePalette) {
+        if (ctx.settings.activePalette) {
             // activePalette entries are numeric hex (PALETTES) or already hex strings;
             // convert without instantiating T.Color per string — this signature is
             // built every frame inside _syncOpenStringPitchLabels.
-            const lim = Math.min(activePalette.length, nLab);
+            const lim = Math.min(ctx.settings.activePalette.length, nLab);
             for (let i = 0; i < lim; i++) {
                 if (i > 0) palSig += '/';
-                const c = activePalette[i];
+                const c = ctx.settings.activePalette[i];
                 palSig += typeof c === 'number' ? (c >>> 0).toString(16) : String(c);
             }
         }
@@ -1282,7 +1282,7 @@ function createFactory() {
             _lastSyncBundleTuningRef === bundleTunRef &&
             Object.is(_lastSyncCapo, capo) &&
             _lastSyncArrIdx === arrIdx &&
-            _lastSyncPaletteRef === activePalette &&
+            _lastSyncPaletteRef === ctx.settings.activePalette &&
             _lastSyncNStr === nStr &&
             _lastSyncTextSizeMul === _textSizeMul &&
             _lastSyncStartX === ctx.board.boardStringStartX &&
@@ -1298,7 +1298,7 @@ function createFactory() {
         _lastSyncBundleTuningRef = bundleTunRef;
         _lastSyncCapo = capo;
         _lastSyncArrIdx = arrIdx;
-        _lastSyncPaletteRef = activePalette;
+        _lastSyncPaletteRef = ctx.settings.activePalette;
         _lastSyncNStr = nStr;
         _lastSyncTextSizeMul = _textSizeMul;
         _lastSyncStartX = ctx.board.boardStringStartX;
@@ -1311,7 +1311,7 @@ function createFactory() {
         const zLabel = -0.08 * K;
         const scalePx = 2.42 * _textSizeMul * K;
         for (let s = 0; s < nStr; s++) {
-            const hex = '#' + new T.Color(activePalette[s % activePalette.length]).getHexString();
+            const hex = '#' + new T.Color(ctx.settings.activePalette[s % ctx.settings.activePalette.length]).getHexString();
             const mat = textSprites.txtMat(labels[s] || '?', hex, false, 'noteFret').clone();
             mat.depthTest = false;
             mat.depthWrite = false;
@@ -1495,12 +1495,12 @@ function createFactory() {
             gHaloBar, pHaloBar, mMissOutline, mEdgeTransparent, mMissEdgeArrays,
             mHitBright, mHitBrightArrays, mRimFlash, mSusOutline, mHitSusOutline,
             mBeatM, mBeatQ, _laneTargetColor, _fwHitColor, _fwHitEmissive,
-        } = createNoteGemVisuals({ activePalette, glowMul: ctx.settings.glowMul, noteG, _recolorGemGradients, _ownedSharedGeos, gHaloBar }));
+        } = createNoteGemVisuals({ activePalette: ctx.settings.activePalette, glowMul: ctx.settings.glowMul, noteG, _recolorGemGradients, _ownedSharedGeos, gHaloBar }));
         _fwHitGlow.fill(0);
         _fwHitPrevTime = -Infinity;
 
         // Board projection ghost frames -- see instance/geometry/note-gem-pools.js.
-        ({ projMeshArr } = createBoardGhostFrames({ noteG, activePalette, mkGhostFrameGeometry }));
+        ({ projMeshArr } = createBoardGhostFrames({ noteG, activePalette: ctx.settings.activePalette, mkGhostFrameGeometry }));
 
         // ── Pools ──────────────────────────────────────────────────────
         // Note/sustain/slide-ribbon pools -- see instance/geometry/note-gem-pools.js.
@@ -1804,9 +1804,9 @@ function createFactory() {
         // color the reference stays === activePalette, so compare contents
         // too to force a retint. backgroundPaletteSig caches the applied colors.
         const newSig = newPalette.join(',');
-        if (newPalette !== activePalette || newSig !== backgroundPaletteSig) {
-            activePalette = newPalette;
-            backgroundPaletteSig = newSig;
+        if (newPalette !== ctx.settings.activePalette || newSig !== ctx.settings.backgroundPaletteSig) {
+            ctx.settings.activePalette = newPalette;
+            ctx.settings.backgroundPaletteSig = newSig;
             _applyPaletteToMaterials();
         }
         ctx.settings.bgThemeId = readSetting(panelKey, 'bgTheme');
@@ -1933,8 +1933,8 @@ function createFactory() {
     // projMeshArr holds filled rim meshes (ExtrudeGeometry frame); centre
     // is open. Palette + vibrancy mutate each mesh's material like mStr.
     function _applyPaletteToMaterials() {
-        for (let s = 0; s < activePalette.length; s++) {
-            const c = activePalette[s];
+        for (let s = 0; s < ctx.settings.activePalette.length; s++) {
+            const c = ctx.settings.activePalette[s];
             if (mStr[s]) {
                 // Gradient strings (0..5) keep a white base so the per-vertex
                 // colours in gNoteGrad[s] show pure; only flat strings (6/7)
@@ -1991,13 +1991,13 @@ function createFactory() {
     // churn, pooled note meshes pick it up next frame).
     function _recolorGemGradients() {
         if (!T || !gNoteGrad || !gNoteGrad.length) return;
-        const isCustom = (activePalette === _customPalette);
+        const isCustom = (ctx.settings.activePalette === _customPalette);
         const topCol = new T.Color(), botCol = new T.Color(), tmp = new T.Color();
         const halfH = NH / 2;
         for (let s = 0; s < gNoteGrad.length; s++) {
             const g = gNoteGrad[s];
             if (!g || !g.attributes || !g.attributes.color) continue;
-            const base = activePalette[s];
+            const base = ctx.settings.activePalette[s];
             let topHex, botHex;
             if (isCustom && base !== PALETTES.default[s]) {
                 // Match the SUBTLE stock gem shading (bottom ≈ 0.78 of a
@@ -2043,7 +2043,7 @@ function createFactory() {
         const projIdleOp = 0.15 + 0.35 * t;
         const susOp      = 0.35 + 0.45 * t;  // mSus
         const lineGlowOp = 0.15 + 0.35 * t;  // thin Line glow layer behind each string
-        for (let s = 0; s < activePalette.length; s++) {
+        for (let s = 0; s < ctx.settings.activePalette.length; s++) {
             if (mStr[s])  mStr[s].opacity  = idleOp;
             if (mSus[s])  mSus[s].opacity  = susOp;
             if (mGlow[s]) {
@@ -2053,13 +2053,13 @@ function createFactory() {
                 // vibrancy=1 the white-wash on hit notes goes away.
                 if (!_paletteColorTmp && T) _paletteColorTmp = new T.Color();
                 if (_paletteColorTmp) {
-                    mGlow[s].color.setHex(0xffffff).lerp(_paletteColorTmp.setHex(activePalette[s]), t);
+                    mGlow[s].color.setHex(0xffffff).lerp(_paletteColorTmp.setHex(ctx.settings.activePalette[s]), t);
                 }
             }
             if (mAccentCore[s]) {
                 if (!_paletteColorTmp && T) _paletteColorTmp = new T.Color();
                 if (_paletteColorTmp) {
-                    mAccentCore[s].color.setHex(0xffffff).lerp(_paletteColorTmp.setHex(activePalette[s]), t);
+                    mAccentCore[s].color.setHex(0xffffff).lerp(_paletteColorTmp.setHex(ctx.settings.activePalette[s]), t);
                 }
             }
             if (projMeshArr && projMeshArr[s]) {
@@ -2081,7 +2081,7 @@ function createFactory() {
     }
     function _applyGlow() {
         const g = ctx.settings.glowMul;
-        for (let s = 0; s < activePalette.length; s++) {
+        for (let s = 0; s < ctx.settings.activePalette.length; s++) {
             if (mStr[s])  mStr[s].emissiveIntensity  = 0.002 * g;
             // mGlow[s].emissiveIntensity is per-frame in update();
             // see Phase 4 comment block.
@@ -2104,7 +2104,7 @@ function createFactory() {
         if (mHitSusOutline)   mHitSusOutline.emissiveIntensity   = 0.7 * g;
         if (mTapChevron)   mTapChevron.emissiveIntensity   = 0.9 * g;
         if (mBarre)        mBarre.emissiveIntensity        = 0.9 * g;
-        for (let si = 0; si < activePalette.length; si++) {
+        for (let si = 0; si < ctx.settings.activePalette.length; si++) {
             if (mAccentHaloNear[si]) mAccentHaloNear[si].opacity = ACCENT_HALO_OP_NEAR * g;
             if (mAccentHaloMid[si]) mAccentHaloMid[si].opacity = ACCENT_HALO_OP_MID * g;
             if (mAccentHaloFar[si]) mAccentHaloFar[si].opacity = ACCENT_HALO_OP_FAR * g;
@@ -2150,7 +2150,7 @@ function createFactory() {
         try {
             result = style.build(stage, {
                 intensity: ctx.settings.bgIntensity,
-                palette: activePalette,
+                palette: ctx.settings.activePalette,
                 customImageDataUrl: ctx.settings.bgCustomImageDataUrl,
                 customVideoName: ctx.settings.bgCustomVideoName,
                 cam: cam,
@@ -2424,7 +2424,7 @@ function createFactory() {
         for (let s = 0; s < nStr; s++) {
             const pts = [new T.Vector3(ctx.board.boardStringStartX, sY(s), 0), new T.Vector3(stringEndX, sY(s), 0)];
             const g = new T.BufferGeometry().setFromPoints(pts);
-            const line = new T.Line(g, new T.LineBasicMaterial({ color: activePalette[s], transparent: true, opacity: lineGlowOp }));
+            const line = new T.Line(g, new T.LineBasicMaterial({ color: ctx.settings.activePalette[s], transparent: true, opacity: lineGlowOp }));
             line.renderOrder = 7; // above sus rails (4/5), below chord fill (10)
             fretG.add(line);
             ctx.board.stringLineGlows.push(line);
@@ -2436,7 +2436,7 @@ function createFactory() {
             // Each string gets its own material instance so emissiveIntensity is per-string
             // (and per-frame opacity is set by updateStringHighlights via _vibrancyIdleOp)
             const mat = new T.MeshStandardMaterial({
-                color: activePalette[s], emissive: activePalette[s],
+                color: ctx.settings.activePalette[s], emissive: ctx.settings.activePalette[s],
                 emissiveIntensity: 0.002,
                 transparent: true, opacity: ctx.settings._vibrancyIdleOp, roughness: 1,
             });
@@ -3067,9 +3067,9 @@ function createFactory() {
             _prewarmTex(textSprites.fretHandMuteXSpriteMat());
             const _nWarm = Math.min(
                 Math.max(nStr, 6),
-                (activePalette && activePalette.length) || 0);
+                (ctx.settings.activePalette && ctx.settings.activePalette.length) || 0);
             for (let s = 0; s < _nWarm; s++) {
-                const hex = activePalette[s] || 0xffffff;
+                const hex = ctx.settings.activePalette[s] || 0xffffff;
                 _prewarmTex(techMaterials.triMat(true, hex));
                 _prewarmTex(techMaterials.triMat(false, hex));
                 for (let st = 1; st <= 4; st++) _prewarmTex(techMaterials.bendChevronMat(st, hex));
@@ -3404,7 +3404,7 @@ function createFactory() {
         // and only READ by drawNote — see note.js's doc comment for why this is a
         // fresh-each-frame bag rather than a construction-time alias.
         _noteFrame.curX = ctx.cam.curX;
-        _noteFrame.activePalette = activePalette;
+        _noteFrame.activePalette = ctx.settings.activePalette;
         _noteFrame._textSizeMul = _textSizeMul;
         _noteFrame.nStr = nStr;
         _noteFrame._leftyCached = _leftyCached;
@@ -3698,7 +3698,7 @@ function createFactory() {
         if (alpha < 0.01) return;
 
         const bracketZ = bracketDt > 0 ? Math.min(0, dZ(bracketDt)) : 0;
-        const col = activePalette[s % activePalette.length];
+        const col = ctx.settings.activePalette[s % ctx.settings.activePalette.length];
         const barThick = NW * 0.09;
         const bracketH = NH * 1.05;
         const capLen   = NW * 0.42;
@@ -4644,8 +4644,8 @@ function createFactory() {
                         _chartEnv = Math.max(_chartEnv, 0.95);
                         butterchurnChordIdx++;
                     }
-                    if (_tintS >= 0 && activePalette && activePalette.length) {
-                        butterchurnTintTarget = activePalette[((_tintS % activePalette.length) + activePalette.length) % activePalette.length];
+                    if (_tintS >= 0 && ctx.settings.activePalette && ctx.settings.activePalette.length) {
+                        butterchurnTintTarget = ctx.settings.activePalette[((_tintS % ctx.settings.activePalette.length) + ctx.settings.activePalette.length) % ctx.settings.activePalette.length];
                     }
                     _chartPrevT = _ct;
                     _chartEnv *= 0.86;

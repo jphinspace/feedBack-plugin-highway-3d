@@ -1,6 +1,7 @@
 import { fretMid, fretX } from '../core/fret-geometry.js';
 import { CAM_DIST_BASE, CAM_LOCK_CENTER_FRET, DEFAULT_LOOKAHEAD_FRET_SPAN, K } from '../core/constants.js';
 import { SETTING_DEFAULTS } from '../settings/defaults.js';
+import { PALETTES } from '../core/palette.js';
 
 // The per-instance shared-state object (Stage 7 Track B). Where note.js's
 // `deps`/`frame` split works because each field is owned by exactly ONE
@@ -183,6 +184,16 @@ export function createCtx(id) {
             bgIntensity: SETTING_DEFAULTS.intensity,
             inlayLabelsVisible: SETTING_DEFAULTS.inlayLabelsVisible,
             nutHeadstockVisible: SETTING_DEFAULTS.nutHeadstockVisible,
+            // Batch 7 (final): the last two, and the most cross-cutting --
+            // ~13 functions read activePalette (construction-time snapshots
+            // in initScene() are intentionally stale, see note-gem-visuals.js's
+            // doc comment -- _applyPaletteToMaterials()/_recolorGemGradients()
+            // are what keep already-built materials live-retinted).
+            // backgroundPaletteSig has zero external readers -- it's a
+            // loadSettings()-internal signature cache, migrated alongside
+            // activePalette since the two are always written together.
+            activePalette: PALETTES.default,
+            backgroundPaletteSig: '',
         },
     };
 }
