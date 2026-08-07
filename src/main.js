@@ -653,15 +653,11 @@ function createFactory() {
     // the hit-note body; glow scales every emissive contribution +
     // projection glow layer opacity. Sliders are 0..1; defaults lean
     // vivid + minimal-glow to match the requested out-of-box look.
-    // _vibrancyIdleOp / _vibrancyProjOp are cached so
-    // updateStringHighlights() and drawNote() don't recompute the
-    // linear blend every frame.
-    let vibrancy            = SETTING_DEFAULTS.vibrancy;
-    // _hitFx / _verdictMarks / _timingFx / _streakFx / _bloom live on
-    // ctx.settings (Stage 7 Track 3e) -- read only inside update()'s
+    // vibrancy / _vibrancyIdleOp / _vibrancyProjOp / _cinematic all live on
+    // ctx.settings (Stage 7 Track 3e). _hitFx / _verdictMarks / _timingFx /
+    // _streakFx / _bloom also live there -- read only inside update()'s
     // _noteFrame block (first four) or draw() (_bloom). _sparks also moved
-    // there. _cinematic stays (consumed by _applyCinematic(), not migrated).
-    let _cinematic          = SETTING_DEFAULTS.cinematic;
+    // there.
     let _composer = null, _bloomPass = null, _bloomLoad = null, _bloomW = 0, _bloomH = 0;
     let _sparkPts = null, _sparkPos = null, _sparkCol = null, _sparkVel = null, _sparkLife = null;
     const _SPARK_N = 256;
@@ -679,8 +675,6 @@ function createFactory() {
     // buildBoard(). projectionVisible (board "note preview" ghost) and the
     // three slideArrow* previews also live there -- all read only inside
     // update()'s _noteFrame block.
-    let _vibrancyIdleOp = 0.4  + 0.6  * SETTING_DEFAULTS.vibrancy;
-    let _vibrancyProjOp = 0.15 + 0.35 * SETTING_DEFAULTS.vibrancy;
     // bgCustomImageDataUrl / bgCustomImageName / bgCustomVideoName live on
     // ctx.settings (Stage 7 Track 3e) -- read only in mountBackgroundStyle().
     // Data URL is the bytes that drive the 'image' bg style's texture; name
@@ -1852,11 +1846,11 @@ function createFactory() {
         ctx.settings.cameraLockZoom = readSetting(panelKey, 'cameraLockZoom');
         ctx.settings.cameraMode = readSetting(panelKey, 'cameraMode');
         ctx.settings.textSize = readSetting(panelKey, 'textSize');
-        vibrancy             = readSetting(panelKey, 'vibrancy');
+        ctx.settings.vibrancy = readSetting(panelKey, 'vibrancy');
         ctx.settings.glowMul = readSetting(panelKey, 'glow');
         ctx.settings._hitFx  = readSetting(panelKey, 'hitFx');
         ctx.settings._sparks = readSetting(panelKey, 'sparks');
-        _cinematic           = readSetting(panelKey, 'cinematic');
+        ctx.settings._cinematic = readSetting(panelKey, 'cinematic');
         ctx.settings._verdictMarks = readSetting(panelKey, 'verdictMarks');
         ctx.settings._timingFx     = readSetting(panelKey, 'timingFx');
         ctx.settings._streakFx     = readSetting(panelKey, 'streakFx');
@@ -1884,8 +1878,8 @@ function createFactory() {
         ctx.settings.slideArrowApproachVisible = readSetting(panelKey, 'slideArrowApproachVisible');
         ctx.settings.slideArrowNeckVisible     = readSetting(panelKey, 'slideArrowNeckVisible');
         ctx.settings.slideArrowChainPreviewVisible = readSetting(panelKey, 'slideArrowChainPreviewVisible');
-        _vibrancyIdleOp = 0.4  + 0.6  * vibrancy;
-        _vibrancyProjOp = 0.15 + 0.35 * vibrancy;
+        ctx.settings._vibrancyIdleOp = 0.4  + 0.6  * ctx.settings.vibrancy;
+        ctx.settings._vibrancyProjOp = 0.15 + 0.35 * ctx.settings.vibrancy;
         // Custom image asset is a single GLOBAL slot — bytes are
         // shared across panels (per-panel choice is which style
         // each panel renders, not which asset). Reading via
@@ -2042,7 +2036,7 @@ function createFactory() {
     // anticipation loop in update(), so they read glowMul /
     // _vibrancyIdleOp / vibrancy directly each frame instead.
     function _applyVibrancy() {
-        const t = vibrancy;
+        const t = ctx.settings.vibrancy;
         const idleOp     = 0.4  + 0.6  * t;  // mStr / IDLE_OP source
         // projIdleOp drives the projMeshArr ghost-frame opacity and is
         // read by drawNote() as `_vibrancyProjOp`, which layers a
@@ -2083,8 +2077,8 @@ function createFactory() {
             const line = ctx.board.stringLineGlows[s];
             if (line && line.material) line.material.opacity = lineGlowOp;
         }
-        _vibrancyIdleOp = idleOp;
-        _vibrancyProjOp = projIdleOp;
+        ctx.settings._vibrancyIdleOp = idleOp;
+        ctx.settings._vibrancyProjOp = projIdleOp;
     }
     function _applyGlow() {
         const g = ctx.settings.glowMul;
@@ -2297,8 +2291,8 @@ function createFactory() {
     // Toggle via the 'cinematic' setting so it's directly comparable.
     function _applyCinematic() {
         if (!ambLight || !dirLight) return;
-        ambLight.intensity = _cinematic ? 0.45 : 0.85;
-        dirLight.intensity = _cinematic ? 1.15 : 0.8;
+        ambLight.intensity = ctx.settings._cinematic ? 0.45 : 0.85;
+        dirLight.intensity = ctx.settings._cinematic ? 1.15 : 0.8;
     }
     function _sparkBurst(x, y, z, hex, count) {
         if (!_sparkPts || count <= 0) return;
@@ -2427,7 +2421,7 @@ function createFactory() {
         const stringEndX = Math.max(nutJoinX, bridgeTipX);
         const strSpan = Math.max(stringEndX - ctx.board.boardStringStartX, 1.5 * K);
 
-        const lineGlowOp = 0.15 + 0.35 * vibrancy;
+        const lineGlowOp = 0.15 + 0.35 * ctx.settings.vibrancy;
         for (let s = 0; s < nStr; s++) {
             const pts = [new T.Vector3(ctx.board.boardStringStartX, sY(s), 0), new T.Vector3(stringEndX, sY(s), 0)];
             const g = new T.BufferGeometry().setFromPoints(pts);
@@ -2445,7 +2439,7 @@ function createFactory() {
             const mat = new T.MeshStandardMaterial({
                 color: activePalette[s], emissive: activePalette[s],
                 emissiveIntensity: 0.002,
-                transparent: true, opacity: _vibrancyIdleOp, roughness: 1,
+                transparent: true, opacity: ctx.settings._vibrancyIdleOp, roughness: 1,
             });
             const mesh = new T.Mesh(g, mat);
             mesh.renderOrder = renderOrderForLayerAtZ(0, 'BOARD_STRING');
@@ -3436,7 +3430,7 @@ function createFactory() {
         _noteFrame.slideArrowApproachVisible = ctx.settings.slideArrowApproachVisible;
         _noteFrame.slideArrowNeckVisible = ctx.settings.slideArrowNeckVisible;
         _noteFrame.slideArrowChainPreviewVisible = ctx.settings.slideArrowChainPreviewVisible;
-        _noteFrame._vibrancyProjOp = _vibrancyProjOp;
+        _noteFrame._vibrancyProjOp = ctx.settings._vibrancyProjOp;
         _noteFrame._timingFx = ctx.settings._timingFx;
         _noteFrame._fretLabelAllowed = _fretLabelAllowed;
 
@@ -3469,7 +3463,7 @@ function createFactory() {
         // mGlow / mAccentCore emissive writes are folded into
         // updateStringHighlights() — same per-string scratch reads,
         // one pass.
-        frameState.updateStringHighlights(noteState, nStr, ctx.settings.glowMul, _vibrancyIdleOp);
+        frameState.updateStringHighlights(noteState, nStr, ctx.settings.glowMul, ctx.settings._vibrancyIdleOp);
         pbEnd(3);
 
         // Active frets (notes in cooldown window) + highway intensity.

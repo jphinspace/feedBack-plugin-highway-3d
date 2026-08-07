@@ -161,6 +161,16 @@ export function createCtx(id) {
             cameraLockZoom: SETTING_DEFAULTS.cameraLockZoom,
             textSize: SETTING_DEFAULTS.textSize,
             glowMul: SETTING_DEFAULTS.glow,
+            // Batch 5: vibrancy dial + its two DERIVED fields (genuine
+            // second writer: loadSettings() computes them from a freshly-
+            // read vibrancy, _applyVibrancy() recomputes them whenever the
+            // palette/materials are retinted -- both writers now target
+            // ctx.settings, kept in sync same as before). _cinematic is a
+            // plain single-function (_applyCinematic()) passthrough.
+            vibrancy: SETTING_DEFAULTS.vibrancy,
+            _vibrancyIdleOp: 0.4  + 0.6  * SETTING_DEFAULTS.vibrancy,
+            _vibrancyProjOp: 0.15 + 0.35 * SETTING_DEFAULTS.vibrancy,
+            _cinematic: SETTING_DEFAULTS.cinematic,
         },
     };
 }
