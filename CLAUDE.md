@@ -59,22 +59,46 @@ src/
     aspect-panel.js          the __h3dAspect* debug panel
     shortcuts.js             _registerTunerShortcut
     player-chrome.js         the Background picker in the player's Plugin Controls popover
-  instance/                  Stage 7 Track B: per-instance createFactory() clusters, moved
+  instance/                  Stage 7 Track B/C/3e: per-instance createFactory() clusters, moved
                              out one feature at a time behind createX(deps)/{deps,frame,accum}
                              (see "Splitting `createFactory()`" below for the pattern)
     ctx.js                   createCtx(id) -- the shared per-instance object; grows group-by-
-                             group (currently ctx.cam, ctx.board), never speculatively
+                             group, never speculatively. Groups: `cam` (camera pose, many
+                             co-equal writers), `board` (fretboard/nut/headstock geometry +
+                             materials, one writer/several readers), `settings` (all 52
+                             loadSettings()-assigned values -- single writer per field, readers
+                             independent per field, so this group landed as many small
+                             batches rather than one ctx.cam-shaped commit; see CLAUDE's
+                             "Settings" section below)
+    settings-listener.js      createSettingsListener -- the live settings-bus subscriber;
+                             outlives initScene(), reads ctx.settings.x / ctx.board.* directly
+                             (a stable ctx reference), a few remaining live getters only for
+                             genuine main.js closure `let`s (fretG, bgState, _tuningLabelSprites)
     model/
       chord-inference.js     hand-shape/arpeggio inference, chord shape signatures
       math.js                pure helpers (effectiveVfov, vibratoSemisAtTime, darkenHex, ...)
+      chord-diagram-tracking.js  chord-diagram entrance/crossfade state machine (7 fields
+                             returned each call, main.js still owns the bare `let`s)
+      arp-and-slide-prepasses.js  arpeggio-persist-key + slide-target-set pre-passes
     render/
       text-sprites.js        txtMat() + TXT_STYLES + per-instance createTxtCache()
       tech-materials.js      technique-marker sprite materials (PM-X/FH-X icon textures)
       note.js                createNoteRenderer -- drawNote(), the single-note renderer
       chords.js               createChordRenderer -- the whole chord-body render loop
+      single-notes.js          standalone-note render loop (chords.js's twin)
       arpeggio-lane-rail.js   arpeggio note-bracket lane rail rendering
       beat-and-section-labels.js  drawBeatLines / drawSectionLabels
       finalize-instanced-meshes.js  the "commit IM batches" step, must run last
+      highway-lane.js          anchor/active-frets highway lane + fret-boundary ext lines
+      fret-column-markers.js   periodic fret-number-wave reference markers
+      camera-target.js         classic/lookahead camera-target resolution (writes ctx.cam)
+      fret-number-row.js       heat-coloured fret-number row under the board
+      fret-wire-hit-flash.js   fret-wire anchor highlight (baseline) + hit-flash (lerp on top)
+      camera-bootstrap.js      song-change detection + first-chart-data camera bootstrap
+      note-state.js            per-frame noteState (sustain/anticipation/fretHeat/strGlow)
+                             build + updateStringHighlights()
+      lookahead-prepasses.js   next-note/recent-event-by-string lookahead, sorted event-time
+                             union, ghost-preview gap prepass, strGlow ramp + accent glow
     geometry/                 initScene() feature clusters -- construction-time only,
                               verified via whole-file bare-reassignment grep, no `ctx` needed
       note-gem-visuals.js      note/gem geometry + every gem/outline/sustain material
@@ -84,6 +108,8 @@ src/
       lane-and-labels.js        lane dividers, fret-column marker pool, highway lane plane
       tap-chevron-and-label-pools.js  tap-chevron material + label/beat/section pools
       chord-accent-visuals.js   chord-frame gradient textures + PM/FH strum X-mark visuals
+      dom-and-scene.js          highwayCanvas/_ctxLost live getter-setter pair (long-lived
+                             visibility/canvas-replaced listeners, outlive initScene())
     overlay/                  2D-canvas overlay renderers, each `(ctx, opts)`
       chord-diagram.js         drawChordDiagram() -- top-left chord fingering diagram
       lyrics.js                 drawLyrics() -- top-centre syllable-highlighted lyrics
@@ -92,22 +118,40 @@ src/
       listeners.js              createNotedetectListeners -- hit/miss + Score FX event binding
 ```
 
-`src/main.js` is down to ~6,650 lines: a boot preamble (imports, `initFretSpacing()`, `installGlobals()`, the `h3dBcApplySettings` / `h3dSetFretSpacing` window hooks) followed by `createFactory()` — the per-instance renderer, still mid-decomposition (Stage 7 Track B / `instance/ctx.js`) and carrying a documented `max-lines` exemption until it drops under 1,500 lines. Its internals are laid out as:
+`src/main.js` is down to ~4,930 lines (from an original 12,388 -- 60% reduction): a boot preamble (imports, `initFretSpacing()`, `installGlobals()`, the `h3dBcApplySettings` / `h3dSetFretSpacing` window hooks) followed by `createFactory()` — the per-instance renderer, still mid-decomposition and carrying a documented `max-lines` exemption until it drops under 1,500 lines. Its internals are laid out as:
 
 - Per-instance state (Three.js refs, pools, camera state, lifecycle flags)
-- `txtMat()` text-sprite cache, `pool()` factory
-- `drawChordDiagram()` — 2D canvas chord diagram (top-left overlay)
-- `drawLyrics()` — 2D canvas lyrics renderer (top centre)
-- `initScene()` — one-time WebGL setup: scene, camera, lights, materials, pools
+- `initScene()` — one-time WebGL setup: scene, camera, lights, materials, pools, the ~15
+  `createX(deps)` construction calls for the modules above
+- `loadSettings()` — reads all 52 settings into `ctx.settings.x` (see "Settings" below)
 - `buildBoard()` — static fretboard geometry: strings, fret wires, fret dots, board plane
-- `updateStringHighlights()` — per-frame string emissive glow + opacity
-- `update(bundle)` — the big per-frame function: notes, chords, beats, lane, fret labels
-- `drawNote()` — single note: outline, body, sustain, drop line, technique labels, projection
-- `camUpdate()` — smooth camera lerp + self-correcting NDC look-at
-- `applySize()` — DPR + canvas size + aspect clamping
+- `_applyPaletteToMaterials()` / `_recolorGemGradients()` / `_applyVibrancy()` / `_applyGlow()` /
+  `_applyBgTheme()` / `_applyCinematic()` — live material-retint passes fired by the settings
+  listener, not full rebuilds
+- `update(bundle)` — the big per-frame function: still ~584 lines of camera-target wiring,
+  `_noteFrame` snapshot assembly, and the ~15 `moduleX.drawY(...)` call sites that replaced
+  what used to be inline code (each call site names the module it delegates to)
+- `drawArpBrackets()` — arpeggio bracket drawing helper, called from both chords.js and
+  single-notes.js
+- `camUpdate()` — smooth camera lerp + self-correcting NDC look-at (writes `ctx.cam`)
+- `applySize()` — DPR + canvas size + aspect clamping (writes `ctx.cam`)
 - `teardown()` — dispose all GPU resources + reset state
 - `canvasSize()` — resilient canvas-dimension lookup
 - **Returned API** — `init / draw / resize / destroy` (setRenderer contract)
+
+### Settings (`ctx.settings`)
+
+Every setting `loadSettings()` reads (via `readSetting(panelKey, 'key')`) is assigned to a
+property on `ctx.settings` — e.g. `ctx.settings.glowMul`, `ctx.settings.cameraMode`,
+`ctx.settings.activePalette` — not a bare closure `let`. This is Stage 7 Track 3e, landed as 7
+independently-verified batches (see the plan file's "3e" section for the full batch table and
+commit SHAs) rather than one big commit, because each setting's consumer function(s) are
+independent of every other setting's — unlike `ctx.cam`, there was no mutual-coupling forcing a
+single atomic migration. When adding a NEW setting: add it to `SETTING_DEFAULTS`
+([settings/defaults.js](src/settings/defaults.js)) as always, then add a matching field to
+`ctx.js`'s `settings` group (default value from `SETTING_DEFAULTS`), write it in `loadSettings()`
+as `ctx.settings.x = readSetting(panelKey, 'x')`, and read it as `ctx.settings.x` everywhere —
+never reintroduce a bare closure `let` for a settings-driven value.
 
 ## Coordinate system
 
