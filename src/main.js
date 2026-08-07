@@ -66,7 +66,10 @@ import { splitscreenActive, splitscreenCanvasFocused } from './core/splitscreen.
 import { nextInstanceId } from './core/instance-id.js';
 import { _registerTunerShortcut } from './ui/shortcuts.js';
 import { _aspectPaneKey, _aspectRegisterPane, _resolveTuneFor, nextPaneCounter } from './ui/aspect-panel.js';
-import { SETTING_DEFAULTS, BACKGROUND_STYLE_IDS, backgroundAxisColors, highwayAxisColors } from './settings/defaults.js';
+import {
+    SETTING_DEFAULTS, LOAD_SETTINGS_SIMPLE_KEY_TO_FIELD, BACKGROUND_STYLE_IDS,
+    backgroundAxisColors, highwayAxisColors,
+} from './settings/defaults.js';
 import {
     emitSettingChange, hasStoredSetting, settingsMemFallback, settingsPanelKey, readGlobalSetting, readSetting,
     subscribeToSettings, unsubscribeFromSettings, freeCamFor,
@@ -1714,9 +1717,16 @@ function createFactory() {
 
     function loadSettings() {
         const panelKey = settingsPanelKey(highwayCanvas);
-        ctx.settings.bgStyleId = readSetting(panelKey, 'style');
-        ctx.settings.bgIntensity = readSetting(panelKey, 'intensity');
-        ctx.settings.bgReactive = readSetting(panelKey, 'reactive');
+        // Every setting that's a direct, unconditional copy into
+        // ctx.settings with no follow-on logic -- see settings/defaults.js's
+        // LOAD_SETTINGS_SIMPLE_KEY_TO_FIELD doc comment for the full list of
+        // keys this excludes and why. Safe to run before every special case
+        // below: each of those only ever reads a field this loop already
+        // set (bgStyleId, bgThemeId, cameraSmoothing, vibrancy), never the
+        // reverse.
+        for (const key in LOAD_SETTINGS_SIMPLE_KEY_TO_FIELD) {
+            ctx.settings[LOAD_SETTINGS_SIMPLE_KEY_TO_FIELD[key]] = readSetting(panelKey, key);
+        }
         // Per-render opt-out (captured from the mount bundle in init): force
         // the reactive background off for THIS instance, overriding the shared
         // setting without writing it back. Re-applied here so it sticks across
@@ -1748,7 +1758,6 @@ function createFactory() {
             ctx.settings.backgroundPaletteSig = newSig;
             materialRetint.applyPaletteToMaterials();
         }
-        ctx.settings.bgThemeId = readSetting(panelKey, 'bgTheme');
         // Highway axis. ONE-TIME BACKWARD-COMPAT BACKFILL: the first time we
         // load with no stored hwTheme (pre-split installs, or anyone who only
         // ever touched the old single "Scene colors" control), seed hwTheme
@@ -1767,9 +1776,6 @@ function createFactory() {
             settingsMemFallback.hwTheme = String(ctx.settings.bgThemeId);
             try { localStorage.setItem('h3d_bg_hwTheme', String(ctx.settings.bgThemeId)); } catch (_) { /* storage blocked — mem fallback still seeds the read */ }
         }
-        ctx.settings.showFretOnNote = readSetting(panelKey, 'showFretOnNote');
-        ctx.settings.fretNumberGhostScope = readSetting(panelKey, 'fretNumberGhostScope');
-        ctx.settings.cameraSmoothing = readSetting(panelKey, 'cameraSmoothing');
         // Mirror-at-first-read: zoom + tilt sliders inherit cameraSmoothing
         // when the user has never explicitly written them. Once the user
         // moves either slider, the corresponding hasStoredSetting() flips
@@ -1780,42 +1786,7 @@ function createFactory() {
         ctx.settings.tiltSmoothing = hasStoredSetting(panelKey, 'tiltSmoothing')
             ? readSetting(panelKey, 'tiltSmoothing')
             : ctx.settings.cameraSmoothing;
-        ctx.settings.cameraLockLow = readSetting(panelKey, 'cameraLockLow');
-        ctx.settings.cameraLockZoom = readSetting(panelKey, 'cameraLockZoom');
-        ctx.settings.cameraMode = readSetting(panelKey, 'cameraMode');
-        ctx.settings.textSize = readSetting(panelKey, 'textSize');
-        ctx.settings.vibrancy = readSetting(panelKey, 'vibrancy');
-        ctx.settings.glowMul = readSetting(panelKey, 'glow');
-        ctx.settings._hitFx  = readSetting(panelKey, 'hitFx');
-        ctx.settings._sparks = readSetting(panelKey, 'sparks');
-        ctx.settings._cinematic = readSetting(panelKey, 'cinematic');
-        ctx.settings._verdictMarks = readSetting(panelKey, 'verdictMarks');
-        ctx.settings._timingFx     = readSetting(panelKey, 'timingFx');
-        ctx.settings._streakFx     = readSetting(panelKey, 'streakFx');
-        ctx.settings._bloom  = readSetting(panelKey, 'bloom');
         _applyCinematic();
-        ctx.settings.fpsVisible           = readSetting(panelKey, 'fpsVisible');
-        ctx.settings.fretDividersVisible  = readSetting(panelKey, 'fretDividersVisible');
-        ctx.settings.chordDiagramVisible  = readSetting(panelKey, 'chordDiagramVisible');
-        ctx.settings.chordDiagramSize     = readSetting(panelKey, 'chordDiagramSize');
-        ctx.settings.chordDiagramPosition = readSetting(panelKey, 'chordDiagramPosition');
-        ctx.settings.fretColumnMarkerCadence = readSetting(panelKey, 'fretColumnMarkerCadence');
-        ctx.settings.inlayLabelsVisible = readSetting(panelKey, 'inlayLabelsVisible');
-        ctx.settings.sectionLabelsOnHighway = readSetting(panelKey, 'sectionLabelsOnHighway');
-        ctx.settings.sectionHudVisible      = readSetting(panelKey, 'sectionHudVisible');
-        ctx.settings.sectionHudPosition     = readSetting(panelKey, 'sectionHudPosition');
-        ctx.settings.sectionHudSize         = readSetting(panelKey, 'sectionHudSize');
-        ctx.settings.toneHudVisible         = readSetting(panelKey, 'toneHudVisible');
-        ctx.settings.toneHudPosition        = readSetting(panelKey, 'toneHudPosition');
-        ctx.settings.toneHudSize            = readSetting(panelKey, 'toneHudSize');
-        ctx.settings.nutHeadstockVisible    = readSetting(panelKey, 'nutHeadstockVisible');
-        ctx.settings.tuningLabelsVisible    = readSetting(panelKey, 'tuningLabelsVisible');
-        ctx.settings.nutColor               = readSetting(panelKey, 'nutColor');
-        ctx.settings.headstockColor         = readSetting(panelKey, 'headstockColor');
-        ctx.settings.projectionVisible      = readSetting(panelKey, 'projectionVisible');
-        ctx.settings.slideArrowApproachVisible = readSetting(panelKey, 'slideArrowApproachVisible');
-        ctx.settings.slideArrowNeckVisible     = readSetting(panelKey, 'slideArrowNeckVisible');
-        ctx.settings.slideArrowChainPreviewVisible = readSetting(panelKey, 'slideArrowChainPreviewVisible');
         ctx.settings._vibrancyIdleOp = 0.4  + 0.6  * ctx.settings.vibrancy;
         ctx.settings._vibrancyProjOp = 0.15 + 0.35 * ctx.settings.vibrancy;
         // Custom image asset is a single GLOBAL slot — bytes are

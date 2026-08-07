@@ -41,6 +41,12 @@ const src = fs.readFileSync(path.join(HERE, '..', 'src', 'main.js'), 'utf8');
 // Stage 7 Track B (3-ctx-3) -- loadSettings() stayed in main.js.
 const settingsListenerSrc = fs.readFileSync(
     path.join(HERE, '..', 'src', 'instance', 'settings-listener.js'), 'utf8');
+// loadSettings()'s ~40 direct-copy settings moved out of the function body
+// into a key->field table it loops over (Stage 7, post-3e polish) -- the
+// keys still readSetting()'d live in that table's source now, not as
+// literal `readSetting(panelKey, '...')` calls in loadSettings() itself.
+const settingsDefaultsSrc = fs.readFileSync(
+    path.join(HERE, '..', 'src', 'settings', 'defaults.js'), 'utf8');
 
 // Brace-match a block starting at `signature` within `text`.
 function block(text, signature, label) {
@@ -58,10 +64,18 @@ function block(text, signature, label) {
     return text.slice(start, i);
 }
 
-// Keys that loadSettings() copies into per-instance state.
+// Keys that loadSettings() copies into per-instance state: the literal
+// readSetting(panelKey, '...') calls still in the function body (the
+// special-cased settings) UNION the keys of the
+// LOAD_SETTINGS_SIMPLE_KEY_TO_FIELD table it loops over for everything else.
 function mirroredKeys() {
     const body = block(src, 'function loadSettings', 'src/main.js');
-    return new Set([...body.matchAll(/readSetting\(panelKey, '(\w+)'\)/g)].map((m) => m[1]));
+    const literal = [...body.matchAll(/readSetting\(panelKey, '(\w+)'\)/g)].map((m) => m[1]);
+    const tableBody = block(
+        settingsDefaultsSrc, 'export const LOAD_SETTINGS_SIMPLE_KEY_TO_FIELD',
+        'src/settings/defaults.js');
+    const looped = [...tableBody.matchAll(/(\w+):\s*'/g)].map((m) => m[1]);
+    return new Set([...literal, ...looped]);
 }
 
 // Keys the live settings-bus listener dispatches on.

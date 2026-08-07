@@ -13,6 +13,72 @@
 export const CAMERA_MODE_IDS = ['steady', 'lookahead'];
 
 export const SETTING_DEFAULTS = { style: 'particles', intensity: 0.5, reactive: true, palette: 'default', bgTheme: 'default', hwTheme: 'default', showFretOnNote: true, fretNumberGhostScope: 'chords', cameraSmoothing: 0.5, zoomSmoothing: 0.5, tiltSmoothing: 0.5, cameraLockLow: false, cameraLockZoom: 0.5, cameraMode: 'lookahead', nutHeadstockVisible: true, tuningLabelsVisible: true, nutColor: '#f5f3f0', headstockColor: '#d4b48a', textSize: 0.5, vibrancy: 0.85, glow: 0.25, customImageDataUrl: '', customImageName: '', customVideoName: '', chordDiagramVisible: true, chordDiagramSize: 0.5, chordDiagramPosition: 'tl', fretColumnMarkerCadence: 1, projectionVisible: true, inlayLabelsVisible: false, sectionLabelsOnHighway: false, sectionHudVisible: false, sectionHudPosition: 'tr', sectionHudSize: 0.5, toneHudVisible: false, toneHudPosition: 'tl', toneHudSize: 0.5, fpsVisible: false, fretDividersVisible: true, slideArrowApproachVisible: true, slideArrowNeckVisible: true, slideArrowChainPreviewVisible: true, hitFx: 0.7, sparks: true, cinematic: true, verdictMarks: true, timingFx: true, streakFx: true, bloom: true };
+// main.js's loadSettings() key -> ctx.settings field map for the settings
+// that are a direct, unconditional `ctx.settings[field] = readSetting(panelKey, key)`
+// with no follow-on logic and no ordering dependency on another setting.
+// loadSettings() loops over this instead of spelling out ~40 individual
+// lines. Most keys share their SETTING_DEFAULTS spelling as the field name
+// (object-shorthand-shaped entries below); the renamed ones (style ->
+// bgStyleId, glow -> glowMul, hitFx -> _hitFx, etc.) exist because the
+// per-instance field predates a settings-key rename or needs the `_`
+// prefix convention for internal-only fields.
+//
+// Deliberately EXCLUDED (7 of SETTING_DEFAULTS' 49 keys), and why each
+// stays hand-written in loadSettings() instead of joining this table:
+//   palette          - full custom-palette resolution + retint, not a plain copy
+//   hwTheme          - one-time backward-compat backfill from bgThemeId
+//   zoomSmoothing    - inherits cameraSmoothing until the user's first explicit write
+//   tiltSmoothing    - same inheritance as zoomSmoothing
+//   customImageDataUrl - global-only asset slot, read via localStorage directly
+//   customImageName     - same global-only-slot reasoning
+//   customVideoName     - same global-only-slot reasoning
+// The loop is safe to run before all of the above: every one of them only
+// ever reads a field THIS table already populated (bgStyleId, bgThemeId,
+// cameraSmoothing, vibrancy), never the reverse.
+export const LOAD_SETTINGS_SIMPLE_KEY_TO_FIELD = {
+    style: 'bgStyleId',
+    intensity: 'bgIntensity',
+    reactive: 'bgReactive',
+    bgTheme: 'bgThemeId',
+    showFretOnNote: 'showFretOnNote',
+    fretNumberGhostScope: 'fretNumberGhostScope',
+    cameraSmoothing: 'cameraSmoothing',
+    cameraLockLow: 'cameraLockLow',
+    cameraLockZoom: 'cameraLockZoom',
+    cameraMode: 'cameraMode',
+    nutHeadstockVisible: 'nutHeadstockVisible',
+    tuningLabelsVisible: 'tuningLabelsVisible',
+    nutColor: 'nutColor',
+    headstockColor: 'headstockColor',
+    textSize: 'textSize',
+    vibrancy: 'vibrancy',
+    glow: 'glowMul',
+    chordDiagramVisible: 'chordDiagramVisible',
+    chordDiagramSize: 'chordDiagramSize',
+    chordDiagramPosition: 'chordDiagramPosition',
+    fretColumnMarkerCadence: 'fretColumnMarkerCadence',
+    projectionVisible: 'projectionVisible',
+    inlayLabelsVisible: 'inlayLabelsVisible',
+    sectionLabelsOnHighway: 'sectionLabelsOnHighway',
+    sectionHudVisible: 'sectionHudVisible',
+    sectionHudPosition: 'sectionHudPosition',
+    sectionHudSize: 'sectionHudSize',
+    toneHudVisible: 'toneHudVisible',
+    toneHudPosition: 'toneHudPosition',
+    toneHudSize: 'toneHudSize',
+    fpsVisible: 'fpsVisible',
+    fretDividersVisible: 'fretDividersVisible',
+    slideArrowApproachVisible: 'slideArrowApproachVisible',
+    slideArrowNeckVisible: 'slideArrowNeckVisible',
+    slideArrowChainPreviewVisible: 'slideArrowChainPreviewVisible',
+    hitFx: '_hitFx',
+    sparks: '_sparks',
+    cinematic: '_cinematic',
+    verdictMarks: '_verdictMarks',
+    timingFx: '_timingFx',
+    streakFx: '_streakFx',
+    bloom: '_bloom',
+};
 // User-selectable, persistable bg styles — must mirror settings.html's
 // VALID_STYLES. 'venue' is deliberately NOT here: it is an internal effective
 // style reached only via _venueSceneOverride (the viz-picker Venue flow), so
