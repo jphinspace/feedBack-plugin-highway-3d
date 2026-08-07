@@ -1,5 +1,6 @@
 import { fretMid, fretX } from '../core/fret-geometry.js';
 import { CAM_DIST_BASE, CAM_LOCK_CENTER_FRET, DEFAULT_LOOKAHEAD_FRET_SPAN, K } from '../core/constants.js';
+import { SETTING_DEFAULTS } from '../settings/defaults.js';
 
 // The per-instance shared-state object (Stage 7 Track B). Where note.js's
 // `deps`/`frame` split works because each field is owned by exactly ONE
@@ -93,6 +94,33 @@ export function createCtx(id) {
             boardTuningLabelX: -4.2 * K,
             _inlayLabels: [],
             _inlayMats: [],
+        },
+        // Settings-driven values (Stage 7 Track 3e), migrated off bare
+        // closure `let`s one independent batch at a time -- unlike `cam`,
+        // each field here has exactly ONE writer (loadSettings()) and its
+        // reads don't share a function cluster with any other field, so
+        // there's no requirement to migrate them all in lockstep. This
+        // first batch is every setting read ONLY inside update() (mostly
+        // the `_noteFrame` snapshot block) -- the safest, most mechanical
+        // group. Defaults mirror SETTING_DEFAULTS exactly so a fresh ctx
+        // matches the pre-loadSettings() render (same contract the bare
+        // `let`s' own default initialisers used to carry).
+        settings: {
+            showFretOnNote: SETTING_DEFAULTS.showFretOnNote,
+            fretNumberGhostScope: SETTING_DEFAULTS.fretNumberGhostScope,
+            cameraMode: SETTING_DEFAULTS.cameraMode,
+            _hitFx: SETTING_DEFAULTS.hitFx,
+            _sparks: SETTING_DEFAULTS.sparks,
+            _verdictMarks: SETTING_DEFAULTS.verdictMarks,
+            _timingFx: SETTING_DEFAULTS.timingFx,
+            _streakFx: SETTING_DEFAULTS.streakFx,
+            fretDividersVisible: SETTING_DEFAULTS.fretDividersVisible,
+            fretColumnMarkerCadence: SETTING_DEFAULTS.fretColumnMarkerCadence,
+            sectionLabelsOnHighway: SETTING_DEFAULTS.sectionLabelsOnHighway,
+            projectionVisible: SETTING_DEFAULTS.projectionVisible,
+            slideArrowApproachVisible: SETTING_DEFAULTS.slideArrowApproachVisible,
+            slideArrowNeckVisible: SETTING_DEFAULTS.slideArrowNeckVisible,
+            slideArrowChainPreviewVisible: SETTING_DEFAULTS.slideArrowChainPreviewVisible,
         },
     };
 }

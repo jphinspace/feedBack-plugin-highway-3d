@@ -622,8 +622,8 @@ function createFactory() {
     let backgroundPaletteSig = '';
     // Fret digits on the board ghost (hollow preview at Z=0), not on
     // flying note bodies — see fretNumberGhostScope for chord-hand vs all.
-    let showFretOnNote = false;
-    let fretNumberGhostScope = 'chords';
+    // showFretOnNote / fretNumberGhostScope live on ctx.settings (Stage 7
+    // Track 3e) -- both read only inside update()'s _noteFrame block.
     // Camera-X smoothing dial (issue #34). 0 = twitchy (track every
     // upcoming fret), 1 = calm (ignore small intra-cluster shifts).
     // Cached here and refreshed via the bg listener to avoid a
@@ -648,8 +648,9 @@ function createFactory() {
     // fretboard), 0.5 → 1.0× (the default locked view), 1 → CAM_LOCK_ZOOM_MAX
     // (furthest). Inactive when the lock isn't engaged.
     let cameraLockZoom = 0.5;
-    /** 'steady' = recency-weighted centroid + hysteresis (#34); 'lookahead' = wide preview window + smooth focal. */
-    let cameraMode = SETTING_DEFAULTS.cameraMode;
+    // cameraMode lives on ctx.settings (Stage 7 Track 3e) -- read only
+    // inside update(). 'steady' = recency-weighted centroid + hysteresis
+    // (#34); 'lookahead' = wide preview window + smooth focal.
     // Global text-size multiplier for in-scene text sprites (chord
     // names, fret labels, section banners, technique markers, etc.).
     // Slider is 0..1; mapped to a 0.5..1.5× multiplier with 0.5 = 1.0×
@@ -670,12 +671,11 @@ function createFactory() {
     // linear blend every frame.
     let vibrancy            = SETTING_DEFAULTS.vibrancy;
     let glowMul             = SETTING_DEFAULTS.glow;
-    let _hitFx              = SETTING_DEFAULTS.hitFx;
-    let _sparks             = SETTING_DEFAULTS.sparks;
+    // _hitFx / _verdictMarks / _timingFx / _streakFx live on ctx.settings
+    // (Stage 7 Track 3e) -- all read only inside update()'s _noteFrame
+    // block. _sparks also moves there (same block); _cinematic/_bloom stay
+    // (consumed by _applyCinematic()/draw(), not yet migrated).
     let _cinematic          = SETTING_DEFAULTS.cinematic;
-    let _verdictMarks       = SETTING_DEFAULTS.verdictMarks;
-    let _timingFx           = SETTING_DEFAULTS.timingFx;
-    let _streakFx           = SETTING_DEFAULTS.streakFx;
     let _bloom              = SETTING_DEFAULTS.bloom;
     let _composer = null, _bloomPass = null, _bloomLoad = null, _bloomW = 0, _bloomH = 0;
     let _sparkPts = null, _sparkPos = null, _sparkCol = null, _sparkVel = null, _sparkLife = null;
@@ -684,13 +684,12 @@ function createFactory() {
     let _juiceLastT = 0;              // frame-dt clock for the juice layer
     let _streakHeat = 0;  // #7 consecutive-hit escalation (streakHits itself lives on noteVerdictState — see its decl above)
     let fpsVisible           = SETTING_DEFAULTS.fpsVisible;
-    let fretDividersVisible  = SETTING_DEFAULTS.fretDividersVisible;
+    // fretDividersVisible / fretColumnMarkerCadence / sectionLabelsOnHighway
+    // live on ctx.settings (Stage 7 Track 3e) -- all read only inside update().
     let chordDiagramVisible  = SETTING_DEFAULTS.chordDiagramVisible;
     let chordDiagramSize     = SETTING_DEFAULTS.chordDiagramSize;
     let chordDiagramPosition = SETTING_DEFAULTS.chordDiagramPosition;
-    let fretColumnMarkerCadence = SETTING_DEFAULTS.fretColumnMarkerCadence;
     let inlayLabelsVisible = SETTING_DEFAULTS.inlayLabelsVisible;
-    let sectionLabelsOnHighway = SETTING_DEFAULTS.sectionLabelsOnHighway;
     let sectionHudVisible      = SETTING_DEFAULTS.sectionHudVisible;
     let sectionHudPosition     = SETTING_DEFAULTS.sectionHudPosition;
     let sectionHudSize         = SETTING_DEFAULTS.sectionHudSize;
@@ -701,10 +700,9 @@ function createFactory() {
     let tuningLabelsVisible    = SETTING_DEFAULTS.tuningLabelsVisible;
     let nutColor               = SETTING_DEFAULTS.nutColor;
     let headstockColor         = SETTING_DEFAULTS.headstockColor;
-    let projectionVisible      = SETTING_DEFAULTS.projectionVisible;   // board "note preview" ghost on the fretboard
-    let slideArrowApproachVisible = SETTING_DEFAULTS.slideArrowApproachVisible; // slide-direction arrow riding with the note/gem
-    let slideArrowNeckVisible      = SETTING_DEFAULTS.slideArrowNeckVisible;    // slide-direction arrow preview on the neck
-    let slideArrowChainPreviewVisible = SETTING_DEFAULTS.slideArrowChainPreviewVisible; // early neck preview for chained/multi-leg slides
+    // projectionVisible (board "note preview" ghost) and the three
+    // slideArrow* previews live on ctx.settings (Stage 7 Track 3e) -- all
+    // read only inside update()'s _noteFrame block.
     let _vibrancyIdleOp = 0.4  + 0.6  * SETTING_DEFAULTS.vibrancy;
     let _vibrancyProjOp = 0.15 + 0.35 * SETTING_DEFAULTS.vibrancy;
     // Custom image asset (issue #19). Data URL is the bytes that
@@ -1864,8 +1862,8 @@ function createFactory() {
             settingsMemFallback.hwTheme = String(bgThemeId);
             try { localStorage.setItem('h3d_bg_hwTheme', String(bgThemeId)); } catch (_) { /* storage blocked — mem fallback still seeds the read */ }
         }
-        showFretOnNote = readSetting(panelKey, 'showFretOnNote');
-        fretNumberGhostScope = readSetting(panelKey, 'fretNumberGhostScope');
+        ctx.settings.showFretOnNote = readSetting(panelKey, 'showFretOnNote');
+        ctx.settings.fretNumberGhostScope = readSetting(panelKey, 'fretNumberGhostScope');
         cameraSmoothing = readSetting(panelKey, 'cameraSmoothing');
         // Mirror-at-first-read: zoom + tilt sliders inherit cameraSmoothing
         // when the user has never explicitly written them. Once the user
@@ -1879,26 +1877,26 @@ function createFactory() {
             : cameraSmoothing;
         cameraLockLow = readSetting(panelKey, 'cameraLockLow');
         cameraLockZoom = readSetting(panelKey, 'cameraLockZoom');
-        cameraMode = readSetting(panelKey, 'cameraMode');
+        ctx.settings.cameraMode = readSetting(panelKey, 'cameraMode');
         textSize             = readSetting(panelKey, 'textSize');
         vibrancy             = readSetting(panelKey, 'vibrancy');
         glowMul              = readSetting(panelKey, 'glow');
-        _hitFx               = readSetting(panelKey, 'hitFx');
-        _sparks              = readSetting(panelKey, 'sparks');
+        ctx.settings._hitFx  = readSetting(panelKey, 'hitFx');
+        ctx.settings._sparks = readSetting(panelKey, 'sparks');
         _cinematic           = readSetting(panelKey, 'cinematic');
-        _verdictMarks        = readSetting(panelKey, 'verdictMarks');
-        _timingFx            = readSetting(panelKey, 'timingFx');
-        _streakFx            = readSetting(panelKey, 'streakFx');
+        ctx.settings._verdictMarks = readSetting(panelKey, 'verdictMarks');
+        ctx.settings._timingFx     = readSetting(panelKey, 'timingFx');
+        ctx.settings._streakFx     = readSetting(panelKey, 'streakFx');
         _bloom               = readSetting(panelKey, 'bloom');
         _applyCinematic();
         fpsVisible           = readSetting(panelKey, 'fpsVisible');
-        fretDividersVisible  = readSetting(panelKey, 'fretDividersVisible');
+        ctx.settings.fretDividersVisible  = readSetting(panelKey, 'fretDividersVisible');
         chordDiagramVisible  = readSetting(panelKey, 'chordDiagramVisible');
         chordDiagramSize     = readSetting(panelKey, 'chordDiagramSize');
         chordDiagramPosition = readSetting(panelKey, 'chordDiagramPosition');
-        fretColumnMarkerCadence = readSetting(panelKey, 'fretColumnMarkerCadence');
+        ctx.settings.fretColumnMarkerCadence = readSetting(panelKey, 'fretColumnMarkerCadence');
         inlayLabelsVisible = readSetting(panelKey, 'inlayLabelsVisible');
-        sectionLabelsOnHighway = readSetting(panelKey, 'sectionLabelsOnHighway');
+        ctx.settings.sectionLabelsOnHighway = readSetting(panelKey, 'sectionLabelsOnHighway');
         sectionHudVisible      = readSetting(panelKey, 'sectionHudVisible');
         sectionHudPosition     = readSetting(panelKey, 'sectionHudPosition');
         sectionHudSize         = readSetting(panelKey, 'sectionHudSize');
@@ -1909,10 +1907,10 @@ function createFactory() {
         tuningLabelsVisible    = readSetting(panelKey, 'tuningLabelsVisible');
         nutColor               = readSetting(panelKey, 'nutColor');
         headstockColor         = readSetting(panelKey, 'headstockColor');
-        projectionVisible      = readSetting(panelKey, 'projectionVisible');
-        slideArrowApproachVisible = readSetting(panelKey, 'slideArrowApproachVisible');
-        slideArrowNeckVisible     = readSetting(panelKey, 'slideArrowNeckVisible');
-        slideArrowChainPreviewVisible = readSetting(panelKey, 'slideArrowChainPreviewVisible');
+        ctx.settings.projectionVisible      = readSetting(panelKey, 'projectionVisible');
+        ctx.settings.slideArrowApproachVisible = readSetting(panelKey, 'slideArrowApproachVisible');
+        ctx.settings.slideArrowNeckVisible     = readSetting(panelKey, 'slideArrowNeckVisible');
+        ctx.settings.slideArrowChainPreviewVisible = readSetting(panelKey, 'slideArrowChainPreviewVisible');
         _vibrancyIdleOp = 0.4  + 0.6  * vibrancy;
         _vibrancyProjOp = 0.15 + 0.35 * vibrancy;
         // Custom image asset is a single GLOBAL slot — bytes are
@@ -3407,7 +3405,7 @@ function createFactory() {
         // instance/render/fret-wire-hit-flash.js.
         fretWireHitFlash.applyFretWireAnchorHighlight(anchors, now);
 
-        const lookaheadBoundsNow = (cameraMode === 'lookahead')
+        const lookaheadBoundsNow = (ctx.settings.cameraMode === 'lookahead')
             ? lookaheadComputeFretBounds(now, anchors, notes, chords)
             : null;
 
@@ -3453,20 +3451,20 @@ function createFactory() {
         _noteFrame.noteDetectFrameNowMs = noteDetectFrameNowMs;
         _noteFrame.noteDetectGetState = noteDetectGetState;
         _noteFrame.noteDetectHasProvider = noteDetectHasProvider;
-        _noteFrame.showFretOnNote = showFretOnNote;
-        _noteFrame.fretNumberGhostScope = fretNumberGhostScope;
+        _noteFrame.showFretOnNote = ctx.settings.showFretOnNote;
+        _noteFrame.fretNumberGhostScope = ctx.settings.fretNumberGhostScope;
         _noteFrame.glowMul = glowMul;
-        _noteFrame._hitFx = _hitFx;
-        _noteFrame._sparks = _sparks;
-        _noteFrame._verdictMarks = _verdictMarks;
-        _noteFrame._streakFx = _streakFx;
+        _noteFrame._hitFx = ctx.settings._hitFx;
+        _noteFrame._sparks = ctx.settings._sparks;
+        _noteFrame._verdictMarks = ctx.settings._verdictMarks;
+        _noteFrame._streakFx = ctx.settings._streakFx;
         _noteFrame._streakHeat = _streakHeat;
-        _noteFrame.projectionVisible = projectionVisible;
-        _noteFrame.slideArrowApproachVisible = slideArrowApproachVisible;
-        _noteFrame.slideArrowNeckVisible = slideArrowNeckVisible;
-        _noteFrame.slideArrowChainPreviewVisible = slideArrowChainPreviewVisible;
+        _noteFrame.projectionVisible = ctx.settings.projectionVisible;
+        _noteFrame.slideArrowApproachVisible = ctx.settings.slideArrowApproachVisible;
+        _noteFrame.slideArrowNeckVisible = ctx.settings.slideArrowNeckVisible;
+        _noteFrame.slideArrowChainPreviewVisible = ctx.settings.slideArrowChainPreviewVisible;
         _noteFrame._vibrancyProjOp = _vibrancyProjOp;
-        _noteFrame._timingFx = _timingFx;
+        _noteFrame._timingFx = ctx.settings._timingFx;
         _noteFrame._fretLabelAllowed = _fretLabelAllowed;
 
         // ── Recent-past event per string (for _nextAnyT deadline) ─────
@@ -3526,7 +3524,7 @@ function createFactory() {
         let camT1 = now + camAhead;
         let camWX, camWSum, camDistMin, camDistMax, camDistGot;
         const camDistHystF = CAM_DIST_HYST_T + (CAM_DIST_HYST_C - CAM_DIST_HYST_T) * zoomSmoothing;
-        if (!(cameraMode === 'lookahead')) {
+        if (!(ctx.settings.cameraMode === 'lookahead')) {
             cs = cameraSmoothing;
             camAhead = CAM_TGT_AHEAD_T + (CAM_TGT_AHEAD_C - CAM_TGT_AHEAD_T) * cs;
             camTau = CAM_TGT_TAU_T + (CAM_TGT_TAU_C - CAM_TGT_TAU_T) * cs;
@@ -3563,7 +3561,7 @@ function createFactory() {
         _noteFrame.camTau = camTau;
         _noteFrame.camHystF = camHystF;
         _noteFrame.camDistHystF = camDistHystF;
-        _noteFrame.cameraMode = cameraMode;
+        _noteFrame.cameraMode = ctx.settings.cameraMode;
         _noteFrame._leanSus = _leanSus;
         // _chordAccum is the small mutable object both the single-notes
         // loop and drawChords() accumulate into across the frame
@@ -3598,7 +3596,7 @@ function createFactory() {
             _clkAudioT = NaN; _clkPerf = NaN; _clkRate = 1;
         }
         cameraBootstrap.bootstrapCameraFromChartData(
-            notes, chords, anchors, now, nStr, cameraMode, lookaheadBoundsNow,
+            notes, chords, anchors, now, nStr, ctx.settings.cameraMode, lookaheadBoundsNow,
             camAhead, camTau, camHystF, camDistHystF, cameraLockLow, cameraLockZoom,
         );
 
@@ -3643,7 +3641,7 @@ function createFactory() {
         ({ hwyLaneFretClipMin, hwyLaneFretClipMax } = highwayLane.drawHighwayLane(
             anchors, bundle, now, chords, activeFrets,
             laneRailArpHsFlags, laneRailBoundLo, laneRailBoundHi,
-            highwayIntensity, fretDividersVisible,
+            highwayIntensity, ctx.settings.fretDividersVisible,
         ));
 
         // Dynamic fret number row (heat-coloured) -- see
@@ -3658,19 +3656,19 @@ function createFactory() {
         // on-highway sprites are kept as an opt-in for users who want the
         // in-scene cue.
         beatAndSectionLabels.drawBeatLines(beats, now, t0, t1);
-        if (sectionLabelsOnHighway) beatAndSectionLabels.drawSectionLabels(sections, now, t0, t1, nStr, _textSizeMul);
+        if (ctx.settings.sectionLabelsOnHighway) beatAndSectionLabels.drawSectionLabels(sections, now, t0, t1, nStr, _textSizeMul);
 
         // Fret-column reference markers -- see
         // instance/render/fret-column-markers.js.
         fretColumnMarkers.drawFretColumnMarkers(
-            beats, now, t1, notes, chords, anchors, fretColumnMarkerCadence, nStr, _textSizeMul,
+            beats, now, t1, notes, chords, anchors, ctx.settings.fretColumnMarkerCadence, nStr, _textSizeMul,
             hwyLaneFretClipMin, hwyLaneFretClipMax,
         );
 
         // Camera target resolution -- see instance/render/camera-target.js.
         // Writes only into ctx.cam (shared dep); nothing escapes downstream.
         cameraTarget.drawCameraTarget(
-            cameraMode, lookaheadBoundsNow, camDistGot, camWX, camWSum, camDistMin, camDistMax,
+            ctx.settings.cameraMode, lookaheadBoundsNow, camDistGot, camWX, camWSum, camDistMin, camDistMax,
             camHystF, camDistHystF, _frameNow, cameraLockLow, cameraLockZoom,
         );
 
