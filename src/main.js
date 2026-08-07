@@ -84,6 +84,7 @@ import { createTechMaterialCache } from './instance/render/tech-materials.js';
 import { chordHarmonyLabels, createChordInference } from './instance/model/chord-inference.js';
 import { createArpeggioLaneRail } from './instance/render/arpeggio-lane-rail.js';
 import { createNoteRenderer } from './instance/render/note.js';
+import { createNotedetectListeners } from './instance/notedetect/listeners.js';
 import {
     bnvSampleAt, canvasSize, darkenHex, disposeGroupTree, effectiveVfov, noteHasVibrato,
     teachingDegreeLabel, teachingFingerLabel, tremoloOffsetWorldX, vibratoSemisAtTime,
@@ -2964,119 +2965,23 @@ function createFactory() {
         };
         subscribeToSettings(settingsListener);
 
-        // Notedetect feedback (#9). Listen for hit/miss events on
-        // window. Notedetect dispatches both globally and on its
-        // instanceRoot; the global fire is fine for our case since
-        // each 3dhighway panel just stores any event into its own
-        // queue and renders only the matching note. Listeners are
-        // per-panel so destroy() can cleanly remove them; cost is
-        // a per-event branch + push, negligible vs per-frame work.
-        // Validate every payload field we'll later compare against
-        // chart-data fields (s, f, t). drawNote compares with
-        // Math.abs(m.noteTime - n.t) and trusts the values are
-        // finite, so reject any payload missing one of those
-        // fields here rather than letting bogus data into the
-        // arrays. Prune expired marks on every push so the arrays
-        // settle back to empty when notedetect stops emitting —
-        // drawNote's fast-path short-circuit
-        // (`if (noteDetectHitMarks.length || noteDetectMissMarks.length)`) only
-        // works if expired entries don't linger.
-        const noteDetectNormalizeMark = (d) => {
-            if (!d) return null;
-            const note = d.note || d.chartNote;
-            if (!note) return null;
-            if (!Number.isFinite(note.s) || !Number.isFinite(note.f) || !Number.isFinite(d.noteTime)) return null;
-            const labels = [];
-            if (d.timingState && d.timingState !== 'OK' && Number.isFinite(d.timingError)) {
-                labels.push({
-                    text: `${d.timingState === 'EARLY' ? '↑' : '↓'} ${d.timingError > 0 ? '+' : ''}${d.timingError}ms`,
-                    color: '#ffb347',
-                });
-            }
-            if (d.pitchState && d.pitchState !== 'OK' && Number.isFinite(d.pitchError)) {
-                labels.push({
-                    text: `${d.pitchState === 'SHARP' ? '♯' : '♭'} ${d.pitchError > 0 ? '+' : ''}${d.pitchError}¢`,
-                    color: '#66c7ff',
-                });
-            }
-            return { s: note.s, f: note.f, noteTime: d.noteTime, labels, timingState: d.timingState || null };
-        };
-        const noteDetectPushMark = (arr, d) => {
-            const mark = noteDetectNormalizeMark(d);
-            if (!mark) return arr;
-            const now = performance.now();
-            // Prune expired entries unconditionally. The dedupe path
-            // below can extend expiresAt of any entry (including arr[0]),
-            // so an arr[0] gate is not reliable — it would prevent
-            // pruning entries that expired behind a refreshed front
-            // entry, allowing the array to grow unbounded. These arrays
-            // are tiny (a handful of marks at most), so an unconditional
-            // filter() is negligible and always correct.
-            if (arr.length !== 0) {
-                const live = arr.filter(m => m.expiresAt > now);
-                arr.length = 0;
-                if (live.length) arr.push(...live);
-            }
-            const existing = arr.find(m =>
-                m.s === mark.s && m.f === mark.f && Math.abs(m.noteTime - mark.noteTime) < NOTEDETECT_TIME_EPS
-            );
-            if (existing) {
-                existing.labels = mark.labels.length ? mark.labels : existing.labels;
-                existing.expiresAt = Math.max(existing.expiresAt, now + NOTEDETECT_TTL_MS);
-                return arr;
-            }
-            arr.push({ ...mark, expiresAt: now + NOTEDETECT_TTL_MS });
-            return arr;
-        };
-        noteDetectOnHit = (e) => { noteDetectHitMarks = noteDetectPushMark(noteDetectHitMarks, e.detail); };
-        noteDetectOnMiss = (e) => { noteDetectMissMarks = noteDetectPushMark(noteDetectMissMarks, e.detail); };
-        window.addEventListener('notedetect:hit', noteDetectOnHit);
-        window.addEventListener('notedetect:miss', noteDetectOnMiss);
-        if (window.feedBack &&
-                typeof window.feedBack.on  === 'function' &&
-                typeof window.feedBack.off === 'function') {
-            noteDetectOnBusHit  = (e) => { noteDetectHitMarks  = noteDetectPushMark(noteDetectHitMarks,  e.detail); };
-            noteDetectOnBusMiss = (e) => { noteDetectMissMarks = noteDetectPushMark(noteDetectMissMarks, e.detail); };
-            window.feedBack.on('note:hit', noteDetectOnBusHit);
-            window.feedBack.on('note:miss', noteDetectOnBusMiss);
-        }
-
-        // Score FX (notedetect ≥1.13). notedetect dispatches each fx
-        // detail object twice in the same task: first explicitly on
-        // window (unscoped), then as a bubbling CustomEvent from its
-        // per-panel instanceRoot (scoped). Element-targeted copies are
-        // authoritative — accept only the ones whose root lives in this
-        // panel's container. The window copy is DEFERRED a task: by the
-        // time it runs, the element copy (same detail reference) has
-        // either arrived — making the window copy a duplicate to drop —
-        // or it never will (detector root not attached to the DOM), in
-        // which case the window copy is the compat fallback. This keeps
-        // splitscreen panels from rendering each other's FX even for
-        // the first event of a session.
-        _fxResolvePalette();
-        _fxOnFx = (e) => {
-            const d = e && e.detail;
-            if (!d) return;
-            const t = e.target;
-            if (t && t.parentElement) {
-                _fxElemSeen.add(d);
-                if (!highwayCanvas || !t.parentElement.contains(highwayCanvas)) return;
-                _fxHandle(d);
-                return;
-            }
-            const gen = _fxGen;
-            setTimeout(() => {
-                if (gen !== _fxGen) return;   // torn down (or re-inited) meanwhile
-                if (_fxElemSeen.has(d)) return;
-                _fxHandle(d);
-            }, 0);
-        };
-        window.addEventListener('notedetect:fx', _fxOnFx);
-        if (window.feedBack && typeof window.feedBack.on === 'function'
-                && typeof window.feedBack.off === 'function') {
-            _fxOnSkin = () => _fxResolvePalette();
-            window.feedBack.on('notedetect:skin', _fxOnSkin);
-        }
+        // Notedetect feedback (#9) + Score FX listener setup -- see
+        // instance/notedetect/listeners.js for the full doc comment. Moved
+        // here (Stage 7 Phase 3c) as the first initScene()/teardown() slice;
+        // getFxGen/getHighwayCanvas are live getters, not plain values,
+        // because the listeners this creates outlive this call and must see
+        // _fxGen/highwayCanvas as they are at EVENT-fire time, not at
+        // listener-creation time.
+        ({
+            noteDetectOnHit, noteDetectOnMiss, noteDetectOnBusHit, noteDetectOnBusMiss,
+            _fxOnFx, _fxOnSkin,
+        } = createNotedetectListeners({
+            noteDetectHitMarks, noteDetectMissMarks, _fxElemSeen,
+            NOTEDETECT_TIME_EPS, NOTEDETECT_TTL_MS,
+            _fxHandle, _fxResolvePalette,
+            getFxGen: () => _fxGen,
+            getHighwayCanvas: () => highwayCanvas,
+        }));
 
         return true;
     }
