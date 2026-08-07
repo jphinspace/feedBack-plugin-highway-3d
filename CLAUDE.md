@@ -59,9 +59,40 @@ src/
     aspect-panel.js          the __h3dAspect* debug panel
     shortcuts.js             _registerTunerShortcut
     player-chrome.js         the Background picker in the player's Plugin Controls popover
+  instance/                  Stage 7 Track B: per-instance createFactory() clusters, moved
+                             out one feature at a time behind createX(deps)/{deps,frame,accum}
+                             (see "Splitting `createFactory()`" below for the pattern)
+    ctx.js                   createCtx(id) -- the shared per-instance object; grows group-by-
+                             group (currently ctx.cam, ctx.board), never speculatively
+    model/
+      chord-inference.js     hand-shape/arpeggio inference, chord shape signatures
+      math.js                pure helpers (effectiveVfov, vibratoSemisAtTime, darkenHex, ...)
+    render/
+      text-sprites.js        txtMat() + TXT_STYLES + per-instance createTxtCache()
+      tech-materials.js      technique-marker sprite materials (PM-X/FH-X icon textures)
+      note.js                createNoteRenderer -- drawNote(), the single-note renderer
+      chords.js               createChordRenderer -- the whole chord-body render loop
+      arpeggio-lane-rail.js   arpeggio note-bracket lane rail rendering
+      beat-and-section-labels.js  drawBeatLines / drawSectionLabels
+      finalize-instanced-meshes.js  the "commit IM batches" step, must run last
+    geometry/                 initScene() feature clusters -- construction-time only,
+                              verified via whole-file bare-reassignment grep, no `ctx` needed
+      note-gem-visuals.js      note/gem geometry + every gem/outline/sustain material
+      note-gem-pools.js        note/sustain/slide-ribbon object pools (pairs with the above)
+      technique-instanced-meshes.js  IM scratch objects + PM-X/FH-X technique-marker IMs
+      sustain-rail.js           sustain rail (core+bloom) + technique-marker plane pool
+      lane-and-labels.js        lane dividers, fret-column marker pool, highway lane plane
+      tap-chevron-and-label-pools.js  tap-chevron material + label/beat/section pools
+      chord-accent-visuals.js   chord-frame gradient textures + PM/FH strum X-mark visuals
+    overlay/                  2D-canvas overlay renderers, each `(ctx, opts)`
+      chord-diagram.js         drawChordDiagram() -- top-left chord fingering diagram
+      lyrics.js                 drawLyrics() -- top-centre syllable-highlighted lyrics
+      huds.js                   drawSectionHud() / drawToneHud()
+    notedetect/
+      listeners.js              createNotedetectListeners -- hit/miss + Score FX event binding
 ```
 
-`src/main.js` is still the ~12k-line residual monolith: a small boot preamble (imports, `initFretSpacing()`, `installGlobals()`, the `h3dBcApplySettings` / `h3dSetFretSpacing` window hooks) followed by `createFactory()` — the whole per-instance renderer. It carries a documented `max-lines` exemption until that closure is broken up. Its internals are laid out as:
+`src/main.js` is down to ~6,650 lines: a boot preamble (imports, `initFretSpacing()`, `installGlobals()`, the `h3dBcApplySettings` / `h3dSetFretSpacing` window hooks) followed by `createFactory()` — the per-instance renderer, still mid-decomposition (Stage 7 Track B / `instance/ctx.js`) and carrying a documented `max-lines` exemption until it drops under 1,500 lines. Its internals are laid out as:
 
 - Per-instance state (Three.js refs, pools, camera state, lifecycle flags)
 - `txtMat()` text-sprite cache, `pool()` factory
