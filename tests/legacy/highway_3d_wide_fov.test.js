@@ -21,8 +21,11 @@
 // `_ASPECT_DEFAULTS` checks were upgraded to real imports (cheap, and
 // strictly stronger than regexing an object literal), everything else that
 // used to regex a moved declaration now regexes the same pattern against
-// panelSrc/shortcutsSrc instead of src. camUpdate/applySize/destroy() call
-// sites haven't moved, so those stay regexed against src (main.js).
+// panelSrc/shortcutsSrc instead of src. camUpdate/applySize moved OUT of
+// main.js into src/instance/render/camera-lifecycle.js (Stage 7, post-3e) --
+// their assertions below now regex cameraLifecycleSrc. destroy() itself
+// (the _paneAspect/cam.fov reset) stayed in main.js, so that one assertion
+// still regexes src.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -33,13 +36,14 @@ const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 const DOM_AND_SCENE_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'geometry', 'dom-and-scene.js');
 const ASPECT_PANEL_JS = path.join(__dirname, '..', '..', 'src', 'ui', 'aspect-panel.js');
 const SHORTCUTS_JS = path.join(__dirname, '..', '..', 'src', 'ui', 'shortcuts.js');
+const CAMERA_LIFECYCLE_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'camera-lifecycle.js');
 const src = fs.readFileSync(SCREEN_JS, 'utf8');
 // The camera is constructed in dom-and-scene.js (Stage 7 Track B / 3-ctx-3);
-// camUpdate/applySize/destroy() stayed in main.js, so only the ctor check
-// below needs the concatenated source.
+// only the ctor check below needs this source.
 const domAndSceneSrc = fs.readFileSync(DOM_AND_SCENE_JS, 'utf8');
 const panelSrc = fs.readFileSync(ASPECT_PANEL_JS, 'utf8');
 const shortcutsSrc = fs.readFileSync(SHORTCUTS_JS, 'utf8');
+const cameraLifecycleSrc = fs.readFileSync(CAMERA_LIFECYCLE_JS, 'utf8');
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -138,7 +142,7 @@ test('the default blend engages the hold and the floor sits below the base', asy
 
 test('applySize caches the pane aspect for camUpdate', () => {
     assert.match(
-        src,
+        cameraLifecycleSrc,
         /_paneAspect\s*=\s*cam\.aspect\s*;/,
         'applySize must cache cam.aspect into _paneAspect',
     );
@@ -146,7 +150,7 @@ test('applySize caches the pane aspect for camUpdate', () => {
 
 test('camUpdate resolves a per-pane tune and respects splitOnly', () => {
     assert.match(
-        src,
+        cameraLifecycleSrc,
         /const\s+_aspTune\s*=\s*_resolveTuneFor\(\s*_paneKey\s*\)\s*;[\s\S]*?_aspTune\.splitOnly\s*&&\s*!splitscreenActive\(\)/,
         'camUpdate must resolve the tune per pane via _resolveTuneFor(_paneKey) and gate splitOnly',
     );
@@ -195,7 +199,7 @@ test('a Target select and pane registry drive the per-pane picker', () => {
     assert.match(panelSrc, /function\s+_aspectRegisterPane\s*\(/,
         '_aspectRegisterPane must record live panes for the picker');
     assert.match(
-        src,
+        cameraLifecycleSrc,
         /if\s*\(\s*window\.__h3dAspectPanelOpen\s*\)\s*_aspectRegisterPane\(\s*_paneKey\s*\)/,
         'camUpdate must register its pane only while the tuner panel is open',
     );
@@ -211,7 +215,7 @@ test('panes are keyed by arrangement (stable across songs, no split-API dep)', (
         '_aspectPaneKey must prefer arr:<name> and fall back to pane:<uid>',
     );
     assert.match(
-        src,
+        cameraLifecycleSrc,
         /const\s+_paneKey\s*=\s*_aspectPaneKey\(\s*[\s\S]*?songInfo[\s\S]*?arrangement\s*,\s*_paneUid\s*\)\s*;/,
         'camUpdate must key the pane by arrangement (with the uid fallback)',
     );
@@ -314,7 +318,7 @@ test('camUpdate only writes cam.fov when it actually changes', () => {
     // Guarding the write avoids a per-frame updateProjectionMatrix on a steady
     // pane and keeps the disabled path free.
     assert.match(
-        src,
+        cameraLifecycleSrc,
         /Math\.abs\(\s*_vfov\s*-\s*cam\.fov\s*\)\s*>\s*1e-4[\s\S]*?cam\.fov\s*=\s*_vfov\s*;[\s\S]*?cam\.updateProjectionMatrix\(\)/,
         'camUpdate must guard the cam.fov write behind a change check',
     );

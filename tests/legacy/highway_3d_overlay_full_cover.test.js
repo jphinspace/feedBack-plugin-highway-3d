@@ -7,6 +7,12 @@
 // of the canvas (the reported gap). applySize() must pin the wrap to the
 // canvas's actual offset box so it stays flush. createHighway's WebGL
 // lifecycle is too heavy for a vm sandbox, so this locks in the wiring.
+//
+// applySize() moved to src/instance/render/camera-lifecycle.js (Stage 7,
+// post-3e); its own body is regexed there now. The rAF re-pin CALL SITE
+// (inside draw()'s resize-detection fallback) stayed in main.js, now
+// reading cameraLifecycle.getAppliedSize().pinned instead of a bare
+// _wrapPinned, so that one test still regexes src (main.js).
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -14,6 +20,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const screenJs = path.join(__dirname, '..', '..', 'src', 'main.js');
+const cameraLifecycleJs = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'camera-lifecycle.js');
 
 function extractBlock(src, signature) {
     const start = src.indexOf(signature);
@@ -32,7 +39,7 @@ function extractBlock(src, signature) {
 }
 
 test('applySize pins the .h3d-wrap overlay to the highway canvas rect box', () => {
-    const src = fs.readFileSync(screenJs, 'utf8');
+    const src = fs.readFileSync(cameraLifecycleJs, 'utf8');
     const fn = extractBlock(src, 'function applySize(w, h)');
     // Guarded on a laid-out canvas so we never pin to a zero box.
     assert.match(
@@ -56,7 +63,7 @@ test('applySize pins the .h3d-wrap overlay to the highway canvas rect box', () =
 });
 
 test('applySize fallback resets the static anchor and the computed height', () => {
-    const src = fs.readFileSync(screenJs, 'utf8');
+    const src = fs.readFileSync(cameraLifecycleJs, 'utf8');
     const fn = extractBlock(src, 'function applySize(w, h)');
     // The not-laid-out fallback must clear any stale pin styles (a prior pin
     // leaves top/left/right:auto/width set) back to the original
@@ -71,7 +78,7 @@ test('applySize fallback resets the static anchor and the computed height', () =
 });
 
 test('applySize records whether the overlay pin was applied (_wrapPinned)', () => {
-    const src = fs.readFileSync(screenJs, 'utf8');
+    const src = fs.readFileSync(cameraLifecycleJs, 'utf8');
     const fn = extractBlock(src, 'function applySize(w, h)');
     // Pin path sets the flag true; the not-laid-out fallback sets it false
     // so the rAF loop knows the pin is still pending.
@@ -88,7 +95,7 @@ test('the rAF loop re-pins the overlay once the canvas lays out (Codex P1)', () 
     const src = fs.readFileSync(screenJs, 'utf8');
     assert.match(
         src,
-        /else if\s*\(\s*!_wrapPinned\s*&&\s*box\.w\s*>\s*0\s*&&\s*box\.h\s*>\s*0\s*&&\s*highwayCanvas\.offsetWidth\s*>\s*0\s*&&\s*highwayCanvas\.offsetHeight\s*>\s*0\s*\)\s*\{\s*[\s\S]*?applySize\(\s*box\.w\s*,\s*box\.h\s*\)\s*;/,
-        'must re-pin via applySize when !_wrapPinned and the canvas has laid out',
+        /else if\s*\(\s*!_applied\.pinned\s*&&\s*box\.w\s*>\s*0\s*&&\s*box\.h\s*>\s*0\s*&&\s*highwayCanvas\.offsetWidth\s*>\s*0\s*&&\s*highwayCanvas\.offsetHeight\s*>\s*0\s*\)\s*\{\s*[\s\S]*?cameraLifecycle\.applySize\(\s*box\.w\s*,\s*box\.h\s*\)\s*;/,
+        'must re-pin via applySize when the overlay is not yet pinned and the canvas has laid out',
     );
 });

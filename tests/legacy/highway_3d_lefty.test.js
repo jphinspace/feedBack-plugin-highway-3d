@@ -18,6 +18,9 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..', '..');
 const SCREEN_JS = path.join(ROOT, 'src', 'main.js');
 const CLAUDE_MD = path.join(ROOT, 'CLAUDE.md');
+// camUpdate (the shoulder-offset computation) moved to
+// instance/render/camera-lifecycle.js (Stage 7, post-3e).
+const CAMERA_LIFECYCLE_JS = path.join(ROOT, 'src', 'instance', 'render', 'camera-lifecycle.js');
 
 function src(file) {
     return fs.readFileSync(file, 'utf8');
@@ -68,7 +71,7 @@ test('draw(bundle) handles lefty changes by flipping camera X state and rebuildi
 
 test('camera shoulder offset follows the cached lefty orientation', () => {
     assert.match(
-        src(SCREEN_JS),
+        src(CAMERA_LIFECYCLE_JS),
         // The shoulder offset now feeds the base _camX (which the opt-in
         // free-camera bridge layers on top of) before cam.position.set (#771).
         /const\s+shoulderOffset\s*=\s*\(\s*_leftyCached\s*\?\s*-1\s*:\s*1\s*\)\s*\*\s*10\s*\*\s*K\s*;[\s\S]*?_camX\s*=\s*ctx\.cam\.curX\s*\+\s*shoulderOffset/,

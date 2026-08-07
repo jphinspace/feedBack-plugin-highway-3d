@@ -124,6 +124,7 @@ import { createFretMarkersBuilder } from './instance/geometry/fret-markers.js';
 import { createBackgroundMount } from './instance/background-mount.js';
 import { createMaterialRetint } from './instance/render/material-retint.js';
 import { createVerdictPrune } from './instance/notedetect/verdict-prune.js';
+import { createCameraLifecycle } from './instance/render/camera-lifecycle.js';
 import {
     bnvSampleAt, canvasSize, darkenHex, disposeGroupTree, effectiveVfov, noteHasVibrato,
     teachingDegreeLabel, teachingFingerLabel, tremoloOffsetWorldX, vibratoSemisAtTime,
@@ -514,14 +515,9 @@ function createFactory() {
     // (getBoundingClientRect is a forced layout read; see the comment
     // at the check).
     let _boxCheckCountdown = 0;
-    // Last logical (CSS px) size handed to applySize(). #highway is a
-    // flex:1 item, so its real rendered box (canvasSize()) can change as
-    // the player layout settles after a song opens WITHOUT the backing
-    // store (canvas.width) changing — which the _lastHwW/H check below
-    // would miss. Tracking the applied logical size lets draw() detect
-    // that CSS-box drift and re-frame, instead of the user having to
-    // un/re-maximize the window.
-    let _appliedW = 0, _appliedH = 0;
+    // Last logical (CSS px) size draw()'s resize-detection fallback compared
+    // against -- see cameraLifecycle.getAppliedSize() (instance/render/
+    // camera-lifecycle.js) for the applied-size/wrap-pinned state itself.
     // _paneAspect lives on ctx.cam now (see instance/ctx.js) -- cached so
     // camUpdate can recompute the horizontal-FOV-hold each frame (and react
     // to live __h3dAspectTune edits) without waiting for a resize.
@@ -530,14 +526,6 @@ function createFactory() {
     // init(); overrides keyed off arrangement persist across songs, this
     // fallback is session-only.
     let _paneUid = 0;
-    // True once applySize() has pinned the .h3d-wrap overlay to the
-    // highway canvas's offset box. Stays false while the canvas has no
-    // layout yet (init() can run before #highway has a real box, where
-    // applySize falls back to the parent-panel size and only sets the
-    // wrap height). The rAF loop re-pins once the canvas lays out even
-    // when the logical render size is unchanged — otherwise the overlay
-    // would stay at top:0;left:0;right:0 and expose a strip of #highway.
-    let _wrapPinned = false;
     let mBeatM = null, mBeatQ = null;
     // txtMat/pinchHarmonicMat/naturalHarmonicMat/muteXMat + the technique
     // marker sprite cache (triMat/bendChevronMat/slideArrowMat) live in
@@ -639,6 +627,14 @@ function createFactory() {
     // _streakFx / _bloom also live there -- read only inside update()'s
     // _noteFrame block (first four) or draw() (_bloom). _sparks also moved
     // there.
+    // camUpdate()/applySize() -- see instance/render/camera-lifecycle.js.
+    // Constructed in initScene() AFTER the createDomAndScene() destructure
+    // (needs cam/ren/wrap/lyricsCanvas), but createDomAndScene() itself
+    // needs an `applySize` function to hand to its _onCtxRestored listener
+    // -- passed as a thin proxy closing over this `let` by reference (same
+    // "wrapper indirection" fix material-retint.js used for its own
+    // pre-construction-time dependency).
+    let cameraLifecycle = null;
     // Bloom composer (#4) -- see instance/render/bloom-composer.js.
     // bloomComposer is constructed once in initScene(); its internal
     // composer/bloomPass state is reset to null by disposeBloomComposer()
@@ -1335,12 +1331,27 @@ function createFactory() {
             getHighwayCanvas: () => highwayCanvas,
             setHighwayCanvas: (c) => { highwayCanvas = c; },
             setCtxLost: (v) => { _ctxLost = v; },
-            butterchurnModeActive, applySize,
+            butterchurnModeActive,
+            // Proxy, not the bare function: cameraLifecycle (which owns the
+            // real applySize()) is constructed just below, AFTER this
+            // destructure runs (it needs cam/ren/wrap/lyricsCanvas). Safe
+            // because _onCtxRestored (the only caller reached through this
+            // dep) never fires until long after initScene() has returned.
+            applySize: (w, h) => cameraLifecycle.applySize(w, h),
         }));
         // _applyCinematic() reads ambLight/dirLight from THIS closure's
         // `let`s -- must run after the destructure above, not inside the
         // factory (see dom-and-scene.js's doc comment).
         _applyCinematic();
+
+        // camUpdate()/applySize() -- see instance/render/camera-lifecycle.js.
+        cameraLifecycle = createCameraLifecycle({
+            ctx, cam, _probe, wrap, ren, lyricsCanvas, chordDiagramCache, sY, _paneUid,
+            getHighwayCanvas: () => highwayCanvas,
+            getNStr: () => nStr,
+            getLeftyCached: () => _leftyCached,
+            getRenderScale: () => _renderScale,
+        });
 
         // Score FX (notedetect game-scoring layer) -- see
         // instance/render/score-fx.js. Constructed here (before note.js's
@@ -2671,254 +2682,10 @@ function createFactory() {
 
     // drawNotedetectLabels / drawScoreFx -- see instance/render/score-fx.js.
 
-    // Horizontal-FOV-hold ("Hor+"). Returns the vertical fov (deg) the
-    // camera should use for the given pane aspect. With the bridge off (or
-    // absent), or at/under the start aspect, it returns the base vertical
-    // fov unchanged — an exact no-op, so normal panes render identically to
-    // before. Past the start aspect it lowers the vertical fov to keep the
-    // horizontal cone ~constant, so the neck fills an ultra-wide pane
-    // instead of collapsing into a central sliver. Pure + finite-guarded.
-
-    /* ── Camera smooth lerp ──────────────────────────────────────────── */
-    function camUpdate(bundle) {
-        const bpm = computeBPM(bundle.beats, bundle.currentTime);
-        const lerp = CAM_LERP_BASE * Math.max(bpm, 60) / 120;
-
-        // ── Horizontal-FOV-hold + optional wide-pane pose nudges ──
-        // Driven by window.__h3dAspectTune (default off → exact no-op).
-        // _resolveTuneFor(paneKey) returns the shared base with THIS pane's
-        // overrides (if any) laid on top, so a single split pane can be framed
-        // independently. The base is seeded from defaults + localStorage on
-        // first read, so a persisted tuning session applies on load without
-        // opening the panel. Every field is finite-coerced. When disabled (or
-        // splitOnly and not in a split) the tune is treated as null, so
-        // effectiveVfov returns the base vertical fov and cam.fov is restored
-        // to it. The fov write is guarded on an actual change so a steady pane
-        // costs nothing.
-        const _paneKey = _aspectPaneKey(
-            bundle && bundle.songInfo && bundle.songInfo.arrangement, _paneUid);
-        // Only feed the Target-picker registry while the tuner is open (same
-        // gate as the readout). Closed → nothing is registered, so the registry
-        // can't grow for users who never open the panel; the key is still
-        // resolved below so any saved overrides keep applying.
-        if (window.__h3dAspectPanelOpen) _aspectRegisterPane(_paneKey);
-        const _aspTune = _resolveTuneFor(_paneKey);
-        const _aspActive = !!(_aspTune && _aspTune.enabled
-            && !(_aspTune.splitOnly && !splitscreenActive()));
-        const _tune = _aspActive ? _aspTune : null;
-        const _vfov = effectiveVfov(ctx.cam._paneAspect, _tune);
-        if (Number.isFinite(_vfov) && Math.abs(_vfov - cam.fov) > 1e-4) {
-            cam.fov = _vfov;
-            cam.updateProjectionMatrix();
-        }
-        // Publish a per-pane live readout for the tuner panel (only while it's
-        // open, so the steady path stays allocation-free). Keyed by pane so
-        // the panel can show the reading for whichever target is selected.
-        if (window.__h3dAspectPanelOpen) {
-            const _ro = window.__h3dAspectReadout || (window.__h3dAspectReadout = {});
-            const _slot = _ro[_paneKey] || (_ro[_paneKey] = {});
-            _slot.aspect = ctx.cam._paneAspect; _slot.vfov = _vfov;
-            _ro.__last = _paneKey;
-        }
-        // Optional pose nudges (height / dolly / pitch) to chase a low-flat
-        // wide-pane look if fov alone isn't enough. Gated to wide panes and
-        // suppressed while the Camera Director owns the view (it wins).
-        const _startAspect = (_tune && Number.isFinite(_tune.startAspect) && _tune.startAspect > 0)
-            ? _tune.startAspect : HORPLUS_START_ASPECT;
-        // Resolve the Camera Director bridge once (per-panel under splitscreen,
-        // else global). Used both for the wide-pane gate and the transforms below.
-        const _freeCam = freeCamFor(highwayCanvas);
-        const _dirActive = !!(_freeCam && _freeCam.enabled);
-        const _wide = !!(_tune && ctx.cam._paneAspect > _startAspect) && !_dirActive;
-        const _poseHMul = (_wide && Number.isFinite(_tune.heightMul)) ? _tune.heightMul : 1;
-        const _poseDMul = (_wide && Number.isFinite(_tune.distMul)) ? _tune.distMul : 1;
-        const _poseLookYAdd = (_wide && Number.isFinite(_tune.pitchAdd)) ? _tune.pitchAdd * K : 0;
-        const _poseLookZMul = (_wide && Number.isFinite(_tune.lookDepthMul) && _tune.lookDepthMul > 0)
-            ? _tune.lookDepthMul : 1;
-
-        ctx.cam.curX += (ctx.cam.tgtX - ctx.cam.curX) * lerp;
-        // The fret-row fit guard (end of camUpdate) may dolly the camera back
-        // via ctx.cam._fretRowFitBoost; the span-driven ctx.cam.tgtDist still owns zooming IN.
-        ctx.cam.curDist += (ctx.cam.tgtDist * ctx.cam._fretRowFitBoost - ctx.cam.curDist) * lerp;
-        const dist = ctx.cam.curDist * ctx.cam.aspectScale;
-        const h = CAM_H_BASE * (dist / CAM_DIST_BASE);
-
-        // Zoom-interpolated framing multipliers: tight (NEAR) -> lower/closer;
-        // wide (FAR, fret 1<->20) -> higher/pulled back.
-        const _zt = Math.max(0, Math.min(1,
-            (dist - CAM_FRAME_DIST_NEAR) / (CAM_FRAME_DIST_FAR - CAM_FRAME_DIST_NEAR)));
-        const _hMul = CAM_FRAME_H_NEAR + (CAM_FRAME_H_FAR - CAM_FRAME_H_NEAR) * _zt;
-        const _dMul = CAM_FRAME_D_NEAR + (CAM_FRAME_D_FAR - CAM_FRAME_D_NEAR) * _zt;
-        const shoulderOffset = (_leftyCached ? -1 : 1) * 10 * K;
-        let _camX = ctx.cam.curX + shoulderOffset, _camY = h * _hMul, _camZ = dist * _dMul;
-        // Optional wide-pane pose nudges (default identity → no-op).
-        if (_poseHMul !== 1) _camY *= _poseHMul;
-        if (_poseDMul !== 1) _camZ *= _poseDMul;
-        // ── Free-camera user tweaks (orbit / height / zoom / pan) ──
-        // Driven by the Camera Director plugin via the camera bridge:
-        // window.__h3dCamCtlPanels[panelIndexFor(canvas)] when split (this
-        // panel's own camera), falling back to the global window.__h3dCamCtl.
-        // Layered ON TOP of the auto-framing so note tracking still works.
-        // The bridge is read once into _freeCam and reused for both the
-        // position and the look-at transforms; every field is coerced to a
-        // finite number before use so a malformed object can never feed NaN
-        // into cam.position / cam.lookAt.
-        // _freeCam resolved above via freeCamFor(highwayCanvas): the
-        // per-panel __h3dCamCtlPanels entry, else global __h3dCamCtl, else null.
-        const _lookAtZ = -FOCUS_D * 0.35 * _poseLookZMul;
-        if (_freeCam && _freeCam.enabled) {
-            const _distMul = Number.isFinite(_freeCam.distMul) ? _freeCam.distMul : 1;
-            const _heightMul = Number.isFinite(_freeCam.heightMul) ? _freeCam.heightMul : 1;
-            const _yaw = Number.isFinite(_freeCam.yaw) ? _freeCam.yaw : 0;
-            const _tx = ctx.cam.curX, _ty = ctx.cam.curLookY, _tz = _lookAtZ; // look target
-            let _vx = _camX - _tx, _vy = _camY - _ty, _vz = _camZ - _tz;
-            _vx *= _distMul; _vy *= _distMul; _vz *= _distMul; // zoom (dolly)
-            _vy *= _heightMul;                                 // height
-            const _cy = Math.cos(_yaw), _sy = Math.sin(_yaw);  // orbit around Y
-            const _rx = _vx * _cy - _vz * _sy, _rz = _vx * _sy + _vz * _cy;
-            _camX = _tx + _rx; _camY = _ty + _vy; _camZ = _tz + _rz;
-        }
-        cam.position.set(_camX, _camY, _camZ);
-
-        // Self-correcting look-at Y: project the fretboard's near-edge centre
-        // to NDC space. If it drifts toward the frame edge, nudge ctx.cam.tgtLookY
-        // toward the fretboard centre so the camera tilts to re-frame it.
-        // This lets the camera adapt to any panel aspect ratio automatically.
-        const fretMidY = (sY(0) + sY(nStr - 1)) / 2;
-        _probe.set(ctx.cam.curX, fretMidY, 0);                  // play-line fretboard centre
-        cam.lookAt(ctx.cam.curX, ctx.cam.curLookY + _poseLookYAdd, _lookAtZ);    // tentative look — needed for project()
-        cam.updateMatrixWorld();
-        _probe.project(cam);                             // _probe.y → NDC in [-1, 1]
-
-        // Keep fretboard centre in the lower third of the screen (NDC ≈ -0.35).
-        // The deadband width and correction strength are both blended
-        // between Twitchy and Calm bounds by the user's tiltSmoothing
-        // setting — twitchy = re-frame aggressively (narrow band, strong
-        // nudge); calm = let small drift ride (wide band, weak nudge).
-        const DESIRED_NDC_Y = -0.35;
-        const tiltBand   = CAM_TILT_BAND_T + (CAM_TILT_BAND_C - CAM_TILT_BAND_T) * ctx.settings.tiltSmoothing;
-        const tiltStr    = CAM_TILT_STR_T  + (CAM_TILT_STR_C  - CAM_TILT_STR_T)  * ctx.settings.tiltSmoothing;
-        if (_probe.y < DESIRED_NDC_Y - tiltBand || _probe.y > DESIRED_NDC_Y + tiltBand) {
-            // _probe.y too low → fretboard near bottom → ctx.cam.tgtLookY decreases → camera tilts down → fretboard rises
-            // _probe.y too high → fretboard near top  → ctx.cam.tgtLookY increases → camera tilts up   → fretboard drops
-            const correction = (DESIRED_NDC_Y - _probe.y) * fretMidY * tiltStr;
-            ctx.cam.tgtLookY = Math.max(-fretMidY, Math.min(fretMidY, ctx.cam.tgtLookY - correction));
-        }
-        ctx.cam.curLookY += (ctx.cam.tgtLookY - ctx.cam.curLookY) * lerp;
-
-        // Final look-at with the corrected Y (overrides the tentative one above).
-        // User tilt (pitch) + pan offsets layer on top when the free-cam is
-        // enabled; each is coerced to a finite number to avoid a NaN look-at.
-        if (_freeCam && _freeCam.enabled) {
-            const _panX = Number.isFinite(_freeCam.panX) ? _freeCam.panX : 0;
-            const _panY = Number.isFinite(_freeCam.panY) ? _freeCam.panY : 0;
-            const _pitch = Number.isFinite(_freeCam.pitch) ? _freeCam.pitch : 0;
-            cam.lookAt(ctx.cam.curX + _panX * K, ctx.cam.curLookY + (_pitch + _panY) * K, _lookAtZ);
-        } else {
-            cam.lookAt(ctx.cam.curX, ctx.cam.curLookY + _poseLookYAdd, _lookAtZ);
-        }
-
-        // ── Fret-row fit guard ────────────────────────────────────────────
-        // Project the fret-number-row band (just below the lowest string, at
-        // the play line) with the final camera. If it sits below the safe
-        // bottom line, dolly back (raise ctx.cam._fretRowFitBoost → applied to the
-        // ctx.cam.curDist lerp target next frame) until it clears; relax lazily once
-        // there's comfortable headroom. Asymmetric + deadbanded so it
-        // converges without hunting, and capped so the zoom can't pop. It
-        // cooperates with the tilt loop above rather than fighting it: pulling
-        // back shrinks the scene, the tilt loop keeps the board centre anchored
-        // at DESIRED_NDC_Y, so only the row's bottom headroom changes. Skipped
-        // while the free-cam (Camera Director) owns the view.
-        if (_freeCam && _freeCam.enabled) {
-            if (ctx.cam._fretRowFitBoost !== 1) ctx.cam._fretRowFitBoost = 1;
-        } else {
-            cam.updateMatrixWorld();
-            const _rowY = Math.min(sY(0), sY(nStr - 1)) - S_GAP * 1.4;
-            _probe.set(ctx.cam.curX, _rowY, 0.5 * K);
-            _probe.project(cam);                              // _probe.y → NDC; < -1 = off the bottom
-            const _rowNdcY = _probe.y;
-            if (_rowNdcY < FRET_ROW_FIT_NDC_MIN) {
-                // Row below the safe line → pull back promptly, proportional to
-                // the deficit so it converges in a few frames without overshoot.
-                const _need = FRET_ROW_FIT_NDC_MIN - _rowNdcY;
-                ctx.cam._fretRowFitBoost = Math.min(FRET_ROW_FIT_BOOST_MAX,
-                    ctx.cam._fretRowFitBoost + Math.min(0.05, _need * 0.4));
-            } else if (_rowNdcY > FRET_ROW_FIT_NDC_MIN + FRET_ROW_FIT_DEADBAND
-                       && ctx.cam._fretRowFitBoost > 1) {
-                // Comfortable headroom → relax the dolly back toward normal, lazily.
-                ctx.cam._fretRowFitBoost = Math.max(1, ctx.cam._fretRowFitBoost - 0.01);
-            }
-        }
-    }
-
-    /* ── Resize helper ───────────────────────────────────────────────── */
-    function applySize(w, h) {
-        if (!ren || !cam || !wrap) return;
-        if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
-        const baseDPR = splitscreenActive() ? Math.min(devicePixelRatio, 1.25) : Math.min(devicePixelRatio, 2);
-        ren.setPixelRatio(_renderScale * baseDPR);
-        ren.setSize(w, h);
-        // Pin the overlay to #highway's exact box so it fully covers the
-        // canvas. The wrap is anchored to top:0/left:0/right:0 of its
-        // offset parent, which only lines up with #highway when the
-        // canvas sits at the parent's origin. The v3 player can place
-        // chrome above the canvas, shifting the wrap up so its lower edge
-        // falls short of #highway — leaving a strip of the canvas exposed
-        // (the reported gap, where the previous renderer's frame showed
-        // through). The wrap is a sibling of highwayCanvas, so they share
-        // an offset parent; tracking the canvas's box keeps the overlay
-        // flush in single-player and splitscreen alike.
-        //
-        // Derive the box from the SAME getBoundingClientRect measurements
-        // that drive ren.setSize(w, h) — NOT integer offsetTop/Width — so
-        // the overlay matches the renderer exactly. Under browser zoom or
-        // fractional flex layouts the canvas lands on sub-pixel bounds;
-        // offsetWidth/Top round to whole pixels and would leave the wrap up
-        // to 1px short of (or shifted from) the canvas, reopening the
-        // exposed edge strip. Position is taken relative to the containing
-        // block's padding edge (clientTop/Left strip the parent's border),
-        // which is what `top`/`left` resolve against for the absolutely
-        // positioned wrap. Guarded on a laid-out canvas (offsetWidth/Height
-        // > 0); otherwise fall back to the static top:0/left:0/right:0.
-        if (highwayCanvas && highwayCanvas.offsetWidth > 0 && highwayCanvas.offsetHeight > 0) {
-            const _pinParent = wrap.offsetParent || highwayCanvas.parentNode;
-            const _cr = highwayCanvas.getBoundingClientRect();
-            const _pr = _pinParent ? _pinParent.getBoundingClientRect() : { top: 0, left: 0 };
-            const _pbTop = _pinParent ? _pinParent.clientTop : 0;
-            const _pbLeft = _pinParent ? _pinParent.clientLeft : 0;
-            wrap.style.top = (_cr.top - _pr.top - _pbTop) + 'px';
-            wrap.style.left = (_cr.left - _pr.left - _pbLeft) + 'px';
-            wrap.style.right = 'auto';
-            wrap.style.width = _cr.width + 'px';
-            wrap.style.height = _cr.height + 'px';
-            _wrapPinned = true;
-        } else {
-            // Canvas not laid out (e.g. init ran before #highway had a real
-            // box, or a panel hide/show where canvasSize() falls back to the
-            // parent panel). Reset to the static anchor — if we had pinned
-            // before, the old top/left/right:auto/width would otherwise stay
-            // and the wrap would reappear at a stale horizontal position on
-            // the next show. Leave _wrapPinned false so the rAF loop re-pins
-            // once the canvas materializes again.
-            wrap.style.top = '0';
-            wrap.style.left = '0';
-            wrap.style.right = '0';
-            wrap.style.width = 'auto';
-            wrap.style.height = h + 'px';
-            _wrapPinned = false;
-        }
-        if (lyricsCanvas) { lyricsCanvas.width = w; lyricsCanvas.height = h; }
-        chordDiagramCache.clearDiagramCache();
-        cam.aspect = w / h;
-        cam.updateProjectionMatrix();
-        ctx.cam.aspectScale = Math.max(1, REF_ASPECT / Math.max(cam.aspect, 0.5));
-        // Cache the pane aspect for the horizontal-FOV-hold in camUpdate.
-        // cam.fov itself is owned by camUpdate (not set here) so live
-        // __h3dAspectTune edits apply every frame without a resize.
-        ctx.cam._paneAspect = cam.aspect;
-        _appliedW = w; _appliedH = h;
-    }
-
+    // camUpdate() (smooth camera lerp + self-correcting NDC look-at,
+    // including the Horizontal-FOV-hold "Hor+" pane-aspect logic) and
+    // applySize() (DPR + canvas size + aspect clamping) -- see
+    // instance/render/camera-lifecycle.js, called as cameraLifecycle.x().
     /* ── Teardown ────────────────────────────────────────────────────── */
     function teardown() {
         // Background animations (#13). Drop the listener first so any
@@ -3208,7 +2975,7 @@ function createFactory() {
                     _resolveReady();
                     _updateFocusState();
                     if (sz.w > 0 && sz.h > 0) {
-                        applySize(sz.w, sz.h);
+                        cameraLifecycle.applySize(sz.w, sz.h);
                     } else {
                         // Panel container not yet laid out (sizeCanvases() runs after
                         // initPanel() in the setup sequence). Retry each frame until
@@ -3216,7 +2983,7 @@ function createFactory() {
                         (function retrySize() {
                             if (_destroyed || !_isReady) return;
                             const s = canvasSize(highwayCanvas);
-                            if (s.w > 0 && s.h > 0) applySize(s.w, s.h);
+                            if (s.w > 0 && s.h > 0) cameraLifecycle.applySize(s.w, s.h);
                             else requestAnimationFrame(retrySize);
                         })();
                     }
@@ -3305,7 +3072,7 @@ function createFactory() {
             if (newScale !== _renderScale) {
                 _renderScale = newScale;
                 const s = canvasSize(highwayCanvas);
-                if (s.w > 0 && s.h > 0) applySize(s.w, s.h);
+                if (s.w > 0 && s.h > 0) cameraLifecycle.applySize(s.w, s.h);
             }
             // Keep the render matched to the highway canvas's real box.
             // Two independent drifts to catch each frame:
@@ -3333,17 +3100,18 @@ function createFactory() {
                 // loses nothing visible.
                 const _bsChanged = highwayCanvas.width !== _lastHwW
                     || highwayCanvas.height !== _lastHwH;
+                const _applied = cameraLifecycle.getAppliedSize();
                 _boxCheckCountdown = (_boxCheckCountdown + 1) % 10;
-                if (_bsChanged || !_wrapPinned || _boxCheckCountdown === 0) {
+                if (_bsChanged || !_applied.pinned || _boxCheckCountdown === 0) {
                     const box = canvasSize(highwayCanvas);
                     if (_bsChanged) {
                         _lastHwW = highwayCanvas.width;
                         _lastHwH = highwayCanvas.height;
-                        if (box.w > 0 && box.h > 0) applySize(box.w, box.h);
+                        if (box.w > 0 && box.h > 0) cameraLifecycle.applySize(box.w, box.h);
                     } else if (box.w > 0 && box.h > 0 &&
-                            (Math.abs(box.w - _appliedW) > 1 || Math.abs(box.h - _appliedH) > 1)) {
-                        applySize(box.w, box.h);
-                    } else if (!_wrapPinned && box.w > 0 && box.h > 0 &&
+                            (Math.abs(box.w - _applied.w) > 1 || Math.abs(box.h - _applied.h) > 1)) {
+                        cameraLifecycle.applySize(box.w, box.h);
+                    } else if (!_applied.pinned && box.w > 0 && box.h > 0 &&
                             highwayCanvas.offsetWidth > 0 && highwayCanvas.offsetHeight > 0) {
                         //  3. The overlay pin couldn't be applied at init because
                         //     #highway had no layout yet (offsetWidth/Height === 0),
@@ -3353,12 +3121,12 @@ function createFactory() {
                         //     wrap to the canvas box now that its offsets are real.
                         //     Otherwise the overlay stays at top:0;left:0;right:0 and
                         //     a strip of #highway is exposed on first load / split.
-                        applySize(box.w, box.h);
+                        cameraLifecycle.applySize(box.w, box.h);
                     }
                 }
             }
             update(bundle);
-            camUpdate(bundle);
+            cameraLifecycle.camUpdate(bundle);
 
             // Background animations (#13). Compute frame dt once,
             // read audio bands when reactivity is on, delegate to
@@ -3619,16 +3387,18 @@ function createFactory() {
         resize(w, h) {
             if (!_isReady) return;
             const s = canvasSize(highwayCanvas);
-            applySize(s.w > 0 ? s.w : w, s.h > 0 ? s.h : h);
+            cameraLifecycle.applySize(s.w > 0 ? s.w : w, s.h > 0 ? s.h : h);
         },
 
         destroy() {
             _destroyed = true; _isReady = false; _diagChord = null; _diagPrev = null; _diagLastKey = null; chordDiagramCache.clearDiagramCache();
             _lastHwW = 0; _lastHwH = 0;
-            _appliedW = 0; _appliedH = 0;
+            // _appliedW/_appliedH/_wrapPinned reset dropped: they're now
+            // cameraLifecycle's private state, and that whole factory is
+            // reconstructed fresh on the next initScene() call (same as
+            // every other post-3e slice's private state).
             ctx.cam._paneAspect = 0;
             if (cam && cam.fov !== BASE_VFOV) { cam.fov = BASE_VFOV; cam.updateProjectionMatrix(); }
-            _wrapPinned = false;
             if (backgroundControlAcquired) { backgroundControlAcquired = false; releaseBackgroundControl(); }
             _unsubscribeFocus(); teardown();
             highwayCanvas = null;

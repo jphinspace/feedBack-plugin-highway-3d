@@ -8,11 +8,12 @@
 //
 // hwyFirstRelevantFrettedTime moved to src/core/chart-util.js in the
 // screen.js -> src/ module split (Stage 2); real-import it rather than
-// eval'ing its extracted source text. camUpdate and the camera-bootstrap
-// call site inside update() haven't moved yet, so those stay source-level
-// (extractFn/sourceBetween against src/main.js's raw text) -- converting
-// this whole file to .mjs (from .test.js) is what makes the real import
-// possible: CommonJS can't use top-level await.
+// eval'ing its extracted source text. camUpdate moved to
+// src/instance/render/camera-lifecycle.js (Stage 7, post-3e); the
+// camera-bootstrap call site inside update() stayed in main.js, so those
+// stay source-level (extractFn/sourceBetween) against whichever file each
+// piece now lives in -- converting this whole file to .mjs (from .test.js)
+// is what makes the real import possible: CommonJS can't use top-level await.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -32,6 +33,9 @@ const CAMERA_TARGET_JS = path.join(__dirname, '..', '..', 'src', 'instance', 're
 const cameraTargetSrc = fs.readFileSync(CAMERA_TARGET_JS, 'utf8');
 const CAMERA_BOOTSTRAP_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'camera-bootstrap.js');
 const cameraBootstrapSrc = fs.readFileSync(CAMERA_BOOTSTRAP_JS, 'utf8');
+// camUpdate moved to instance/render/camera-lifecycle.js (Stage 7, post-3e).
+const CAMERA_LIFECYCLE_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'camera-lifecycle.js');
+const cameraLifecycleSrc = fs.readFileSync(CAMERA_LIFECYCLE_JS, 'utf8');
 
 function extractFn(source, name) {
     const start = source.indexOf('function ' + name);
@@ -210,7 +214,7 @@ test('Camera Director still layers after the bootstrapped auto-framing base', ()
         'bootstrap must only initialize base framing, never mutate Camera Director state',
     );
 
-    const camUpdate = extractFn(src, 'camUpdate');
+    const camUpdate = extractFn(cameraLifecycleSrc, 'camUpdate');
     const baseIndex = camUpdate.indexOf('ctx.cam.curX += (ctx.cam.tgtX - ctx.cam.curX) * lerp');
     const directorIndex = camUpdate.indexOf('if (_freeCam && _freeCam.enabled)');
     const positionIndex = camUpdate.indexOf('cam.position.set(_camX, _camY, _camZ)');
