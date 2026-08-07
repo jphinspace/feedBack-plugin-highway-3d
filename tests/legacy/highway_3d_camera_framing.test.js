@@ -30,6 +30,10 @@ const src = fs.readFileSync(SCREEN_JS, 'utf8');
 // main.js, now gated on that function's returned boolean.
 const CAMERA_BOOTSTRAP_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'camera-bootstrap.js');
 const cameraBootstrapSrc = fs.readFileSync(CAMERA_BOOTSTRAP_JS, 'utf8');
+// lookaheadEndTime/lookaheadComputeFretBounds moved to
+// instance/model/lookahead-math.js (Stage 7, post-3e).
+const LOOKAHEAD_MATH_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'model', 'lookahead-math.js');
+const lookaheadMathSrc = fs.readFileSync(LOOKAHEAD_MATH_JS, 'utf8');
 
 // ── Zoom-dependent framing ──────────────────────────────────────────────────
 
@@ -101,18 +105,18 @@ test('measure-start cache only keeps beats with measure >= 0', () => {
 
 test('lookaheadEndTime targets the measure CAM_LOOKAHEAD_MEASURES ahead', () => {
     assert.match(
-        src,
+        lookaheadMathSrc,
         /function\s+lookaheadEndTime\s*\(\s*now\s*\)/,
         'lookaheadEndTime(now) helper must exist',
     );
     assert.match(
-        src,
+        lookaheadMathSrc,
         /const\s+targetIdx\s*=\s*curIdx\s*\+\s*CAM_LOOKAHEAD_MEASURES/,
         'target measure index = current measure + CAM_LOOKAHEAD_MEASURES',
     );
     // No beats → seconds fallback.
     assert.match(
-        src,
+        lookaheadMathSrc,
         /if\s*\(\s*!ms\s*\|\|\s*ms\.length\s*===\s*0\s*\)\s*return\s+now\s*\+\s*CAM_LOOKAHEAD_SEC/,
         'lookaheadEndTime must fall back to seconds when there are no measures',
     );
@@ -120,7 +124,7 @@ test('lookaheadEndTime targets the measure CAM_LOOKAHEAD_MEASURES ahead', () => 
 
 test('fret-bounds scan drives its window off lookaheadEndTime, not fixed seconds', () => {
     assert.match(
-        src,
+        lookaheadMathSrc,
         /function\s+lookaheadComputeFretBounds[\s\S]*?const\s+tEnd\s*=\s*lookaheadEndTime\(\s*now\s*\)/,
         'lookaheadComputeFretBounds must derive tEnd from lookaheadEndTime(now)',
     );
