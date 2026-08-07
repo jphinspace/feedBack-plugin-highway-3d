@@ -4,9 +4,7 @@ import {
     savePresetLists, saveButterchurnSettings,
 } from './prefs.js';
 
-// Visual language: these controls sit in the player's Plugin Controls
-// popover alongside pills from other plugins, so the pill/button chrome
-// (PANEL_BUTTON_CSS) is shared across every ── button in the in-canvas panel below.
+/** Shared pill/button chrome for every control in the in-canvas panel below. */
 const PANEL_BUTTON_CSS = 'background:rgba(255,255,255,.09);color:#cfe3ff;border:1px solid rgba(255,255,255,.16);border-radius:5px;padding:3px 8px;cursor:pointer;font:12px system-ui';
 
 export let primaryController = null;
@@ -21,14 +19,12 @@ function setPresetHold(v) {
     const b = presetPanelEl && presetPanelEl.querySelector('#vz-hold');
     if (b) b.textContent = s.hold ? '▶ Resume' : '⏸ Hold';
 }
-// Drives both panels off the right edge. Order when both open (L→R):
-//   visualizer panel → preset pane → window edge. Pane lives off-screen by
-//   default; opening it shoves the panel LEFT to make room.
+/** Slides the panel and preset pane off the right edge. Order when both open (L→R): panel → pane → window edge. */
 function layoutPanels() {
     if (presetPanelEl) {
         let tx = 0;
-        if (panelCollapsed) tx = 210;        // tuck the whole panel off the right edge
-        else if (presetPaneOpen) tx = -248;   // slide panel LEFT to make room for the pane
+        if (panelCollapsed) tx = 210;
+        else if (presetPaneOpen) tx = -248;
         presetPanelEl.style.transform = 'translateX(' + tx + 'px) translateY(-50%)';
     }
     if (presetPaneEl) {
@@ -60,7 +56,7 @@ function renderPresetList() {
         row.addEventListener('click', () => {
             if (!primaryController) return;
             primaryController.loadByName(name, 1.0);
-            setPresetHold(true); // picked from the list → sit on it
+            setPresetHold(true);
         });
         frag.appendChild(row);
     }
@@ -82,12 +78,10 @@ export function updatePanelPreset() {
 }
 
 let presetPanelEl = null, panelHotkeyBound = false;
+
+/** Mounts (or re-parents) the singleton preset-browser panel onto `host`, the wrap of the currently on-screen highway. */
 export function ensurePresetPanel(host) {
     if (presetPanelEl && presetPanelEl.isConnected) {
-        // Singleton panel: follow the active highway. If it's still parented
-        // to a different wrap (e.g. another mounted highway instance such as
-        // Virtuoso's embedded one), move it — and the pane — to this wrap so
-        // it appears on whichever highway is currently on-screen.
         if (host && presetPanelEl.parentNode !== host) {
             host.appendChild(presetPanelEl);
             if (presetPaneEl) host.appendChild(presetPaneEl);
@@ -102,9 +96,7 @@ export function ensurePresetPanel(host) {
         'box-shadow:0 2px 12px rgba(0,0,0,0.5);user-select:none;transition:transform 0.28s ease;';
     p.innerHTML =
         '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px"><span style="font-weight:600">🌀 Visualizer</span><button id="vz-listbtn" title="Show / hide full preset list" style="' + PANEL_BUTTON_CSS + ';padding:1px 7px">&lt;&lt;</button></div>' +
-        // On/off + opacity/dim/chart/tint/gain controls now live in the
-        // plugin's Settings panel (settings.html). This in-canvas panel is
-        // only the LIVE preset browser (pick / favorite / ban / cycle).
+        // On/off/opacity/dim/chart/tint/gain controls live in settings.html; this panel is only the live preset browser.
         '<div style="opacity:.55;font-size:11px;margin:2px 0 6px">Background &amp; reactivity options are in Settings ▸ 3D Highway.</div>' +
         '<div style="display:flex;align-items:center;gap:6px;margin:4px 0">' +
           '<button id="vz-prev" style="' + PANEL_BUTTON_CSS + '">◀</button>' +
@@ -124,8 +116,6 @@ export function ensurePresetPanel(host) {
         '<div style="opacity:.45;margin-top:4px;font-size:11px">` or ‹‹ to hide</div>';
     (host || document.body).appendChild(p);
 
-    // Slide handle (<< / >>) so the panel can tuck off the right edge and stop
-    // covering the Now / Up-Next labels.
     const tab = document.createElement('button');
     tab.textContent = '>>';
     tab.title = 'Hide / show controls';
@@ -134,13 +124,12 @@ export function ensurePresetPanel(host) {
     p.appendChild(tab);
     tab.addEventListener('click', () => {
         panelCollapsed = !panelCollapsed;
-        if (panelCollapsed) presetPaneOpen = false; // collapsing the panel hides the pane too
+        if (panelCollapsed) presetPaneOpen = false;
         tab.textContent = panelCollapsed ? '<<' : '>>';
         const lb = p.querySelector('#vz-listbtn'); if (lb) lb.textContent = presetPaneOpen ? '>>' : '<<';
         layoutPanels();
     });
 
-    // Sliding preset-list pane (sits to the LEFT of the control panel)
     const pane = document.createElement('div');
     pane.id = 'viz3d-listpane';
     pane.style.cssText = 'position:absolute;top:50%;right:10px;z-index:99999;pointer-events:auto;width:236px;max-height:74vh;display:flex;flex-direction:column;' +
@@ -160,14 +149,12 @@ export function ensurePresetPanel(host) {
     const q = (id) => p.querySelector(id);
     presetPanelEl = p;
 
-    // Preset curation wiring (favorites / bans / cycle / reset)
     loadPresetLists();
     const cyc = q('#vz-cyc');
     cyc.value = s.cyclePool || 'all';
-    // Read fresh: settings.html writes can replace butterchurnSettings, so the `s`
-    // captured at panel creation may be stale by the time this fires.
+    // Read fresh: settings.html writes can replace butterchurnSettings after `s` was captured.
     cyc.addEventListener('change', () => { loadButterchurnSettings().cyclePool = cyc.value; saveButterchurnSettings(); });
-    setPresetHold(!!s.hold); // sync the Hold button label to the saved state
+    setPresetHold(!!s.hold);
     q('#vz-hold').addEventListener('click', () => setPresetHold(!loadButterchurnSettings().hold));
     q('#vz-listbtn').addEventListener('click', () => setPresetPaneOpen(!presetPaneOpen));
     q('#vz-pname').addEventListener('click', () => setPresetPaneOpen(!presetPaneOpen));
@@ -175,10 +162,9 @@ export function ensurePresetPanel(host) {
     q('#vz-next').addEventListener('click', () => { if (primaryController) primaryController.step(1); });
     q('#vz-fav').addEventListener('click', () => { if (primaryController) primaryController.toggleFav(); });
     q('#vz-ban').addEventListener('click', () => { if (primaryController) primaryController.banCur(); });
-    setPresetPaneOpen(false); // start collapsed; sets the list-button label
+    setPresetPaneOpen(false);
     updatePanelPreset();
 
-    // Live level readout — proves the song (not just guitar) is driving things.
     // Self-stops when the panel is removed (presetPanelEl !== p).
     (function meterLoop() {
         if (presetPanelEl !== p) return;
@@ -201,7 +187,7 @@ export function ensurePresetPanel(host) {
     return presetPanelEl;
 }
 
-// Re-add the bundled defaults anytime (merges; a default-fav un-bans, a default-ban un-favs).
+/** Merges the bundled defaults back in: a default-favorite un-bans, a default-ban un-favorites. */
 function restoreDefaultPresetLists() {
     DEFAULT_FAVORITE_PRESETS.forEach((n) => { bannedPresets.delete(n); favoritePresets.add(n); });
     DEFAULT_BANNED_PRESETS.forEach((n) => { favoritePresets.delete(n); bannedPresets.add(n); });
@@ -209,10 +195,7 @@ function restoreDefaultPresetLists() {
     savePresetLists(); updatePanelPreset(); renderPresetList();
 }
 
-// createButterchurnController (bc/controller.js) writes both of these from outside
-// this module — primaryController is a live binding read there directly, but the
-// WRITE needs a real setter, and the full-teardown branch (last controller
-// destroyed) used to reach in and null four DOM refs directly.
+/** Setter for `primaryController` — `createButterchurnController` (controller.js) is an outside module and can only write via this. */
 export function setPrimaryController(ctrl) { primaryController = ctrl; }
 export function teardownPresetPanel() {
     if (presetPanelEl && presetPanelEl.parentNode) presetPanelEl.parentNode.removeChild(presetPanelEl);

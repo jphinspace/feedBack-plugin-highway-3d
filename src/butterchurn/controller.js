@@ -6,15 +6,13 @@ import {
 } from './prefs.js';
 import { ensurePresetPanel, primaryController, setPrimaryController, teardownPresetPanel, updatePanelPreset } from './panel.js';
 
-// Browser audio is sourced by REUSING the highway's own shared analyser
-// (the same #audio / stems side-chain tap the fog scenery uses), passed in
-// as `audioProvider` to createButterchurnController. We deliberately do NOT open a
-// second createMediaElementSource on #audio here: it can only be called
-// once per element (a second tap throws InvalidStateError and permanently
-// disables the other consumer), it would route the song through a fresh,
-// possibly-suspended context and mute playback, and it would miss the stems
-// side-chain that sloppaks expose at window.feedBack.stems.getAnalyser().
-// Create a Butterchurn background controller bound to a wrap element.
+/**
+ * Creates a Butterchurn background controller bound to `wrap`. Browser audio
+ * reuses the highway's own shared analyser (`audioProvider`) rather than
+ * opening a second `createMediaElementSource` on `#audio` — that call is
+ * one-shot per element and a second one throws `InvalidStateError`,
+ * permanently disabling the other consumer.
+ */
 export function createButterchurnController(wrap, sizeProvider, audioProvider) {
     const ctrl = { viz: null, actx: null, guitar: null, map: null, keys: [], cycle: 0, dead: false, lastW: -1, lastH: -1, canvas: null, backdrop: null, scrim: null, tint: null, wrap: wrap };
     // Layered DOM in the wrap, all BEHIND the transparent 3D highway:
@@ -43,7 +41,6 @@ export function createButterchurnController(wrap, sizeProvider, audioProvider) {
         }
     };
 
-    // ── Preset curation (favorites / bans / cycle mode) ──
     ctrl.curName = null; ctrl.lastManual = 0;
     ctrl.allList = () => (ctrl.keys || []).filter((k) => !bannedPresets.has(k));
     ctrl.pool = () => {
@@ -55,7 +52,7 @@ export function createButterchurnController(wrap, sizeProvider, audioProvider) {
         }
         return ctrl.allList();
     };
-    ctrl.browseArr = () => ctrl.keys || []; // ◀▶ and the list pane walk the full preset list
+    ctrl.browseArr = () => ctrl.keys || [];
     ctrl.loadByName = (name, blend) => {
         if (!ctrl.viz || !name || !ctrl.map || !ctrl.map[name]) return;
         try { ctrl.viz.loadPreset(ctrl.map[name], blend || 0); ctrl.curName = name; } catch (e) {}
@@ -86,10 +83,10 @@ export function createButterchurnController(wrap, sizeProvider, audioProvider) {
     };
     ctrl.banCur = () => {
         if (!ctrl.curName) return;
-        if (bannedPresets.has(ctrl.curName)) {           // un-ban (two-way) — stay on it
+        if (bannedPresets.has(ctrl.curName)) {
             bannedPresets.delete(ctrl.curName);
             savePresetLists(); updatePanelPreset();
-        } else {                                     // ban + advance off it
+        } else {
             bannedPresets.add(ctrl.curName); favoritePresets.delete(ctrl.curName);
             savePresetLists(); ctrl.step(1);
         }
@@ -106,23 +103,16 @@ export function createButterchurnController(wrap, sizeProvider, audioProvider) {
         if (!bc || typeof bc.createVisualizer !== 'function') { console.warn('[viz3d] Butterchurn global missing'); return; }
         const Ctx = window.AudioContext || window.webkitAudioContext;
         const sz = (sizeProvider && sizeProvider()) || { w: 1280, h: 720 };
-        // Browser (Docker/web app): REUSE the highway's existing shared
-        // analyser (the fog scenery's #audio / stems tap) via audioProvider,
-        // and build Butterchurn on that SAME AudioContext so connectAudio()
-        // doesn't fail cross-context. Desktop uses its own context fed by the
-        // guitar/mic input. `ownsActx` tracks whether WE created the context
-        // (so destroy() closes only contexts we own, never the shared one).
+        // Browser: reuse the highway's shared analyser and build on that SAME AudioContext
+        // (connectAudio() fails cross-context). Desktop uses its own context fed by guitar/mic.
+        // ownsActx tracks whether WE created it, so destroy() only closes contexts we own.
         const fogAudio = isDesktopAudioHost() ? null : (audioProvider ? audioProvider() : null);
         ctrl.ownsActx = !(fogAudio && fogAudio.ctx);
         ctrl.actx = (fogAudio && fogAudio.ctx) || new Ctx();
         if (ctrl.actx.state === 'suspended' && ctrl.actx.resume) ctrl.actx.resume().catch(() => {});
-        // Seed the DRAWING BUFFER (canvas.width/height) to the device-pixel
-        // render size and report that SAME size to Butterchurn. Its on-screen
-        // pass viewports to the reported size but never sizes the output canvas
-        // itself — leaving the buffer at the 300x150 default blits the whole
-        // visualizer into a corner that CSS then stretches across the highway.
-        // pixelRatio:1 because DPR is now folded into the reported size, so
-        // buffer == viewport == internal texsize (no double-counting).
+        // Butterchurn never sizes its own output canvas — seed the drawing buffer to the
+        // device-pixel render size and report that same size, or the output blits into a
+        // corner CSS then stretches. pixelRatio:1 since DPR is already folded into the size.
         const ratio0 = Math.min(window.devicePixelRatio || 1, 1.5);
         const bufferW0 = Math.max(1, Math.round((sz.w || 1280) * ratio0));
         const bufferH0 = Math.max(1, Math.round((sz.h || 720) * ratio0));
@@ -137,8 +127,7 @@ export function createButterchurnController(wrap, sizeProvider, audioProvider) {
                 console.log('[viz3d] bg: feeding GUITAR input into Butterchurn');
             } catch (e) { console.warn('[viz3d] guitar feed failed', e); }
         } else if (fogAudio && fogAudio.analyser) {
-            // The shared AnalyserNode is a passthrough — connecting it onward
-            // to Butterchurn's internal analyser doesn't disturb the fog's reads.
+            // The shared AnalyserNode is a passthrough — connecting it onward doesn't disturb the fog's reads.
             try { ctrl.viz.connectAudio(fogAudio.analyser); console.log('[viz3d] browser: Butterchurn tapping shared analyser (' + (fogAudio.source || 'core') + ')'); }
             catch (e) { console.warn('[viz3d] shared-analyser connect failed', e); }
         }
@@ -151,10 +140,8 @@ export function createButterchurnController(wrap, sizeProvider, audioProvider) {
         ctrl.connectedAnalyser = (fogAudio && fogAudio.analyser) || null;
         console.log('[viz3d] Butterchurn ready, presets:', ctrl.keys.length);
     }).catch((e) => {
-        // Async init failed (lib load, WebGL/context creation, etc.). Clean up
-        // the half-mounted controller so we don't leak an owned AudioContext /
-        // DOM layers, and mark it dead so syncButterchurnMode can retry on a later
-        // mount instead of seeing a live-looking but non-functional bcCtrl.
+        // Async init failed (lib load, WebGL/context creation, etc.) — clean up the
+        // half-mounted controller and mark it dead so a retry can mount fresh later.
         console.error('[viz3d] Butterchurn load/init failed', e);
         try { releaseCanvasGL(ctrl.canvas); } catch (_) {}
         try { if (ctrl.guitar) { ctrl.guitar.stop(); ctrl.guitar = null; } } catch (_) {}
@@ -163,12 +150,7 @@ export function createButterchurnController(wrap, sizeProvider, audioProvider) {
         ctrl.actx = null; ctrl.viz = null; ctrl.dead = true;
         butterchurnControllers.delete(ctrl);
     });
-    // Size the Butterchurn output: set the canvas DRAWING BUFFER to the
-    // device-pixel render size AND report that same size, so buffer ==
-    // on-screen viewport == full fill. Butterchurn never sizes the output
-    // canvas itself; the previous code set only CSS size, leaving the buffer
-    // at the 300x150 default -> the viz showed a stretched lower-left corner
-    // (worse the larger the panel). Ratio reuses the highway's DPR budget.
+    /** Sets the canvas drawing buffer to the device-pixel render size and reports the same size, so buffer == on-screen viewport. */
     function applyButterchurnSize(cssW, cssH) {
         if (!(cssW > 0 && cssH > 0)) return;
         ctrl.lastW = cssW; ctrl.lastH = cssH;
@@ -177,8 +159,7 @@ export function createButterchurnController(wrap, sizeProvider, audioProvider) {
         if (canvas.width !== bw) canvas.width = bw;
         if (canvas.height !== bh) canvas.height = bh;
         const wpx = cssW + 'px', hpx = cssH + 'px';
-        // Confine ALL layers to exactly the highway-canvas rect so the opaque
-        // backdrop can't bleed over the transport bar above the highway.
+        // Confine every layer to exactly the highway-canvas rect, or the opaque backdrop bleeds over the transport bar.
         [ctrl.canvas, ctrl.backdrop, ctrl.scrim, ctrl.tint].forEach((el) => {
             if (el) { el.style.width = wpx; el.style.height = hpx; el.style.right = 'auto'; el.style.bottom = 'auto'; }
         });
@@ -190,14 +171,11 @@ export function createButterchurnController(wrap, sizeProvider, audioProvider) {
         ready() { return !!ctrl.viz; },
         boundAnalyser() { return ctrl.connectedAnalyser || null; },
         audioCtx() { return ctrl.actx; },
-        // Re-bind audio when the shared analyser changes (e.g. a stems song
-        // swap replaces the analyser). Same context → cheap reconnect; the
-        // caller handles a context change with a full rebuild (cross-context
-        // connectAudio is impossible — the visualizer is bound to one ctx).
+        /** Re-binds audio when the shared analyser changes (e.g. a stems song swap). A context change instead needs a full rebuild — cross-context connectAudio is impossible. */
         reconnectAudio(a) {
             if (!a || !a.analyser || !ctrl.viz) return false;
             if (a.analyser === ctrl.connectedAnalyser) return true;
-            if (a.ctx && a.ctx !== ctrl.actx) return false; // needs rebuild
+            if (a.ctx && a.ctx !== ctrl.actx) return false;
             try { ctrl.viz.connectAudio(a.analyser); ctrl.connectedAnalyser = a.analyser; return true; } catch (e) { return false; }
         },
         chart(v) { if (ctrl.guitar && ctrl.guitar.setChart) ctrl.guitar.setChart(v); },
@@ -209,7 +187,7 @@ export function createButterchurnController(wrap, sizeProvider, audioProvider) {
         },
         render() {
             const s = loadButterchurnSettings();
-            if (!ctrl.viz || !s.enabled) return; // skip GPU work when the bg is off
+            if (!ctrl.viz || !s.enabled) return;
             const sz = sizeProvider && sizeProvider();
             if (sz && sz.w > 0 && sz.h > 0 && (sz.w !== ctrl.lastW || sz.h !== ctrl.lastH)) {
                 applyButterchurnSize(sz.w, sz.h);
@@ -223,18 +201,13 @@ export function createButterchurnController(wrap, sizeProvider, audioProvider) {
             if (primaryController === ctrl) { setPrimaryController(butterchurnControllers.values().next().value || null); updatePanelPreset(); }
             if (ctrl.cycle) { clearInterval(ctrl.cycle); ctrl.cycle = 0; }
             if (ctrl.guitar) { ctrl.guitar.stop(); ctrl.guitar = null; }
-            // Release the Butterchurn WebGL context deterministically (don't
-            // wait for GC) so repeated mounts/toggles can't exhaust the
-            // browser's WebGL context cap (~16). Do it before removing the
-            // canvas from the DOM.
+            // Release the WebGL context deterministically (don't wait for GC) so repeated
+            // mounts can't exhaust the browser's WebGL context cap, before removing the canvas.
             releaseCanvasGL(ctrl.canvas);
             [ctrl.canvas, ctrl.backdrop, ctrl.scrim, ctrl.tint].forEach((el) => { if (el && el.parentNode) el.parentNode.removeChild(el); });
             ctrl.viz = null; ctrl.connectedAnalyser = null;
-            // Close the AudioContext only if we own it (desktop, or the
-            // browser fallback). The browser path normally reuses the
-            // highway's shared context, which the fog system owns — never
-            // close that. Without this, desktop leaks a new AudioContext per
-            // mount and hits the browser's ~6-context cap after a few toggles.
+            // Close the AudioContext only if we own it — the browser path normally reuses
+            // the highway's shared context, which the fog system owns and must not be closed.
             if (ctrl.ownsActx && ctrl.actx && typeof ctrl.actx.close === 'function') {
                 try { ctrl.actx.close(); } catch (e) {}
             }
@@ -242,14 +215,8 @@ export function createButterchurnController(wrap, sizeProvider, audioProvider) {
             if (butterchurnControllers.size === 0) {
                 teardownPresetPanel();
             } else if (primaryController && primaryController.wrap) {
-                // Splitscreen: a controller other than this one is still
-                // alive. The singleton panel was parented to THIS (now
-                // destroyed) wrap, so re-home it onto the surviving primary's
-                // wrap — otherwise the panel is orphaned on the dead wrap and
-                // the surviving highway is left with no visualizer controls
-                // (ensurePresetPanel only runs at controller creation). It moves
-                // the existing panel+pane when connected, or rebuilds them on
-                // the survivor if this wrap was already detached.
+                // Splitscreen: the panel was parented to this now-destroyed wrap; re-home it
+                // onto the surviving primary's wrap so it isn't orphaned.
                 try { ensurePresetPanel(primaryController.wrap); updatePanelPreset(); } catch (e) {}
             }
         },

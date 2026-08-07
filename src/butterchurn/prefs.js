@@ -1,7 +1,8 @@
-/* ── Controls + readability (localStorage-backed, global config) ───── */
 const SETTINGS_LS_KEY = 'viz3d_settings';
 const BUTTERCHURN_DEFAULTS = { enabled: true, opacity: 1.0, laneDim: true, laneDimStrength: 0.45, chartAccents: true, colorTint: true, chartStrength: 1.0, tintStrength: 0.65, guitarGain: 6, songGain: 1.8, cyclePool: 'all', hold: false };
 let butterchurnSettings = null;
+
+/** Loads (and caches) the Butterchurn settings blob, merged over defaults. */
 export function loadButterchurnSettings() {
     if (butterchurnSettings) return butterchurnSettings;
     let saved = {};
@@ -13,9 +14,7 @@ export function saveButterchurnSettings() { try { localStorage.setItem(SETTINGS_
 export const butterchurnControllers = new Set();
 export function applyButterchurnSettingsToAll() { butterchurnControllers.forEach((c) => { try { c.applySettings(); } catch (e) {} }); }
 
-// Preset curation: favorites / bans (persisted globally) + the "primary"
-// controller the panel's preset buttons drive.
-// Seeded once on first run (reputation-based starter set; user can edit freely).
+/** Reputation-based starter favorites, applied once on first run; the user can edit freely after. */
 export const DEFAULT_FAVORITE_PRESETS = [
     'Flexi, martin + geiss - dedicated to the sherwin maxawow',
     'Geiss - Reaction Diffusion 2',
@@ -43,6 +42,8 @@ export const DEFAULT_BANNED_PRESETS = [
 export const favoritePresets = new Set();
 export const bannedPresets = new Set();
 let presetListsLoaded = false;
+
+/** Loads favorite/banned preset lists from localStorage, seeding the defaults on first run. */
 export function loadPresetLists() {
     if (presetListsLoaded) return; presetListsLoaded = true;
     try { (JSON.parse(localStorage.getItem('viz3d_favorites') || '[]') || []).forEach((n) => favoritePresets.add(n)); } catch (e) {}
@@ -61,7 +62,5 @@ export function savePresetLists() {
     try { localStorage.setItem('viz3d_banned', JSON.stringify([...bannedPresets])); } catch (e) {}
 }
 
-// src/main.js's window.h3dBcApplySettings (the settings.html live-apply
-// hook) used to reach in and reassign butterchurnSettings = null directly to drop
-// the cache; that state is module-private here, so it needs a real setter.
+/** Drops the cached settings blob so the next {@link loadButterchurnSettings} re-reads localStorage. */
 export function resetButterchurnSettingsCache() { butterchurnSettings = null; }

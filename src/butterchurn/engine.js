@@ -1,16 +1,19 @@
 import { loadButterchurnSettings } from './prefs.js';
 
-/* ── Butterchurn audio-reactive background ──────────────────────────
- * Mounts a Butterchurn (WebGL MilkDrop) canvas BEHIND the transparent
- * 3D highway. On desktop it's driven by the guitar/mic input (the song
- * audio lives in JUCE, not the webview <audio>); in a browser it taps
- * the song <audio> directly.
- * ──────────────────────────────────────────────────────────────────── */
+/**
+ * Butterchurn (WebGL MilkDrop) audio-reactive background, mounted behind
+ * the transparent 3D highway. On desktop it's driven by guitar/mic input
+ * (song audio lives in JUCE, not the webview `<audio>`); in a browser it
+ * taps the song `<audio>` directly.
+ */
 const VENDOR_BASE_URL = '/api/plugins/highway_3d/assets/vendor/';
 const PCM_FRAME_SIZE = 1024;
 const PCM_WORKLET_URL = '/api/plugins/highway_3d/assets/viz-worklet.js';
-export const audioMeters = { gtr: 0, song: 0 }; // live levels shown in the panel readout
+/** Live levels shown in the panel readout. */
+export const audioMeters = { gtr: 0, song: 0 };
 let libLoadPromise = null;
+
+/** Loads the vendored Butterchurn scripts, caching the in-flight promise but not a rejection (so a transient failure can retry on the next mount). */
 export function loadButterchurnLib() {
     if (libLoadPromise) return libLoadPromise;
     libLoadPromise = new Promise((resolve, reject) => {
@@ -23,9 +26,6 @@ export function loadButterchurnLib() {
         add(VENDOR_BASE_URL + 'butterchurn.min.js', () =>
             add(VENDOR_BASE_URL + 'butterchurnPresets.min.js', resolve));
     });
-    // Don't cache a rejected promise: a transient load failure (network
-    // hiccup, blocked request) must not permanently disable the feature for
-    // the session. Clearing libLoadPromise lets the next mount retry the load.
     libLoadPromise.catch(() => { libLoadPromise = null; });
     return libLoadPromise;
 }
@@ -35,14 +35,11 @@ export function isDesktopAudioHost() {
     const d = window.feedBackDesktop || window.slopsmithDesktop;
     return !!(d && d.isDesktop && d.audio && typeof d.audio.getRawAudioFrame === 'function');
 }
-// Fast-forward an index to the first entry after time `ct` (used on seek/loop).
-// Position at the first entry whose time is >= ct (strict <), so an event
-// landing exactly on the seek/loop target time is still fired by the update
-// walkers (which consume `<= ct`) instead of being skipped past here.
+
+/** Index of the first entry in `arr` at or after time `ct` (used on seek/loop). */
 export function fastForwardIndex(arr, ct, key) { if (!arr) return 0; let i = 0; while (i < arr.length && (arr[i][key] || 0) < ct) i++; return i; }
-// Force-free a canvas's WebGL context so the GPU resources are released
-// immediately instead of lingering until GC — repeated Butterchurn
-// mount/unmount cycles otherwise pile up live contexts toward the browser cap.
+
+/** Force-frees a canvas's WebGL context immediately, so repeated mount/unmount doesn't pile up live contexts toward the browser cap. */
 export function releaseCanvasGL(canvas) {
     if (!canvas || typeof canvas.getContext !== 'function') return;
     let gl = null;
@@ -51,10 +48,11 @@ export function releaseCanvasGL(canvas) {
     try { const lose = gl.getExtension('WEBGL_lose_context'); if (lose) lose.loseContext(); } catch (e) {}
 }
 
-// Desktop: bridge GUITAR input PCM + SONG output level into a Web Audio node
-// Butterchurn can tap. Guitar gives spectral texture from your playing; the
-// song's output meter (getLevels) injects an energy pulse so the visuals also
-// react to the backing track (JUCE plays it — there's no song PCM to FFT).
+/**
+ * Desktop only: bridges guitar input PCM + song output level into a Web
+ * Audio node Butterchurn can tap. Guitar gives spectral texture; the song's
+ * output meter injects an energy pulse since JUCE plays it with no PCM to FFT.
+ */
 export function createGuitarPcmFeed(actx, onReady) {
     const latest = new Float32Array(PCM_FRAME_SIZE);
     let polling = true, songLevel = 0, chartLevel = 0;
@@ -62,14 +60,12 @@ export function createGuitarPcmFeed(actx, onReady) {
     const api = (window.feedBackDesktop || window.slopsmithDesktop).audio;
     const gainNow = () => (loadButterchurnSettings().guitarGain) || 6;
 
-    // Keep the source node processing (silently — JUCE already monitors the
-    // guitar), and hand it to Butterchurn via the onReady callback.
     function attach(srcNode) {
         silent = actx.createGain(); silent.gain.value = 0;
         srcNode.connect(silent); silent.connect(actx.destination);
         try { if (onReady) onReady(srcNode); } catch (e) {}
     }
-    // Fallback for contexts without AudioWorklet support.
+    /** Fallback for contexts without AudioWorklet support. */
     function useScriptProcessor() {
         let phase = 0, phase2 = 0;
         const TWO_PI = Math.PI * 2;
@@ -94,7 +90,6 @@ export function createGuitarPcmFeed(actx, onReady) {
         console.log('[viz3d] audio feed: ScriptProcessor (fallback)');
     }
 
-    // Preferred path: AudioWorklet (runs off the main thread).
     if (actx.audioWorklet && typeof actx.audioWorklet.addModule === 'function' && typeof AudioWorkletNode === 'function') {
         actx.audioWorklet.addModule(PCM_WORKLET_URL).then(() => {
             if (!polling || sp) return;
