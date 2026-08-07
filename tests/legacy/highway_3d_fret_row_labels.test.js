@@ -16,7 +16,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
+// The fret-number row moved to instance/render/fret-number-row.js in
+// Stage 7 Track C.
+const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'fret-number-row.js');
 
 let _src;
 function src() {
