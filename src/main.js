@@ -4138,16 +4138,6 @@ function createFactory() {
         camDistMin = _chordAccum.camDistMin;
         camDistMax = _chordAccum.camDistMax;
         camDistGot = _chordAccum.camDistGot;
-        chordRenderer.drawChords(
-            chords, notes, anchors, bundle, now, t1, ndVerdictT0,
-            activeFrets, lastFretForString, _chordAccum, _noteFrame,
-        );
-        highwayIntensity = _chordAccum.highwayIntensity;
-        camWX = _chordAccum.camWX;
-        camWSum = _chordAccum.camWSum;
-        camDistMin = _chordAccum.camDistMin;
-        camDistMax = _chordAccum.camDistMax;
-        camDistGot = _chordAccum.camDistGot;
 
         // Fret span of the dynamic highway lane (wire dMin .. dMax). Reused
         // so fret-column measure markers stay inside the same horizontal
