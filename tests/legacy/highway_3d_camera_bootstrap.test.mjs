@@ -120,7 +120,7 @@ test('bootstrap runs once when complete chart arrays arrive', () => {
     );
     assert.match(
         bootstrap,
-        /if\s*\(\s*!_camSnapped\s*&&\s*!_camPreScanned\s*&&\s*notes\s*&&\s*chords\s*\)/,
+        /if\s*\(\s*!ctx\.cam\._camSnapped\s*&&\s*!ctx\.cam\._camPreScanned\s*&&\s*notes\s*&&\s*chords\s*\)/,
         'chart bootstrap must be gated to one pass after both arrays arrive',
     );
     assert.match(
@@ -130,7 +130,7 @@ test('bootstrap runs once when complete chart arrays arrive', () => {
     );
     assert.match(
         bootstrap,
-        /firstFrettedTime\s*===\s*null[\s\S]*?_camSnapped\s*=\s*true/,
+        /firstFrettedTime\s*===\s*null[\s\S]*?ctx\.cam\._camSnapped\s*=\s*true/,
         'all-open/empty charts without lookahead bounds must permanently disable bootstrap work',
     );
 });
@@ -162,7 +162,7 @@ test('steady and lookahead modes initialize immediately from future chart data',
     );
     assert.match(
         bootstrap,
-        /curX\s*=\s*tgtX\s*;[\s\S]*?curDist\s*=\s*tgtDist\s*;/,
+        /ctx\.cam\.curX\s*=\s*ctx\.cam\.tgtX\s*;[\s\S]*?ctx\.cam\.curDist\s*=\s*ctx\.cam\.tgtDist\s*;/,
         'the initial base position must be applied before the note draw loop',
     );
 });
@@ -179,19 +179,19 @@ test('silent-intro hold hands off only when live framing is ready', () => {
     );
     assert.match(
         target,
-        /if\s*\(\s*bootstrapHoldActive\s*\)[\s\S]*?lockActive\s*=\s*prevLockActive/,
+        /if\s*\(\s*bootstrapHoldActive\s*\)[\s\S]*?lockActive\s*=\s*ctx\.cam\.prevLockActive/,
         'the bootstrap target must remain untouched while the live window is empty',
     );
     assert.match(
         target,
-        /_camBootstrapMode\s*!==\s*cameraMode[\s\S]*?_camBootstrapHolding\s*=\s*false/,
+        /ctx\.cam\._camBootstrapMode\s*!==\s*cameraMode[\s\S]*?ctx\.cam\._camBootstrapHolding\s*=\s*false/,
         'a live camera-mode change must safely release the old-mode hold',
     );
 });
 
 test('song changes and teardown reset every bootstrap state field', () => {
     const resetAssignments = src.match(
-        /_camSnapped\s*=\s*false\s*;\s*\r?\n\s*_camPreScanned\s*=\s*false\s*;\s*\r?\n\s*_camBootstrapHolding\s*=\s*false\s*;\s*\r?\n\s*_camBootstrapMode\s*=\s*null\s*;/g,
+        /ctx\.cam\._camSnapped\s*=\s*false\s*;\s*\r?\n\s*ctx\.cam\._camPreScanned\s*=\s*false\s*;\s*\r?\n\s*ctx\.cam\._camBootstrapHolding\s*=\s*false\s*;\s*\r?\n\s*ctx\.cam\._camBootstrapMode\s*=\s*null\s*;/g,
     ) || [];
     assert.equal(
         resetAssignments.length,
@@ -212,7 +212,7 @@ test('Camera Director still layers after the bootstrapped auto-framing base', ()
     );
 
     const camUpdate = extractFn(src, 'camUpdate');
-    const baseIndex = camUpdate.indexOf('curX += (tgtX - curX) * lerp');
+    const baseIndex = camUpdate.indexOf('ctx.cam.curX += (ctx.cam.tgtX - ctx.cam.curX) * lerp');
     const directorIndex = camUpdate.indexOf('if (_freeCam && _freeCam.enabled)');
     const positionIndex = camUpdate.indexOf('cam.position.set(_camX, _camY, _camZ)');
     assert.ok(

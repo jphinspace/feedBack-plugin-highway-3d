@@ -61,7 +61,7 @@ test('draw(bundle) handles lefty changes by flipping camera X state and rebuildi
     );
     assert.match(
         screen,
-        /if\s*\(\s*_invertedCached\s*!==\s*_invertedForBoard\s*\|\|\s*leftyChanged\s*\|\|\s*newNStr\s*!==\s*nStr\s*\)\s*\{[\s\S]*?if\s*\(\s*leftyChanged\s*\)\s*\{[\s\S]*?curX\s*=\s*-curX\s*;[\s\S]*?tgtX\s*=\s*-tgtX\s*;[\s\S]*?_lookaheadCamX\s*=\s*-_lookaheadCamX\s*;[\s\S]*?\}[\s\S]*?buildBoard\(\)\s*;[\s\S]*?_leftyForBoard\s*=\s*_leftyCached\s*;/,
+        /if\s*\(\s*_invertedCached\s*!==\s*_invertedForBoard\s*\|\|\s*leftyChanged\s*\|\|\s*newNStr\s*!==\s*nStr\s*\)\s*\{[\s\S]*?if\s*\(\s*leftyChanged\s*\)\s*\{[\s\S]*?ctx\.cam\.curX\s*=\s*-ctx\.cam\.curX\s*;[\s\S]*?ctx\.cam\.tgtX\s*=\s*-ctx\.cam\.tgtX\s*;[\s\S]*?ctx\.cam\._lookaheadCamX\s*=\s*-ctx\.cam\._lookaheadCamX\s*;[\s\S]*?\}[\s\S]*?buildBoard\(\)\s*;[\s\S]*?_leftyForBoard\s*=\s*_leftyCached\s*;/,
         'lefty changes must mirror curX/tgtX/_lookaheadCamX, rebuild board geometry, and update _leftyForBoard',
     );
 });
@@ -71,7 +71,7 @@ test('camera shoulder offset follows the cached lefty orientation', () => {
         src(SCREEN_JS),
         // The shoulder offset now feeds the base _camX (which the opt-in
         // free-camera bridge layers on top of) before cam.position.set (#771).
-        /const\s+shoulderOffset\s*=\s*\(\s*_leftyCached\s*\?\s*-1\s*:\s*1\s*\)\s*\*\s*10\s*\*\s*K\s*;[\s\S]*?_camX\s*=\s*curX\s*\+\s*shoulderOffset/,
+        /const\s+shoulderOffset\s*=\s*\(\s*_leftyCached\s*\?\s*-1\s*:\s*1\s*\)\s*\*\s*10\s*\*\s*K\s*;[\s\S]*?_camX\s*=\s*ctx\.cam\.curX\s*\+\s*shoulderOffset/,
         'camera shoulder offset must flip with _leftyCached',
     );
 });

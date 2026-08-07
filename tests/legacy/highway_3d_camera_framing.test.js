@@ -47,7 +47,7 @@ test('cam.position uses interpolated framing multipliers, not literals', () => {
     // single cam.position.set; the multipliers must still feed _camY/_camZ.
     assert.match(
         src,
-        /_camX\s*=\s*curX\s*\+\s*shoulderOffset\s*,\s*_camY\s*=\s*h\s*\*\s*_hMul\s*,\s*_camZ\s*=\s*dist\s*\*\s*_dMul/,
+        /_camX\s*=\s*ctx\.cam\.curX\s*\+\s*shoulderOffset\s*,\s*_camY\s*=\s*h\s*\*\s*_hMul\s*,\s*_camZ\s*=\s*dist\s*\*\s*_dMul/,
         'the base camera position must use the interpolated _hMul / _dMul multipliers',
     );
     assert.match(
@@ -149,7 +149,7 @@ test('the curDist lerp target applies the fit-guard dolly boost', () => {
     // The span-driven tgtDist still owns zooming in; the boost only pulls back.
     assert.match(
         src,
-        /curDist\s*\+=\s*\(\s*tgtDist\s*\*\s*_fretRowFitBoost\s*-\s*curDist\s*\)\s*\*\s*lerp/,
+        /ctx\.cam\.curDist\s*\+=\s*\(\s*ctx\.cam\.tgtDist\s*\*\s*ctx\.cam\._fretRowFitBoost\s*-\s*ctx\.cam\.curDist\s*\)\s*\*\s*lerp/,
         'curDist must lerp toward tgtDist * _fretRowFitBoost',
     );
 });
@@ -170,7 +170,7 @@ test('the guard projects the fret-row band and adjusts the boost with hysteresis
     // Lazy relax only once past the deadband, floored at 1.
     assert.match(
         src,
-        /_rowNdcY\s*>\s*FRET_ROW_FIT_NDC_MIN\s*\+\s*FRET_ROW_FIT_DEADBAND[\s\S]*?Math\.max\(\s*1\s*,\s*_fretRowFitBoost/,
+        /_rowNdcY\s*>\s*FRET_ROW_FIT_NDC_MIN\s*\+\s*FRET_ROW_FIT_DEADBAND[\s\S]*?Math\.max\(\s*1\s*,\s*ctx\.cam\._fretRowFitBoost/,
         'past the deadband the boost relaxes back toward 1',
     );
 });
@@ -179,7 +179,7 @@ test('the fit guard yields to the free-cam (Camera Director)', () => {
     // When the free-cam owns the view the auto dolly must reset to 1, not fight it.
     assert.match(
         src,
-        /if\s*\(\s*_freeCam\s*&&\s*_freeCam\.enabled\s*\)\s*\{\s*if\s*\(\s*_fretRowFitBoost\s*!==\s*1\s*\)\s*_fretRowFitBoost\s*=\s*1/,
+        /if\s*\(\s*_freeCam\s*&&\s*_freeCam\.enabled\s*\)\s*\{\s*if\s*\(\s*ctx\.cam\._fretRowFitBoost\s*!==\s*1\s*\)\s*ctx\.cam\._fretRowFitBoost\s*=\s*1/,
         'with the free-cam enabled the guard must drop any auto dolly back to 1',
     );
 });

@@ -85,6 +85,7 @@ import { chordHarmonyLabels, createChordInference } from './instance/model/chord
 import { createArpeggioLaneRail } from './instance/render/arpeggio-lane-rail.js';
 import { createNoteRenderer } from './instance/render/note.js';
 import { createNotedetectListeners } from './instance/notedetect/listeners.js';
+import { createCtx } from './instance/ctx.js';
 import {
     bnvSampleAt, canvasSize, darkenHex, disposeGroupTree, effectiveVfov, noteHasVibrato,
     teachingDegreeLabel, teachingFingerLabel, tremoloOffsetWorldX, vibratoSemisAtTime,
@@ -159,6 +160,10 @@ const camLowFretPullbackU = minFret => Math.max(0, 5 - minFret) * 4;
 
 function createFactory() {
     const _instanceId = nextInstanceId();
+    // Per-instance shared state (Stage 7 Track B) -- see instance/ctx.js's
+    // doc comment. Only `ctx.cam` exists so far; more groups land as later
+    // phases migrate their consumer clusters onto it.
+    const ctx = createCtx(_instanceId);
     // Whether THIS instance holds a refcount on the shared player-chrome
     // control. Guards the init -> init (no destroy) path so one instance
     // can never take two references and pin the control.
@@ -467,11 +472,9 @@ function createFactory() {
     // that CSS-box drift and re-frame, instead of the user having to
     // un/re-maximize the window.
     let _appliedW = 0, _appliedH = 0;
-    // Last pane aspect (w/h) handed to the camera, cached so camUpdate can
-    // recompute the horizontal-FOV-hold each frame (and react to live
-    // __h3dAspectTune edits) without waiting for a resize. 0 until first
-    // applySize().
-    let _paneAspect = 0;
+    // _paneAspect lives on ctx.cam now (see instance/ctx.js) -- cached so
+    // camUpdate can recompute the horizontal-FOV-hold each frame (and react
+    // to live __h3dAspectTune edits) without waiting for a resize.
     // Per-instance fallback id for the wide-pane tuner's pane key, used only
     // when this pane has no arrangement name to key by. Assigned once in
     // init(); overrides keyed off arrangement persist across songs, this
@@ -1122,58 +1125,16 @@ function createFactory() {
         };
     };
 
-    let tgtX = xFretMid(CAM_LOCK_CENTER_FRET), curX = xFretMid(CAM_LOCK_CENTER_FRET);
-    let tgtDist = CAM_DIST_BASE, curDist = CAM_DIST_BASE;
-    // Dolly-back multiplier applied to the curDist lerp target by camUpdate's
-    // fret-row fit guard. 1 = no extra pull-back (the common case); rises
-    // toward FRET_ROW_FIT_BOOST_MAX only when a tight, centred zoom would push
-    // the fret-number row past the bottom edge, then relaxes back to 1.
-    let _fretRowFitBoost = 1;
-    // Last committed lowFretBonus contribution baked into tgtDist
-    // (see candidateDist block — bonus is applied on top of the
-    // hysteresis-gated base).
-    let prevLowFretBonus = 0;
-    // Tracks whether the camera lock was active on the previous
-    // frame, so the dynamic branch can bypass zoom hysteresis on
-    // the first frame after a lock release. Without this, a >12
-    // fret note that disengaged the lock could be swallowed by
-    // the dead zone and the camera would fail to widen — a UX
-    // promise of the lock toggle.
-    let prevLockActive = false;
-    let tgtLookY = 0, curLookY = 0;   // lerped look-at Y for self-correcting camera
-    let aspectScale = 1;
-    // _camSnapped / _camPreScanned / _songKey: together they gate the
-    // first-data bootstrap.
-    //
-    // On the first update() frame where both chart arrays are available,
-    // they are scanned once (O(N)) for the first relevant fretted event.
-    // The normal camera-target calculation is sampled at the point where
-    // that event first enters its targeting window, and curX/curDist are
-    // initialized immediately. This makes silent intros start with the same
-    // base framing they would otherwise acquire just before the first notes.
-    //
-    // _camBootstrapHolding keeps that initialized target stable through the
-    // empty intro. It is released as soon as the ordinary live window has
-    // fret bounds/data, producing a continuous hand-off with no second snap.
-    // If the camera mode changes during the hold, live framing takes over.
-    //
-    // All-open/empty charts have no horizontal fret target, so they keep the
-    // default base view and disable bootstrap work immediately.
-    //
-    // _songKey tracks the active song/arrangement so the bootstrap state resets
-    // automatically when the user switches songs or arrangements via
-    // reconnect() (which does not call renderer.destroy/init).
-    let _camSnapped = false;
-    let _camPreScanned = false;
-    let _camBootstrapHolding = false;
-    let _camBootstrapMode = null;
-    let _songKey = null;
-    // Smooth lookahead camera: fused world-X and displayed fret-span.
-    let _lookaheadCamX = xFretMid(CAM_LOCK_CENTER_FRET);
-    let _lookaheadFretSpan = DEFAULT_LOOKAHEAD_FRET_SPAN;
-    let _lookaheadCamPrevNow = null;
-    let _lookaheadLowBonusU = 0;
-    let _lookaheadHiNeckLatch = false;
+    // Camera pose, aspect, and bootstrap/lookahead state (tgtX/curX,
+    // tgtDist/curDist, tgtLookY/curLookY, _fretRowFitBoost, aspectScale,
+    // _paneAspect, prevLowFretBonus, prevLockActive, _camSnapped,
+    // _camPreScanned, _camBootstrapHolding, _camBootstrapMode, _songKey,
+    // _lookaheadCamX, _lookaheadFretSpan, _lookaheadCamPrevNow,
+    // _lookaheadLowBonusU, _lookaheadHiNeckLatch) now lives on `ctx.cam` --
+    // see instance/ctx.js's doc comment for why: it's written by
+    // camUpdate()/applySize()/the lookahead helpers/_applyNoteCamTargets()/
+    // three sections of update(), all needing the SAME live values, not a
+    // per-function copy.
 
     // ── Sub-frame clock smoothing ─────────────────────────────────────
     // bundle.currentTime is the browser's audio.currentTime, which only
@@ -4042,12 +4003,12 @@ function createFactory() {
     function lookaheadSmoothCamStep(dtSec, tgtXWorld, tgtSpanInt) {
         const d = Math.min(0.2, Math.max(1e-4, dtSec));
         const fs = 1 - Math.pow(1 - CAM_FOCUS_BLEND_RATE, d);
-        _lookaheadCamX = tgtXWorld * fs + _lookaheadCamX * (1 - fs);
-        _lookaheadFretSpan = tgtSpanInt * fs + _lookaheadFretSpan * (1 - fs);
+        ctx.cam._lookaheadCamX = tgtXWorld * fs + ctx.cam._lookaheadCamX * (1 - fs);
+        ctx.cam._lookaheadFretSpan = tgtSpanInt * fs + ctx.cam._lookaheadFretSpan * (1 - fs);
     }
 
     /* ── Camera target helper ────────────────────────────────────────── */
-    // Compute and apply tgtX + tgtDist from note-window-accumulated data.
+    // Compute and apply ctx.cam.tgtX + ctx.cam.tgtDist from note-window-accumulated data.
     // Used by BOTH the snap pre-pass (before drawNote() calls, skipDistHyst=true)
     // and the main per-frame camera-target block (skipDistHyst=false) so the
     // two paths can never drift out of sync.
@@ -4057,12 +4018,12 @@ function createFactory() {
     // distGot        true iff at least one fretted note was in the window
     // camHystF       X-axis hysteresis factor (from cameraSmoothing)
     // camDistHystF   dist hysteresis factor (from zoomSmoothing)
-    // skipDistHyst   true on the snap/first-data frame — no previous tgtDist
+    // skipDistHyst   true on the snap/first-data frame — no previous ctx.cam.tgtDist
     //                state exists, so bypass the dead-zone gate
     //
-    // Side-effects: updates tgtX, tgtDist, prevLowFretBonus.
+    // Side-effects: updates ctx.cam.tgtX, ctx.cam.tgtDist, ctx.cam.prevLowFretBonus.
     // Returns: computed lockActive flag (caller is responsible for setting
-    //          prevLockActive from the returned value).
+    //          ctx.cam.prevLockActive from the returned value).
     function _applyNoteCamTargets(wX, wSum, distMin, distMax, distGot,
                                   camHystF, camDistHystF, skipDistHyst) {
         const lockActive = cameraLockLow && (!distGot || distMax <= 12);
@@ -4079,9 +4040,9 @@ function createFactory() {
             // users see the same locked view as before this slider.
             const lockZoomMul  = CAM_LOCK_ZOOM_MIN +
                 (CAM_LOCK_ZOOM_MAX - CAM_LOCK_ZOOM_MIN) * cameraLockZoom;
-            tgtX             = xFretMid(CAM_LOCK_CENTER_FRET);
-            tgtDist          = (lockedBaseU + lockedBonusU) * K * lockZoomMul;
-            prevLowFretBonus = lockedBonusU;
+            ctx.cam.tgtX             = xFretMid(CAM_LOCK_CENTER_FRET);
+            ctx.cam.tgtDist          = (lockedBaseU + lockedBonusU) * K * lockZoomMul;
+            ctx.cam.prevLowFretBonus = lockedBonusU;
         } else if (distGot) {
             // Base zoom scales by fret count (distMax - distMin).
             const baseDistU     = camBaseDistU(distMax - distMin);
@@ -4097,13 +4058,13 @@ function createFactory() {
             // distance), without affecting mid/high neck framing.
             const lowFretBonusU = camLowFretPullbackU(distMin);
             if (skipDistHyst) {
-                // First data frame — no previous tgtDist state; apply
+                // First data frame — no previous ctx.cam.tgtDist state; apply
                 // directly without the hysteresis dead-zone check.
-                tgtDist = (baseDistU + lowFretBonusU) * K;
+                ctx.cam.tgtDist = (baseDistU + lowFretBonusU) * K;
             } else {
-                // tgtDist scales at (3 * K) per fret-span unit, so the
+                // ctx.cam.tgtDist scales at (3 * K) per fret-span unit, so the
                 // hysteresis threshold (a fret-span dead zone) converts
-                // to tgtDist-space by multiplying by 3 * K — NOT by
+                // to ctx.cam.tgtDist-space by multiplying by 3 * K — NOT by
                 // FRET_WIDTH_MID, which is X-axis world-units-per-fret
                 // and a different unit (would over-tighten the gate by
                 // ~4x at SCALE = 2.25).
@@ -4117,7 +4078,7 @@ function createFactory() {
                 // corrections this bonus exists to provide. So gate the
                 // base, then always reflect bonus changes on top by
                 // tracking the last-committed bonus contribution
-                // (prevLowFretBonus) and adjusting tgtDist for its
+                // (ctx.cam.prevLowFretBonus) and adjusting ctx.cam.tgtDist for its
                 // delta whether or not the base hysteresis fires.
                 //
                 // First frame after a lock release bypasses the gate
@@ -4127,21 +4088,21 @@ function createFactory() {
                 // can sit inside the dead zone and the camera fails
                 // to follow the high note that just opened the lock.
                 const candidateBase = baseDistU * K;
-                const baseTgt       = tgtDist - prevLowFretBonus * K;
-                const justUnlocked  = prevLockActive;
+                const baseTgt       = ctx.cam.tgtDist - ctx.cam.prevLowFretBonus * K;
+                const justUnlocked  = ctx.cam.prevLockActive;
                 if (justUnlocked || Math.abs(candidateBase - baseTgt) > camDistHystF * 3 * K) {
-                    tgtDist = (baseDistU + lowFretBonusU) * K;
-                } else if (lowFretBonusU !== prevLowFretBonus) {
-                    tgtDist = baseTgt + lowFretBonusU * K;
+                    ctx.cam.tgtDist = (baseDistU + lowFretBonusU) * K;
+                } else if (lowFretBonusU !== ctx.cam.prevLowFretBonus) {
+                    ctx.cam.tgtDist = baseTgt + lowFretBonusU * K;
                 }
             }
-            prevLowFretBonus = lowFretBonusU;
+            ctx.cam.prevLowFretBonus = lowFretBonusU;
         }
         // X-axis: recency-weighted centroid with a hysteresis dead zone
         // so small cluster shifts don't trigger visible pan motion.
         if (!lockActive && wSum > 0) {
             const candidateX = wX / wSum;
-            if (Math.abs(candidateX - tgtX) > camHystF * FRET_WIDTH_MID) tgtX = candidateX;
+            if (Math.abs(candidateX - ctx.cam.tgtX) > camHystF * FRET_WIDTH_MID) ctx.cam.tgtX = candidateX;
         }
         return lockActive;
     }
@@ -4888,7 +4849,7 @@ function createFactory() {
         // loadSettings/the settings listener, the snapshot assignments just above)
         // and only READ by drawNote — see note.js's doc comment for why this is a
         // fresh-each-frame bag rather than a construction-time alias.
-        _noteFrame.curX = curX;
+        _noteFrame.curX = ctx.cam.curX;
         _noteFrame.activePalette = activePalette;
         _noteFrame._textSizeMul = _textSizeMul;
         _noteFrame.nStr = nStr;
@@ -5151,7 +5112,7 @@ function createFactory() {
             camT1 = now + camAhead;
         }
 
-        // Classic path (#34): tgtDist hysteresis tracks fret span over the
+        // Classic path (#34): ctx.cam.tgtDist hysteresis tracks fret span over the
         // narrowed [camT0, camT1]; lookahead mode uses lookaheadBoundsNow + span smoothing.
         //
         // Sustain extension: the outer loop keeps notes/chords
@@ -5171,8 +5132,8 @@ function createFactory() {
 
         // ── Song-change detection ─────────────────────────────────────────
         // reconnect() (used for arrangement switches and splitscreen song
-        // changes) does not call renderer.destroy/init, so _camSnapped and
-        // _camPreScanned would persist into the new song and the snap pre-pass
+        // changes) does not call renderer.destroy/init, so ctx.cam._camSnapped and
+        // ctx.cam._camPreScanned would persist into the new song and the snap pre-pass
         // would never fire again.  Detect the change by comparing the current
         // song+arrangement identity against the last-seen key, and reset the
         // camera snap state (and the camera position itself) whenever it flips.
@@ -5184,21 +5145,21 @@ function createFactory() {
             // arrangement index as a reliable per-song-arrangement key.
             const currentSong = window.feedBack && window.feedBack.currentSong;
             const key = currentSong ? currentSong.filename + '\0' + (si ? (si.arrangement_index ?? '') : '') : null;
-            if (key !== null && key !== _songKey) {
-                _songKey = key;
-                _camSnapped = false;
-                _camPreScanned = false;
-                _camBootstrapHolding = false;
-                _camBootstrapMode = null;
-                tgtX = curX = xFretMid(CAM_LOCK_CENTER_FRET);
-                tgtDist = curDist = CAM_DIST_BASE;
-                prevLowFretBonus = 0;
-                prevLockActive = false;
-                _lookaheadCamX = xFretMid(CAM_LOCK_CENTER_FRET);
-                _lookaheadFretSpan = DEFAULT_LOOKAHEAD_FRET_SPAN;
-                _lookaheadCamPrevNow = null;
-                _lookaheadLowBonusU = 0;
-                _lookaheadHiNeckLatch = false;
+            if (key !== null && key !== ctx.cam._songKey) {
+                ctx.cam._songKey = key;
+                ctx.cam._camSnapped = false;
+                ctx.cam._camPreScanned = false;
+                ctx.cam._camBootstrapHolding = false;
+                ctx.cam._camBootstrapMode = null;
+                ctx.cam.tgtX = ctx.cam.curX = xFretMid(CAM_LOCK_CENTER_FRET);
+                ctx.cam.tgtDist = ctx.cam.curDist = CAM_DIST_BASE;
+                ctx.cam.prevLowFretBonus = 0;
+                ctx.cam.prevLockActive = false;
+                ctx.cam._lookaheadCamX = xFretMid(CAM_LOCK_CENTER_FRET);
+                ctx.cam._lookaheadFretSpan = DEFAULT_LOOKAHEAD_FRET_SPAN;
+                ctx.cam._lookaheadCamPrevNow = null;
+                ctx.cam._lookaheadLowBonusU = 0;
+                ctx.cam._lookaheadHiNeckLatch = false;
                 // Drop the previous song's measure-start cache. Otherwise
                 // lookaheadEndTime() would size the lookahead window off the
                 // old measure grid (with the new song's now reset to ~0 this
@@ -5221,8 +5182,8 @@ function createFactory() {
         // same window state that live framing will have when the phrase
         // first becomes relevant, then hold it through the silent intro.
         // This is O(N) once per song/arrangement and a permanent no-op after.
-        if (!_camSnapped && !_camPreScanned && notes && chords) {
-            _camPreScanned = true;
+        if (!ctx.cam._camSnapped && !ctx.cam._camPreScanned && notes && chords) {
+            ctx.cam._camPreScanned = true;
             const firstFrettedTime = hwyFirstRelevantFrettedTime(
                 notes, chords, now, CAM_TGT_BEHIND, nStr);
 
@@ -5237,45 +5198,45 @@ function createFactory() {
                 const bd = lookaheadBoundsNow
                     || lookaheadComputeFretBounds(bootstrapNow, anchors, notes, chords);
                 if (bd) {
-                    _lookaheadCamX = lookaheadTargetWorldX(bd.minF, bd.maxF);
-                    _lookaheadFretSpan = Math.max(1, bd.maxF - bd.minF + 1);
+                    ctx.cam._lookaheadCamX = lookaheadTargetWorldX(bd.minF, bd.maxF);
+                    ctx.cam._lookaheadFretSpan = Math.max(1, bd.maxF - bd.minF + 1);
                     const lockSnapEl = cameraLockLow && bd.maxF <= 12;
                     if (lockSnapEl) {
                         const lockedBaseU = camBaseDistU(12);
                         const lockedBonusU = camLowFretPullbackU(1);
                         const lockZoomMul = CAM_LOCK_ZOOM_MIN +
                             (CAM_LOCK_ZOOM_MAX - CAM_LOCK_ZOOM_MIN) * cameraLockZoom;
-                        tgtX = xFretMid(CAM_LOCK_CENTER_FRET);
-                        tgtDist = (lockedBaseU + lockedBonusU) * K * lockZoomMul;
-                        prevLowFretBonus = lockedBonusU;
-                        _lookaheadLowBonusU = lockedBonusU;
-                        prevLockActive = true;
+                        ctx.cam.tgtX = xFretMid(CAM_LOCK_CENTER_FRET);
+                        ctx.cam.tgtDist = (lockedBaseU + lockedBonusU) * K * lockZoomMul;
+                        ctx.cam.prevLowFretBonus = lockedBonusU;
+                        ctx.cam._lookaheadLowBonusU = lockedBonusU;
+                        ctx.cam.prevLockActive = true;
                     } else {
-                        const baseDU = camBaseDistU(_lookaheadFretSpan);
+                        const baseDU = camBaseDistU(ctx.cam._lookaheadFretSpan);
                         const lowBU = camLowFretPullbackU(bd.minF);
-                        tgtDist = (baseDU + lowBU) * K;
-                        prevLowFretBonus = lowBU;
-                        _lookaheadLowBonusU = lowBU;
-                        tgtX = _lookaheadCamX;
-                        prevLockActive = false;
+                        ctx.cam.tgtDist = (baseDU + lowBU) * K;
+                        ctx.cam.prevLowFretBonus = lowBU;
+                        ctx.cam._lookaheadLowBonusU = lowBU;
+                        ctx.cam.tgtX = ctx.cam._lookaheadCamX;
+                        ctx.cam.prevLockActive = false;
                     }
-                    curX = tgtX;
-                    curDist = tgtDist;
-                    _camSnapped = true;
-                    _lookaheadCamPrevNow = now;
-                    _camBootstrapHolding = bootstrapNow > now && !lookaheadBoundsNow;
-                    _camBootstrapMode = _camBootstrapHolding ? cameraMode : null;
+                    ctx.cam.curX = ctx.cam.tgtX;
+                    ctx.cam.curDist = ctx.cam.tgtDist;
+                    ctx.cam._camSnapped = true;
+                    ctx.cam._lookaheadCamPrevNow = now;
+                    ctx.cam._camBootstrapHolding = bootstrapNow > now && !lookaheadBoundsNow;
+                    ctx.cam._camBootstrapMode = ctx.cam._camBootstrapHolding ? cameraMode : null;
                 } else {
                     // Defensive fallback for malformed chart timing. The
                     // helper found a fretted event, so this should be
                     // unreachable; keeping the default is safer than a
                     // delayed mid-song snap.
-                    _camSnapped = true;
+                    ctx.cam._camSnapped = true;
                 }
             } else if (firstFrettedTime === null) {
                 // Empty and all-open charts without lookahead anchor bounds
                 // have no horizontal fret target.
-                _camSnapped = true;
+                ctx.cam._camSnapped = true;
             } else {
                 const bootstrapNow = Math.max(now, firstFrettedTime - camAhead);
                 const bootstrapT0 = bootstrapNow - CAM_TGT_BEHIND;
@@ -5326,18 +5287,18 @@ function createFactory() {
                 }
 
                 if (preWSum > 0) {
-                    prevLockActive = _applyNoteCamTargets(
+                    ctx.cam.prevLockActive = _applyNoteCamTargets(
                         preWX, preWSum, preDistMin, preDistMax, preDistGot,
                         camHystF, camDistHystF, /* skipDistHyst= */ true);
-                    curX = tgtX;
-                    curDist = tgtDist;
+                    ctx.cam.curX = ctx.cam.tgtX;
+                    ctx.cam.curDist = ctx.cam.tgtDist;
                 }
                 // The relevant-event helper and this accumulator share
                 // validity/window rules; still finish defensively if a
                 // malformed event could not produce a target.
-                _camSnapped = true;
-                _camBootstrapHolding = preWSum > 0 && bootstrapNow > now;
-                _camBootstrapMode = _camBootstrapHolding ? cameraMode : null;
+                ctx.cam._camSnapped = true;
+                ctx.cam._camBootstrapHolding = preWSum > 0 && bootstrapNow > now;
+                ctx.cam._camBootstrapMode = ctx.cam._camBootstrapHolding ? cameraMode : null;
             }
         }
 
@@ -5438,7 +5399,7 @@ function createFactory() {
                             const _bx = n.f === 0
                                 ? (_arpBrktAncB
                                     ? (xFret(_arpBrktAncB.dMin) + xFret(_arpBrktAncB.dMax)) / 2
-                                    : (singleOpenX !== undefined ? singleOpenX : curX))
+                                    : (singleOpenX !== undefined ? singleOpenX : ctx.cam.curX))
                                 : xFretMid(n.f);
                             const _openHalfW = (() => {
                                 if (n.f !== 0) return null;
@@ -5624,9 +5585,9 @@ function createFactory() {
                     : (maxSus > 0 && now < ch.t + maxSus) ? ch.t
                     : now;
                 const chAncB = anchorLaneBoundsAt(anchors, _chAnchorT);
-                // Open-string X: chart <anchor> lane centre when present (not curX /
+                // Open-string X: chart <anchor> lane centre when present (not ctx.cam.curX /
                 // fretted centroid), matching highway span.
-                let chordCX = curX;
+                let chordCX = ctx.cam.curX;
                 if (chAncB) chordCX = (xFret(chAncB.dMin) + xFret(chAncB.dMax)) / 2;
                 else {
                     let cxL = Infinity, cxR = -Infinity, fretted = 0;
@@ -6028,7 +5989,7 @@ function createFactory() {
                             : null;
                         const _arpChBrktOpenX = _arpChBrktAncB
                             ? (xFret(_arpChBrktAncB.dMin) + xFret(_arpChBrktAncB.dMax)) / 2
-                            : (chordCX ?? curX);
+                            : (chordCX ?? ctx.cam.curX);
                         const _arpChBrktOpenW = (() => {
                             if (_arpChBrktAncB) {
                                 const _xl = xFret(_arpChBrktAncB.dMin), _xr = xFret(_arpChBrktAncB.dMax);
@@ -7288,17 +7249,17 @@ function createFactory() {
         // ── Camera target ─────────────────────────────────────────────
         let lockActive;
         let bootstrapHoldActive = false;
-        if (_camBootstrapHolding) {
-            if (_camBootstrapMode !== cameraMode) {
-                _camBootstrapHolding = false;
-                _camBootstrapMode = null;
+        if (ctx.cam._camBootstrapHolding) {
+            if (ctx.cam._camBootstrapMode !== cameraMode) {
+                ctx.cam._camBootstrapHolding = false;
+                ctx.cam._camBootstrapMode = null;
             } else {
                 const liveFramingReady = cameraMode === 'lookahead'
                     ? lookaheadBoundsNow !== null
                     : camDistGot;
                 if (liveFramingReady) {
-                    _camBootstrapHolding = false;
-                    _camBootstrapMode = null;
+                    ctx.cam._camBootstrapHolding = false;
+                    ctx.cam._camBootstrapMode = null;
                 } else {
                     bootstrapHoldActive = true;
                 }
@@ -7309,33 +7270,33 @@ function createFactory() {
             // Keep the chart-load target intact until the ordinary live
             // path can compute the same phrase. Camera Director still
             // layers its free-camera transform in camUpdate().
-            lockActive = prevLockActive;
+            lockActive = ctx.cam.prevLockActive;
         } else if (!(cameraMode === 'lookahead')) {
             lockActive = _applyNoteCamTargets(
                 camWX, camWSum, camDistMin, camDistMax, camDistGot,
                 camHystF, camDistHystF, /* skipDistHyst= */ false);
-            prevLockActive = lockActive;
+            ctx.cam.prevLockActive = lockActive;
         } else {
             const lookaheadMaxF = lookaheadBoundsNow ? lookaheadBoundsNow.maxF : 0;
             const lookaheadHasBounds = lookaheadBoundsNow != null;
 
             let dtSec = 1 / 120;
-            if (_lookaheadCamPrevNow !== null) {
-                const rawDt = _frameNow - _lookaheadCamPrevNow;
+            if (ctx.cam._lookaheadCamPrevNow !== null) {
+                const rawDt = _frameNow - ctx.cam._lookaheadCamPrevNow;
                 if (rawDt > -1 && rawDt < 2) dtSec = Math.min(0.2, Math.max(1 / 960, rawDt));
             }
-            _lookaheadCamPrevNow = _frameNow;
+            ctx.cam._lookaheadCamPrevNow = _frameNow;
             const dBlend = Math.min(0.2, Math.max(1e-4, dtSec));
             const lowBlendFs = 1 - Math.pow(1 - CAM_FOCUS_BLEND_RATE, dBlend);
 
             if (!lookaheadHasBounds || lookaheadMaxF <= LOOKAHEAD_LOCK_ENGAGE_MAXF)
-                _lookaheadHiNeckLatch = false;
+                ctx.cam._lookaheadHiNeckLatch = false;
             else if (lookaheadMaxF >= LOOKAHEAD_LOCK_RELEASE_MAXF)
-                _lookaheadHiNeckLatch = true;
+                ctx.cam._lookaheadHiNeckLatch = true;
 
             const lookaheadLockLowEligible = cameraLockLow
                 && (!lookaheadHasBounds
-                    || (!_lookaheadHiNeckLatch && lookaheadMaxF <= 12));
+                    || (!ctx.cam._lookaheadHiNeckLatch && lookaheadMaxF <= 12));
 
             let rawLowBU;
             if (lookaheadLockLowEligible) {
@@ -7345,16 +7306,16 @@ function createFactory() {
             } else {
                 rawLowBU = camLowFretPullbackU(CAM_LOCK_CENTER_FRET);
             }
-            _lookaheadLowBonusU = rawLowBU * lowBlendFs + _lookaheadLowBonusU * (1 - lowBlendFs);
+            ctx.cam._lookaheadLowBonusU = rawLowBU * lowBlendFs + ctx.cam._lookaheadLowBonusU * (1 - lowBlendFs);
 
             if (lookaheadLockLowEligible) {
                 const lockedBaseU = camBaseDistU(12);
                 const lockZoomMul = CAM_LOCK_ZOOM_MIN +
                     (CAM_LOCK_ZOOM_MAX - CAM_LOCK_ZOOM_MIN) * cameraLockZoom;
                 lookaheadSmoothCamStep(dtSec, xFretMid(CAM_LOCK_CENTER_FRET), 12);
-                tgtX = _lookaheadCamX;
-                tgtDist = (lockedBaseU + _lookaheadLowBonusU) * K * lockZoomMul;
-                prevLowFretBonus = _lookaheadLowBonusU;
+                ctx.cam.tgtX = ctx.cam._lookaheadCamX;
+                ctx.cam.tgtDist = (lockedBaseU + ctx.cam._lookaheadLowBonusU) * K * lockZoomMul;
+                ctx.cam.prevLowFretBonus = ctx.cam._lookaheadLowBonusU;
                 lockActive = true;
             } else {
                 if (lookaheadBoundsNow) {
@@ -7363,17 +7324,17 @@ function createFactory() {
                     const tgtSpanInt = Math.max(
                         1, lookaheadBoundsNow.maxF - lookaheadBoundsNow.minF + 1);
                     lookaheadSmoothCamStep(dtSec, tgtWX, tgtSpanInt);
-                    tgtDist = (camBaseDistU(_lookaheadFretSpan) + _lookaheadLowBonusU) * K;
-                    prevLowFretBonus = _lookaheadLowBonusU;
+                    ctx.cam.tgtDist = (camBaseDistU(ctx.cam._lookaheadFretSpan) + ctx.cam._lookaheadLowBonusU) * K;
+                    ctx.cam.prevLowFretBonus = ctx.cam._lookaheadLowBonusU;
                 } else {
-                    lookaheadSmoothCamStep(dtSec, _lookaheadCamX, _lookaheadFretSpan);
-                    tgtDist = (camBaseDistU(_lookaheadFretSpan) + _lookaheadLowBonusU) * K;
-                    prevLowFretBonus = _lookaheadLowBonusU;
+                    lookaheadSmoothCamStep(dtSec, ctx.cam._lookaheadCamX, ctx.cam._lookaheadFretSpan);
+                    ctx.cam.tgtDist = (camBaseDistU(ctx.cam._lookaheadFretSpan) + ctx.cam._lookaheadLowBonusU) * K;
+                    ctx.cam.prevLowFretBonus = ctx.cam._lookaheadLowBonusU;
                 }
-                tgtX = _lookaheadCamX;
+                ctx.cam.tgtX = ctx.cam._lookaheadCamX;
                 lockActive = false;
             }
-            prevLockActive = lockActive;
+            ctx.cam.prevLockActive = lockActive;
         }
 
         // ── Chord diagram: track chord, drive entrance + crossfade animations ─
@@ -7701,7 +7662,7 @@ function createFactory() {
         let cx = W / 2, cy = H * 0.72, centerOk = false;
         {
             const fretMidY = (sY(0) + sY(nStr - 1)) / 2;
-            _probe.set(curX, fretMidY, 0);
+            _probe.set(ctx.cam.curX, fretMidY, 0);
             _probe.project(cam);
             if (_probe.z >= -1 && _probe.z <= 1) {
                 cx = (_probe.x * 0.5 + 0.5) * W;
@@ -7808,7 +7769,7 @@ function createFactory() {
         const _aspActive = !!(_aspTune && _aspTune.enabled
             && !(_aspTune.splitOnly && !splitscreenActive()));
         const _tune = _aspActive ? _aspTune : null;
-        const _vfov = effectiveVfov(_paneAspect, _tune);
+        const _vfov = effectiveVfov(ctx.cam._paneAspect, _tune);
         if (Number.isFinite(_vfov) && Math.abs(_vfov - cam.fov) > 1e-4) {
             cam.fov = _vfov;
             cam.updateProjectionMatrix();
@@ -7819,7 +7780,7 @@ function createFactory() {
         if (window.__h3dAspectPanelOpen) {
             const _ro = window.__h3dAspectReadout || (window.__h3dAspectReadout = {});
             const _slot = _ro[_paneKey] || (_ro[_paneKey] = {});
-            _slot.aspect = _paneAspect; _slot.vfov = _vfov;
+            _slot.aspect = ctx.cam._paneAspect; _slot.vfov = _vfov;
             _ro.__last = _paneKey;
         }
         // Optional pose nudges (height / dolly / pitch) to chase a low-flat
@@ -7831,18 +7792,18 @@ function createFactory() {
         // else global). Used both for the wide-pane gate and the transforms below.
         const _freeCam = freeCamFor(highwayCanvas);
         const _dirActive = !!(_freeCam && _freeCam.enabled);
-        const _wide = !!(_tune && _paneAspect > _startAspect) && !_dirActive;
+        const _wide = !!(_tune && ctx.cam._paneAspect > _startAspect) && !_dirActive;
         const _poseHMul = (_wide && Number.isFinite(_tune.heightMul)) ? _tune.heightMul : 1;
         const _poseDMul = (_wide && Number.isFinite(_tune.distMul)) ? _tune.distMul : 1;
         const _poseLookYAdd = (_wide && Number.isFinite(_tune.pitchAdd)) ? _tune.pitchAdd * K : 0;
         const _poseLookZMul = (_wide && Number.isFinite(_tune.lookDepthMul) && _tune.lookDepthMul > 0)
             ? _tune.lookDepthMul : 1;
 
-        curX += (tgtX - curX) * lerp;
+        ctx.cam.curX += (ctx.cam.tgtX - ctx.cam.curX) * lerp;
         // The fret-row fit guard (end of camUpdate) may dolly the camera back
-        // via _fretRowFitBoost; the span-driven tgtDist still owns zooming IN.
-        curDist += (tgtDist * _fretRowFitBoost - curDist) * lerp;
-        const dist = curDist * aspectScale;
+        // via ctx.cam._fretRowFitBoost; the span-driven ctx.cam.tgtDist still owns zooming IN.
+        ctx.cam.curDist += (ctx.cam.tgtDist * ctx.cam._fretRowFitBoost - ctx.cam.curDist) * lerp;
+        const dist = ctx.cam.curDist * ctx.cam.aspectScale;
         const h = CAM_H_BASE * (dist / CAM_DIST_BASE);
 
         // Zoom-interpolated framing multipliers: tight (NEAR) -> lower/closer;
@@ -7852,7 +7813,7 @@ function createFactory() {
         const _hMul = CAM_FRAME_H_NEAR + (CAM_FRAME_H_FAR - CAM_FRAME_H_NEAR) * _zt;
         const _dMul = CAM_FRAME_D_NEAR + (CAM_FRAME_D_FAR - CAM_FRAME_D_NEAR) * _zt;
         const shoulderOffset = (_leftyCached ? -1 : 1) * 10 * K;
-        let _camX = curX + shoulderOffset, _camY = h * _hMul, _camZ = dist * _dMul;
+        let _camX = ctx.cam.curX + shoulderOffset, _camY = h * _hMul, _camZ = dist * _dMul;
         // Optional wide-pane pose nudges (default identity → no-op).
         if (_poseHMul !== 1) _camY *= _poseHMul;
         if (_poseDMul !== 1) _camZ *= _poseDMul;
@@ -7872,7 +7833,7 @@ function createFactory() {
             const _distMul = Number.isFinite(_freeCam.distMul) ? _freeCam.distMul : 1;
             const _heightMul = Number.isFinite(_freeCam.heightMul) ? _freeCam.heightMul : 1;
             const _yaw = Number.isFinite(_freeCam.yaw) ? _freeCam.yaw : 0;
-            const _tx = curX, _ty = curLookY, _tz = _lookAtZ; // look target
+            const _tx = ctx.cam.curX, _ty = ctx.cam.curLookY, _tz = _lookAtZ; // look target
             let _vx = _camX - _tx, _vy = _camY - _ty, _vz = _camZ - _tz;
             _vx *= _distMul; _vy *= _distMul; _vz *= _distMul; // zoom (dolly)
             _vy *= _heightMul;                                 // height
@@ -7883,12 +7844,12 @@ function createFactory() {
         cam.position.set(_camX, _camY, _camZ);
 
         // Self-correcting look-at Y: project the fretboard's near-edge centre
-        // to NDC space. If it drifts toward the frame edge, nudge tgtLookY
+        // to NDC space. If it drifts toward the frame edge, nudge ctx.cam.tgtLookY
         // toward the fretboard centre so the camera tilts to re-frame it.
         // This lets the camera adapt to any panel aspect ratio automatically.
         const fretMidY = (sY(0) + sY(nStr - 1)) / 2;
-        _probe.set(curX, fretMidY, 0);                  // play-line fretboard centre
-        cam.lookAt(curX, curLookY + _poseLookYAdd, _lookAtZ);    // tentative look — needed for project()
+        _probe.set(ctx.cam.curX, fretMidY, 0);                  // play-line fretboard centre
+        cam.lookAt(ctx.cam.curX, ctx.cam.curLookY + _poseLookYAdd, _lookAtZ);    // tentative look — needed for project()
         cam.updateMatrixWorld();
         _probe.project(cam);                             // _probe.y → NDC in [-1, 1]
 
@@ -7901,12 +7862,12 @@ function createFactory() {
         const tiltBand   = CAM_TILT_BAND_T + (CAM_TILT_BAND_C - CAM_TILT_BAND_T) * tiltSmoothing;
         const tiltStr    = CAM_TILT_STR_T  + (CAM_TILT_STR_C  - CAM_TILT_STR_T)  * tiltSmoothing;
         if (_probe.y < DESIRED_NDC_Y - tiltBand || _probe.y > DESIRED_NDC_Y + tiltBand) {
-            // _probe.y too low → fretboard near bottom → tgtLookY decreases → camera tilts down → fretboard rises
-            // _probe.y too high → fretboard near top  → tgtLookY increases → camera tilts up   → fretboard drops
+            // _probe.y too low → fretboard near bottom → ctx.cam.tgtLookY decreases → camera tilts down → fretboard rises
+            // _probe.y too high → fretboard near top  → ctx.cam.tgtLookY increases → camera tilts up   → fretboard drops
             const correction = (DESIRED_NDC_Y - _probe.y) * fretMidY * tiltStr;
-            tgtLookY = Math.max(-fretMidY, Math.min(fretMidY, tgtLookY - correction));
+            ctx.cam.tgtLookY = Math.max(-fretMidY, Math.min(fretMidY, ctx.cam.tgtLookY - correction));
         }
-        curLookY += (tgtLookY - curLookY) * lerp;
+        ctx.cam.curLookY += (ctx.cam.tgtLookY - ctx.cam.curLookY) * lerp;
 
         // Final look-at with the corrected Y (overrides the tentative one above).
         // User tilt (pitch) + pan offsets layer on top when the free-cam is
@@ -7915,16 +7876,16 @@ function createFactory() {
             const _panX = Number.isFinite(_freeCam.panX) ? _freeCam.panX : 0;
             const _panY = Number.isFinite(_freeCam.panY) ? _freeCam.panY : 0;
             const _pitch = Number.isFinite(_freeCam.pitch) ? _freeCam.pitch : 0;
-            cam.lookAt(curX + _panX * K, curLookY + (_pitch + _panY) * K, _lookAtZ);
+            cam.lookAt(ctx.cam.curX + _panX * K, ctx.cam.curLookY + (_pitch + _panY) * K, _lookAtZ);
         } else {
-            cam.lookAt(curX, curLookY + _poseLookYAdd, _lookAtZ);
+            cam.lookAt(ctx.cam.curX, ctx.cam.curLookY + _poseLookYAdd, _lookAtZ);
         }
 
         // ── Fret-row fit guard ────────────────────────────────────────────
         // Project the fret-number-row band (just below the lowest string, at
         // the play line) with the final camera. If it sits below the safe
-        // bottom line, dolly back (raise _fretRowFitBoost → applied to the
-        // curDist lerp target next frame) until it clears; relax lazily once
+        // bottom line, dolly back (raise ctx.cam._fretRowFitBoost → applied to the
+        // ctx.cam.curDist lerp target next frame) until it clears; relax lazily once
         // there's comfortable headroom. Asymmetric + deadbanded so it
         // converges without hunting, and capped so the zoom can't pop. It
         // cooperates with the tilt loop above rather than fighting it: pulling
@@ -7932,23 +7893,23 @@ function createFactory() {
         // at DESIRED_NDC_Y, so only the row's bottom headroom changes. Skipped
         // while the free-cam (Camera Director) owns the view.
         if (_freeCam && _freeCam.enabled) {
-            if (_fretRowFitBoost !== 1) _fretRowFitBoost = 1;
+            if (ctx.cam._fretRowFitBoost !== 1) ctx.cam._fretRowFitBoost = 1;
         } else {
             cam.updateMatrixWorld();
             const _rowY = Math.min(sY(0), sY(nStr - 1)) - S_GAP * 1.4;
-            _probe.set(curX, _rowY, 0.5 * K);
+            _probe.set(ctx.cam.curX, _rowY, 0.5 * K);
             _probe.project(cam);                              // _probe.y → NDC; < -1 = off the bottom
             const _rowNdcY = _probe.y;
             if (_rowNdcY < FRET_ROW_FIT_NDC_MIN) {
                 // Row below the safe line → pull back promptly, proportional to
                 // the deficit so it converges in a few frames without overshoot.
                 const _need = FRET_ROW_FIT_NDC_MIN - _rowNdcY;
-                _fretRowFitBoost = Math.min(FRET_ROW_FIT_BOOST_MAX,
-                    _fretRowFitBoost + Math.min(0.05, _need * 0.4));
+                ctx.cam._fretRowFitBoost = Math.min(FRET_ROW_FIT_BOOST_MAX,
+                    ctx.cam._fretRowFitBoost + Math.min(0.05, _need * 0.4));
             } else if (_rowNdcY > FRET_ROW_FIT_NDC_MIN + FRET_ROW_FIT_DEADBAND
-                       && _fretRowFitBoost > 1) {
+                       && ctx.cam._fretRowFitBoost > 1) {
                 // Comfortable headroom → relax the dolly back toward normal, lazily.
-                _fretRowFitBoost = Math.max(1, _fretRowFitBoost - 0.01);
+                ctx.cam._fretRowFitBoost = Math.max(1, ctx.cam._fretRowFitBoost - 0.01);
             }
         }
     }
@@ -8013,11 +7974,11 @@ function createFactory() {
         _diagRenderCache.clear();
         cam.aspect = w / h;
         cam.updateProjectionMatrix();
-        aspectScale = Math.max(1, REF_ASPECT / Math.max(cam.aspect, 0.5));
+        ctx.cam.aspectScale = Math.max(1, REF_ASPECT / Math.max(cam.aspect, 0.5));
         // Cache the pane aspect for the horizontal-FOV-hold in camUpdate.
         // cam.fov itself is owned by camUpdate (not set here) so live
         // __h3dAspectTune edits apply every frame without a resize.
-        _paneAspect = cam.aspect;
+        ctx.cam._paneAspect = cam.aspect;
         _appliedW = w; _appliedH = h;
     }
 
@@ -8214,21 +8175,21 @@ function createFactory() {
         pFretColMarker = null;
         _fretMarkerWaveCache.clear();
         gNote = gSus = gBeat = gTapChevron = null;
-        tgtX = curX = xFretMid(CAM_LOCK_CENTER_FRET); tgtDist = curDist = CAM_DIST_BASE; tgtLookY = curLookY = 0; _fretRowFitBoost = 1; nStr = NSTR; _oobStringWarned = false;
-        _lookaheadCamX = xFretMid(CAM_LOCK_CENTER_FRET);
-        _lookaheadFretSpan = DEFAULT_LOOKAHEAD_FRET_SPAN;
-        _lookaheadCamPrevNow = null;
-        _lookaheadLowBonusU = 0;
-        _lookaheadHiNeckLatch = false;
+        ctx.cam.tgtX = ctx.cam.curX = xFretMid(CAM_LOCK_CENTER_FRET); ctx.cam.tgtDist = ctx.cam.curDist = CAM_DIST_BASE; ctx.cam.tgtLookY = ctx.cam.curLookY = 0; ctx.cam._fretRowFitBoost = 1; nStr = NSTR; _oobStringWarned = false;
+        ctx.cam._lookaheadCamX = xFretMid(CAM_LOCK_CENTER_FRET);
+        ctx.cam._lookaheadFretSpan = DEFAULT_LOOKAHEAD_FRET_SPAN;
+        ctx.cam._lookaheadCamPrevNow = null;
+        ctx.cam._lookaheadLowBonusU = 0;
+        ctx.cam._lookaheadHiNeckLatch = false;
         _measureStarts = []; _measureStartsRef = null;
         _clkAudioT = NaN; _clkPerf = NaN; _clkRate = 1; _frameNow = 0;
-        prevLowFretBonus = 0;
-        prevLockActive = false;
-        _camSnapped = false;
-        _camPreScanned = false;
-        _camBootstrapHolding = false;
-        _camBootstrapMode = null;
-        _songKey = null;
+        ctx.cam.prevLowFretBonus = 0;
+        ctx.cam.prevLockActive = false;
+        ctx.cam._camSnapped = false;
+        ctx.cam._camPreScanned = false;
+        ctx.cam._camBootstrapHolding = false;
+        ctx.cam._camBootstrapMode = null;
+        ctx.cam._songKey = null;
         _slideTargetSet = null;
         _slideTargetNotesRef = null;
         _slideTargetChordsRef = null;
@@ -8400,9 +8361,9 @@ function createFactory() {
                     _resetStringDependentCaches();
                 }
                 if (leftyChanged) {
-                    curX = -curX;
-                    tgtX = -tgtX;
-                    _lookaheadCamX = -_lookaheadCamX;
+                    ctx.cam.curX = -ctx.cam.curX;
+                    ctx.cam.tgtX = -ctx.cam.tgtX;
+                    ctx.cam._lookaheadCamX = -ctx.cam._lookaheadCamX;
                 }
                 nStr = newNStr;
                 buildBoard();
@@ -8736,7 +8697,7 @@ function createFactory() {
             _destroyed = true; _isReady = false; _diagChord = null; _diagPrev = null; _diagLastKey = null; _diagRenderCache.clear();
             _lastHwW = 0; _lastHwH = 0;
             _appliedW = 0; _appliedH = 0;
-            _paneAspect = 0;
+            ctx.cam._paneAspect = 0;
             if (cam && cam.fov !== BASE_VFOV) { cam.fov = BASE_VFOV; cam.updateProjectionMatrix(); }
             _wrapPinned = false;
             if (backgroundControlAcquired) { backgroundControlAcquired = false; releaseBackgroundControl(); }

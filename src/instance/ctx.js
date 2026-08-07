@@ -1,0 +1,77 @@
+import { fretMid } from '../core/fret-geometry.js';
+import { CAM_DIST_BASE, CAM_LOCK_CENTER_FRET, DEFAULT_LOOKAHEAD_FRET_SPAN } from '../core/constants.js';
+
+// The per-instance shared-state object (Stage 7 Track B). Where note.js's
+// `deps`/`frame` split works because each field is owned by exactly ONE
+// writer (construction-time-stable, or rebuilt fresh each frame by a single
+// producer), some state genuinely has MANY co-equal writers -- camera pose
+// is written by camUpdate(), applySize(), the lookahead helpers,
+// _applyNoteCamTargets(), and three different sections of update() (song-
+// change detection, camera bootstrap, camera target), all touching the same
+// ~20 fields across the same frame. No single owner exists to hand a
+// `deps`/`frame` bag to; every consumer needs to read the CURRENT value and
+// have its own writes immediately visible to every other consumer. `ctx` is
+// that shared object: every consumer function holds the same reference and
+// reads/writes `ctx.cam.field` directly -- no bag-rebuilding, no snapshot
+// staleness, because it's the same object for all of them.
+//
+// Grown incrementally, group by group, driven by whichever consumer cluster
+// is being migrated -- NOT built as an upfront speculative 13-group object.
+// A speculative ctx.js with zero real consumers was tried once (Stage 7
+// Phase 3a) and reverted: with no consumer to validate field names/shapes
+// against, there's no way to get the shape right, and unused groups are
+// just dead scaffolding. `cam` is the first group, added for the
+// camUpdate()/applySize()/buildBoard()-adjacent camera-pose cluster (Track
+// B, 3-ctx-1) -- the plan's designated pattern validator for "N functions
+// share live state via one object," the role drawNote() played for
+// `deps`/`frame`.
+//
+// "Every field initialised in the literal so V8 keeps one hidden class"
+// (the concern that motivates NOT doing ad hoc `ctx.cam.newField = x`
+// assignments after construction) is about `createCtx(1)` vs `createCtx(2)`
+// -- two splitscreen panels -- sharing a hidden class AT ANY GIVEN COMMIT,
+// not about the object's shape being frozen forever. The shape is free to
+// grow in later commits as more groups land; each `createCtx()` call at a
+// given commit just has to build the same shape as every other call at
+// that commit.
+export function createCtx(id) {
+    // Matches the original declarations' actual initial values exactly:
+    // xFretMid(CAM_LOCK_CENTER_FRET) with _leftyCached still at its own
+    // default (false) at that point in the closure is just
+    // fretMid(CAM_LOCK_CENTER_FRET) -- same numeric value, computed here
+    // without depending on the closure's per-instance xFretMid() helper.
+    const centerX = fretMid(CAM_LOCK_CENTER_FRET);
+    return {
+        id,
+        cam: {
+            // Smoothed camera position + look-at (camUpdate() lerps cur* toward tgt*).
+            curX: centerX,
+            tgtX: centerX,
+            curDist: CAM_DIST_BASE,
+            tgtDist: CAM_DIST_BASE,
+            curLookY: 0,
+            tgtLookY: 0,
+            // Fret-row-fit dolly-back multiplier (camUpdate()'s fret-row fit guard).
+            _fretRowFitBoost: 1,
+            // Cached aspect state (applySize() writes, camUpdate() reads).
+            aspectScale: 1,
+            _paneAspect: 0,
+            // Low-fret pullback + lock-active tracking (_applyNoteCamTargets()).
+            prevLowFretBonus: 0,
+            prevLockActive: false,
+            // First-chart-data bootstrap gating (update()'s song-change-detection +
+            // camera-bootstrap sections).
+            _camSnapped: false,
+            _camPreScanned: false,
+            _camBootstrapHolding: false,
+            _camBootstrapMode: null,
+            _songKey: null,
+            // Smoothed lookahead-mode camera target (lookaheadSmoothCamStep()).
+            _lookaheadCamX: centerX,
+            _lookaheadFretSpan: DEFAULT_LOOKAHEAD_FRET_SPAN,
+            _lookaheadCamPrevNow: null,
+            _lookaheadLowBonusU: 0,
+            _lookaheadHiNeckLatch: false,
+        },
+    };
+}
