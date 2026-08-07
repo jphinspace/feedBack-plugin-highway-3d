@@ -639,23 +639,13 @@ function createFactory() {
     // The lock disengages while any note above fret 12 is in the
     // lookahead window so the camera can briefly widen to include it,
     // then re-engages once the high note ages out.
-    let cameraLockLow = false;
-    // Zoom-level for the locked view. Slider 0..1 maps to a multiplier
-    // on the locked tgtDist: 0 → CAM_LOCK_ZOOM_MIN (closest, biggest
-    // fretboard), 0.5 → 1.0× (the default locked view), 1 → CAM_LOCK_ZOOM_MAX
-    // (furthest). Inactive when the lock isn't engaged.
-    let cameraLockZoom = 0.5;
-    // cameraMode lives on ctx.settings (Stage 7 Track 3e) -- read only
-    // inside update(). 'steady' = recency-weighted centroid + hysteresis
-    // (#34); 'lookahead' = wide preview window + smooth focal.
-    // Global text-size multiplier for in-scene text sprites (chord
-    // names, fret labels, section banners, technique markers, etc.).
-    // Slider is 0..1; mapped to a 0.5..1.5× multiplier with 0.5 = 1.0×
-    // (current default behaviour). _textSizeMul is the materialized
-    // multiplier — refreshed once per frame at the top of update()
-    // and consumed by every text-sprite scale.set call inside update
-    // and drawNote.
-    let textSize = 0.5;
+    // cameraLockLow / cameraLockZoom (lock disengages while any note above
+    // fret 12 is in the lookahead window) / cameraMode / textSize (global
+    // text-size multiplier; 0..1 slider mapped to 0.5..1.5×) / glowMul all
+    // live on ctx.settings (Stage 7 Track 3e). _textSizeMul is the
+    // materialized multiplier — refreshed once per frame at the top of
+    // update() and consumed by every text-sprite scale.set call inside
+    // update and drawNote.
     let _textSizeMul = 1.0;
     let _textSizeMulApplied = -1;
     // Visual look dials (issue: pastel/washed-out feel + too-much-glow
@@ -667,7 +657,6 @@ function createFactory() {
     // updateStringHighlights() and drawNote() don't recompute the
     // linear blend every frame.
     let vibrancy            = SETTING_DEFAULTS.vibrancy;
-    let glowMul             = SETTING_DEFAULTS.glow;
     // _hitFx / _verdictMarks / _timingFx / _streakFx / _bloom live on
     // ctx.settings (Stage 7 Track 3e) -- read only inside update()'s
     // _noteFrame block (first four) or draw() (_bloom). _sparks also moved
@@ -1511,7 +1500,7 @@ function createFactory() {
             gHaloBar, pHaloBar, mMissOutline, mEdgeTransparent, mMissEdgeArrays,
             mHitBright, mHitBrightArrays, mRimFlash, mSusOutline, mHitSusOutline,
             mBeatM, mBeatQ, _laneTargetColor, _fwHitColor, _fwHitEmissive,
-        } = createNoteGemVisuals({ activePalette, glowMul, noteG, _recolorGemGradients, _ownedSharedGeos, gHaloBar }));
+        } = createNoteGemVisuals({ activePalette, glowMul: ctx.settings.glowMul, noteG, _recolorGemGradients, _ownedSharedGeos, gHaloBar }));
         _fwHitGlow.fill(0);
         _fwHitPrevTime = -Infinity;
 
@@ -1568,7 +1557,7 @@ function createFactory() {
             pChordLbl, mBarre, pBarreLine, gArpBracket, pArpBracket,
             pNoteFretLabel, pTeachMarkLbl, pConnectorLine, pDropLine,
         } = createChordAccentVisuals({
-            noteG, lblG, textSprites, glowMul, _imColor, IM_STRUM_CAP,
+            noteG, lblG, textSprites, glowMul: ctx.settings.glowMul, _imColor, IM_STRUM_CAP,
             _imPMXFillAlphaArr, _imFHXFillAlphaArr, _imPMXLinesAlphaArr, _imFHXLinesAlphaArr,
             gPMXLines, gFHXLines, gArpBracket,
         }));
@@ -1859,12 +1848,12 @@ function createFactory() {
         ctx.settings.tiltSmoothing = hasStoredSetting(panelKey, 'tiltSmoothing')
             ? readSetting(panelKey, 'tiltSmoothing')
             : ctx.settings.cameraSmoothing;
-        cameraLockLow = readSetting(panelKey, 'cameraLockLow');
-        cameraLockZoom = readSetting(panelKey, 'cameraLockZoom');
+        ctx.settings.cameraLockLow = readSetting(panelKey, 'cameraLockLow');
+        ctx.settings.cameraLockZoom = readSetting(panelKey, 'cameraLockZoom');
         ctx.settings.cameraMode = readSetting(panelKey, 'cameraMode');
-        textSize             = readSetting(panelKey, 'textSize');
+        ctx.settings.textSize = readSetting(panelKey, 'textSize');
         vibrancy             = readSetting(panelKey, 'vibrancy');
-        glowMul              = readSetting(panelKey, 'glow');
+        ctx.settings.glowMul = readSetting(panelKey, 'glow');
         ctx.settings._hitFx  = readSetting(panelKey, 'hitFx');
         ctx.settings._sparks = readSetting(panelKey, 'sparks');
         _cinematic           = readSetting(panelKey, 'cinematic');
@@ -2098,7 +2087,7 @@ function createFactory() {
         _vibrancyProjOp = projIdleOp;
     }
     function _applyGlow() {
-        const g = glowMul;
+        const g = ctx.settings.glowMul;
         for (let s = 0; s < activePalette.length; s++) {
             if (mStr[s])  mStr[s].emissiveIntensity  = 0.002 * g;
             // mGlow[s].emissiveIntensity is per-frame in update();
@@ -2695,7 +2684,7 @@ function createFactory() {
             mat.depthWrite = false;
             mat.opacity = 0.55;
             const lbl = new T.Sprite(mat);
-            const scale = 5.5 * (0.5 + textSize) * fretLabelScaleForFret(f);
+            const scale = 5.5 * (0.5 + ctx.settings.textSize) * fretLabelScaleForFret(f);
             lbl.scale.set(scale * K, scale * K, 1);
             lbl.position.set(xFretMid(f), yTop - S_GAP * 0.4, -K);
             lbl.visible = inlayLabelsVisible;
@@ -2828,7 +2817,7 @@ function createFactory() {
     //          ctx.cam.prevLockActive from the returned value).
     function _applyNoteCamTargets(wX, wSum, distMin, distMax, distGot,
                                   camHystF, camDistHystF, skipDistHyst) {
-        const lockActive = cameraLockLow && (!distGot || distMax <= 12);
+        const lockActive = ctx.settings.cameraLockLow && (!distGot || distMax <= 12);
         if (lockActive) {
             // Locked view: frets 0-12 fit in frame, with the peak
             // low-fret bonus baked in so nut chords stay framed.
@@ -2841,7 +2830,7 @@ function createFactory() {
             // and MAX (furthest). Default 0.5 maps to ~1.0× so existing
             // users see the same locked view as before this slider.
             const lockZoomMul  = CAM_LOCK_ZOOM_MIN +
-                (CAM_LOCK_ZOOM_MAX - CAM_LOCK_ZOOM_MIN) * cameraLockZoom;
+                (CAM_LOCK_ZOOM_MAX - CAM_LOCK_ZOOM_MIN) * ctx.settings.cameraLockZoom;
             ctx.cam.tgtX             = xFretMid(CAM_LOCK_CENTER_FRET);
             ctx.cam.tgtDist          = (lockedBaseU + lockedBonusU) * K * lockZoomMul;
             ctx.cam.prevLowFretBonus = lockedBonusU;
@@ -3128,9 +3117,9 @@ function createFactory() {
             const vg = noteVerdictState.sawAlpha ? noteVerdictState.maxAlpha : 1;
             const venueGemMul = _venueSceneOverride ? VENUE_GEM_EMISSIVE_MUL : 1;
             for (let s = 0; s < mHitBright.length; s++) {
-                if (mHitBright[s]) mHitBright[s].emissiveIntensity = 4.0 * glowMul * vg * venueGemMul;
+                if (mHitBright[s]) mHitBright[s].emissiveIntensity = 4.0 * ctx.settings.glowMul * vg * venueGemMul;
             }
-            if (mHitSusOutline) mHitSusOutline.emissiveIntensity = 0.7 * glowMul * vg * venueGemMul;
+            if (mHitSusOutline) mHitSusOutline.emissiveIntensity = 0.7 * ctx.settings.glowMul * vg * venueGemMul;
             noteVerdictState.maxAlpha = 0;
             noteVerdictState.sawAlpha = false;
         }
@@ -3148,7 +3137,7 @@ function createFactory() {
         // Materialize the text-size multiplier from the user's slider.
         // textSize ∈ [0,1]; _textSizeMul ∈ [0.5, 1.5] with 0.5 ↦ 1.0×
         // so default behaviour matches what the renderer did pre-slider.
-        _textSizeMul = 0.5 + textSize;
+        _textSizeMul = 0.5 + ctx.settings.textSize;
         // Rescale inlay labels to track the live text-size slider.
         // buildBoard() sets an initial scale using (0.5 + textSize) but
         // _textSizeMul is only authoritative from here onward.
@@ -3437,7 +3426,7 @@ function createFactory() {
         _noteFrame.noteDetectHasProvider = noteDetectHasProvider;
         _noteFrame.showFretOnNote = ctx.settings.showFretOnNote;
         _noteFrame.fretNumberGhostScope = ctx.settings.fretNumberGhostScope;
-        _noteFrame.glowMul = glowMul;
+        _noteFrame.glowMul = ctx.settings.glowMul;
         _noteFrame._hitFx = ctx.settings._hitFx;
         _noteFrame._sparks = ctx.settings._sparks;
         _noteFrame._verdictMarks = ctx.settings._verdictMarks;
@@ -3480,7 +3469,7 @@ function createFactory() {
         // mGlow / mAccentCore emissive writes are folded into
         // updateStringHighlights() — same per-string scratch reads,
         // one pass.
-        frameState.updateStringHighlights(noteState, nStr, glowMul, _vibrancyIdleOp);
+        frameState.updateStringHighlights(noteState, nStr, ctx.settings.glowMul, _vibrancyIdleOp);
         pbEnd(3);
 
         // Active frets (notes in cooldown window) + highway intensity.
@@ -3581,7 +3570,7 @@ function createFactory() {
         }
         cameraBootstrap.bootstrapCameraFromChartData(
             notes, chords, anchors, now, nStr, ctx.settings.cameraMode, lookaheadBoundsNow,
-            camAhead, camTau, camHystF, camDistHystF, cameraLockLow, cameraLockZoom,
+            camAhead, camTau, camHystF, camDistHystF, ctx.settings.cameraLockLow, ctx.settings.cameraLockZoom,
         );
 
         pbBeg(4);
@@ -3653,7 +3642,7 @@ function createFactory() {
         // Writes only into ctx.cam (shared dep); nothing escapes downstream.
         cameraTarget.drawCameraTarget(
             ctx.settings.cameraMode, lookaheadBoundsNow, camDistGot, camWX, camWSum, camDistMin, camDistMax,
-            camHystF, camDistHystF, _frameNow, cameraLockLow, cameraLockZoom,
+            camHystF, camDistHystF, _frameNow, ctx.settings.cameraLockLow, ctx.settings.cameraLockZoom,
         );
 
 

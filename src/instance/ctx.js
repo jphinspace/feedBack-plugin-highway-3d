@@ -152,6 +152,15 @@ export function createCtx(id) {
             bgCustomImageDataUrl: SETTING_DEFAULTS.customImageDataUrl,
             bgCustomImageName: SETTING_DEFAULTS.customImageName,
             bgCustomVideoName: SETTING_DEFAULTS.customVideoName,
+            // Batch 4: cameraLockLow/cameraLockZoom (_applyNoteCamTargets()
+            // plus two already-extracted call sites that take them as plain
+            // params -- camera-target.js, camera-bootstrap.js), textSize
+            // (buildBoard()/update()), glowMul (initScene() one-time
+            // snapshots, _applyGlow(), update()).
+            cameraLockLow: SETTING_DEFAULTS.cameraLockLow,
+            cameraLockZoom: SETTING_DEFAULTS.cameraLockZoom,
+            textSize: SETTING_DEFAULTS.textSize,
+            glowMul: SETTING_DEFAULTS.glow,
         },
     };
 }
