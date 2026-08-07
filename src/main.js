@@ -85,6 +85,7 @@ import { createArpeggioLaneRail } from './instance/render/arpeggio-lane-rail.js'
 import { createNoteRenderer } from './instance/render/note.js';
 import { createNotedetectListeners } from './instance/notedetect/listeners.js';
 import { createCtx } from './instance/ctx.js';
+import { createSettingsListener } from './instance/settings-listener.js';
 import { pool } from './core/pool.js';
 import { createDomAndScene } from './instance/geometry/dom-and-scene.js';
 import { createNoteGemVisuals } from './instance/geometry/note-gem-visuals.js';
@@ -1692,186 +1693,22 @@ function createFactory() {
         // background never paints over notes.
         scene.add(bgGroup);
         mountBackgroundStyle();
-        settingsListener = (changedKey) => {
-            if (changedKey === 'fretSpacing') {
-                // _h3dFretUniform + the fretX-derived scalars were already
-                // updated globally in h3dSetFretSpacing. Rebuild this
-                // panel's static board geometry (fret wires, lanes, inlays)
-                // so it re-lays-out for the new spacing; per-frame note
-                // geometry reads fretX live and needs no rebuild.
-                if (fretG) buildBoard();
-                return;
-            }
-            if (changedKey === 'inlayLabelsVisible') {
-                loadSettings();
-                // Flip visibility on the already-built sprites; no
-                // need to rebuild the board (cheaper, preserves the
-                // shared materials and avoids palette re-apply churn).
-                for (const lbl of ctx.board._inlayLabels) lbl.visible = inlayLabelsVisible;
-                return;
-            }
-            if (changedKey === 'nutHeadstockVisible') {
-                loadSettings();
-                if (ctx.board.nutHeadstockGroup) ctx.board.nutHeadstockGroup.visible = nutHeadstockVisible;
-                return;
-            }
-            if (changedKey === 'tuningLabelsVisible') {
-                loadSettings();
-                _lastOpenStringLblSig = '';
-                if (_tuningLabelSprites.length) _disposeOpenStringPitchSprites();
-                return;
-            }
-            if (changedKey === 'nutColor' || changedKey === 'headstockColor') {
-                loadSettings();
-                if (fretG) buildBoard();
-                for (const lbl of ctx.board._inlayLabels) lbl.visible = inlayLabelsVisible;
-                return;
-            }
-            if (changedKey === 'reactive' || changedKey === 'showFretOnNote' ||
-                changedKey === 'fretNumberGhostScope' ||
-                changedKey === 'cameraSmoothing' || changedKey === 'zoomSmoothing' ||
-                changedKey === 'tiltSmoothing' || changedKey === 'cameraLockLow' ||
-                changedKey === 'cameraLockZoom' || changedKey === 'cameraMode' ||
-                changedKey === 'textSize' ||
-                changedKey === 'chordDiagramSize' || changedKey === 'chordDiagramPosition' ||
-                changedKey === 'fretColumnMarkerCadence' ||
-                changedKey === 'sectionLabelsOnHighway' ||
-                changedKey === 'sectionHudVisible' ||
-                changedKey === 'sectionHudPosition' ||
-                changedKey === 'sectionHudSize' ||
-                changedKey === 'toneHudVisible' ||
-                changedKey === 'toneHudPosition' ||
-                changedKey === 'toneHudSize' ||
-                changedKey === 'projectionVisible' ||
-                changedKey === 'slideArrowApproachVisible' ||
-                changedKey === 'slideArrowNeckVisible' ||
-                changedKey === 'slideArrowChainPreviewVisible' ||
-                // Overlay/FX flags. These were all mirrored by loadSettings()
-                // but missing from this list, so toggling any of them did
-                // nothing until the panel was torn down and rebuilt (song
-                // change or viz swap). Every one is read per-frame, so a
-                // plain reload is enough:
-                //   fpsVisible / chordDiagramVisible — read in draw()
-                //   fretDividersVisible — read in update()'s lane block
-                //   hitFx / sparks / streakFx / timingFx / verdictMarks —
-                //     read in drawNote()'s notedetect branch
-                //   bloom — read per-frame; _bloomEnsure() is lazy
-                //   cinematic — loadSettings() itself calls _applyCinematic()
-                changedKey === 'fpsVisible' ||
-                changedKey === 'fretDividersVisible' ||
-                changedKey === 'chordDiagramVisible' ||
-                changedKey === 'hitFx' ||
-                changedKey === 'sparks' ||
-                changedKey === 'streakFx' ||
-                changedKey === 'timingFx' ||
-                changedKey === 'verdictMarks' ||
-                changedKey === 'cinematic' ||
-                changedKey === 'bloom') {
-                // Flag flips don't need a mesh rebuild — just refresh
-                // the per-instance state for the next frame to consult.
-                // Same shape for showFretOnNote (#12), cameraSmoothing
-                // (#34), the zoom/tilt smoothing follow-ups, and
-                // cameraLockLow — all read per-frame in update() /
-                // camUpdate().
-                //
-                // NOTE: `customColors` deliberately has no entry here.
-                // h3dBgSetStringColors writes it and THEN writes `palette`,
-                // so the 'palette' branch below already reloads it.
-                loadSettings();
-                return;
-            }
-            if (changedKey === 'vibrancy') {
-                loadSettings();
-                _applyVibrancy();
-                return;
-            }
-            if (changedKey === 'glow') {
-                loadSettings();
-                _applyGlow();
-                return;
-            }
-            if (changedKey === 'palette') {
-                // Palette change has three effects:
-                //  1. loadSettings -> _applyPaletteToMaterials
-                //     retints the per-instance shared materials
-                //     (notes, glows, sustain trails, projection).
-                //  2. buildBoard rebuilds the fretboard meshes
-                //     (LineBasicMaterial lane lines + per-string
-                //     BoxGeometry materials). These are created at
-                //     build time with palette-baked colors and
-                //     aren't reachable from _applyPaletteToMaterials.
-                //  3. lights bg style bakes palette colors into
-                //     sprite quads at build time, so it needs a
-                //     full mesh rebuild — fire rebuildBackground when
-                //     that style is active.
-                loadSettings();
-                if (fretG) buildBoard();
-                if (bgStyleId === 'lights') rebuildBackground();
-                return;
-            }
-            if (changedKey === 'bgTheme' || changedKey === 'hwTheme') {
-                // A scene-color axis changed (background = bgTheme:
-                // clear+fog; highway = hwTheme: board plane + lane). Recolor
-                // in place — no mesh rebuild needed (the board plane material
-                // is mutated via ctx.board._boardPlaneMat, the lane via mLaneOdd/Even).
-                // _applyBgTheme reapplies both axes from their own keys, so
-                // changing one dropdown retints only its half.
-                loadSettings();
-                _applyBgTheme();
-                return;
-            }
-            if (changedKey === 'customImageDataUrl') {
-                // Asset bytes changed. Rebuild only when the image
-                // style is active — otherwise the new bytes will
-                // pick up next time the user picks `image`.
-                loadSettings();
-                if (bgStyleId === 'image') rebuildBackground();
-                return;
-            }
-            if (changedKey === 'customImageName') {
-                // Display-only metadata; no mesh rebuild.
-                loadSettings();
-                return;
-            }
-            if (changedKey === 'customVideoName') {
-                // Filename change → new <video> source. Rebuild
-                // only when the video style is currently active;
-                // otherwise the new bytes pick up next time the
-                // user picks `video`.
-                loadSettings();
-                if (bgStyleId === 'video') rebuildBackground();
-                return;
-            }
-            if (changedKey === 'intensity') {
-                loadSettings();
-                // Image style reads s.intensity per frame inside
-                // update() to scale the drift speed, so a live
-                // mutation is enough — no need to tear down and
-                // re-decode the texture for every slider change.
-                // The procedural styles bake intensity into mesh
-                // count, opacity, and size at build time, so they
-                // still need a full rebuild.
-                if (bgStyleId === 'image' && bgState) {
-                    bgState.intensity = bgIntensity;
-                    return;
-                }
-                rebuildBackground();
-                return;
-            }
-            if (changedKey === 'venueScene') {
-                rebuildBackground();
-                return;
-            }
-            if (changedKey === 'venueInstrumentPov') {
-                if (effectiveBackgroundStyleId() === 'venue' && bgState) {
-                    _venueSwapPlateIfNeeded(bgState);
-                }
-                return;
-            }
-            if (!changedKey || changedKey === 'style') {
-                rebuildBackground();
-            }
-        };
+        // The live settings-bus subscriber -- see instance/settings-listener.js.
+        // Threaded through as live getters/setters, not plain deps values --
+        // see that file's doc comment for why (loadSettings() reassigns most
+        // of what this reads, from inside several of its own branches).
+        settingsListener = createSettingsListener({
+            getFretG: () => fretG, buildBoard, loadSettings, ctx,
+            getInlayLabelsVisible: () => inlayLabelsVisible,
+            getNutHeadstockVisible: () => nutHeadstockVisible,
+            setLastOpenStringLblSig: (v) => { _lastOpenStringLblSig = v; },
+            getTuningLabelSprites: () => _tuningLabelSprites,
+            _disposeOpenStringPitchSprites,
+            _applyVibrancy, _applyGlow,
+            getBgStyleId: () => bgStyleId, rebuildBackground, _applyBgTheme,
+            getBgState: () => bgState, getBgIntensity: () => bgIntensity,
+            effectiveBackgroundStyleId,
+        });
         subscribeToSettings(settingsListener);
 
         // Notedetect feedback (#9) + Score FX listener setup -- see

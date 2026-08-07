@@ -37,32 +37,36 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const src = fs.readFileSync(path.join(HERE, '..', 'src', 'main.js'), 'utf8');
+// The live settings-bus listener moved to instance/settings-listener.js in
+// Stage 7 Track B (3-ctx-3) -- loadSettings() stayed in main.js.
+const settingsListenerSrc = fs.readFileSync(
+    path.join(HERE, '..', 'src', 'instance', 'settings-listener.js'), 'utf8');
 
-// Brace-match a block starting at `signature`.
-function block(signature) {
-    const start = src.indexOf(signature);
-    assert.notEqual(start, -1, `signature '${signature}' not found in src/main.js`);
-    const open = src.indexOf('{', start);
+// Brace-match a block starting at `signature` within `text`.
+function block(text, signature, label) {
+    const start = text.indexOf(signature);
+    assert.notEqual(start, -1, `signature '${signature}' not found in ${label}`);
+    const open = text.indexOf('{', start);
     assert.notEqual(open, -1, `no opening brace after '${signature}'`);
     let depth = 1, i = open + 1;
-    while (i < src.length && depth > 0) {
-        if (src[i] === '{') depth++;
-        else if (src[i] === '}') depth--;
+    while (i < text.length && depth > 0) {
+        if (text[i] === '{') depth++;
+        else if (text[i] === '}') depth--;
         i++;
     }
     assert.equal(depth, 0, `unbalanced braces after '${signature}'`);
-    return src.slice(start, i);
+    return text.slice(start, i);
 }
 
 // Keys that loadSettings() copies into per-instance state.
 function mirroredKeys() {
-    const body = block('function loadSettings');
+    const body = block(src, 'function loadSettings', 'src/main.js');
     return new Set([...body.matchAll(/readSetting\(panelKey, '(\w+)'\)/g)].map((m) => m[1]));
 }
 
 // Keys the live settings-bus listener dispatches on.
 function handledKeys() {
-    const body = block('settingsListener = (changedKey) =>');
+    const body = block(settingsListenerSrc, 'return (changedKey) =>', 'src/instance/settings-listener.js');
     return new Set([...body.matchAll(/changedKey === '(\w+)'/g)].map((m) => m[1]));
 }
 

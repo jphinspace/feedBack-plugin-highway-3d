@@ -17,6 +17,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
+const SETTINGS_LISTENER_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'settings-listener.js');
 
 test('fret-spacing mode is read from the highway_3d.fretSpacing localStorage key via initFretSpacing()', async () => {
     const { initFretSpacing, fretX } = await import('../../src/core/fret-geometry.js');
@@ -88,10 +89,14 @@ test('h3dSetFretSpacing applies the change live, not via a page reload', () => {
 });
 
 test('the fretSpacing change rebuilds a mounted board live', () => {
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
+    // The live settings-bus subscriber moved to instance/settings-listener.js
+    // in Stage 7 Track B (3-ctx-3); `fretG` is read there via a live getter
+    // (getFretG()), not a bare closure reference -- see that file's doc
+    // comment for why.
+    const src = fs.readFileSync(SETTINGS_LISTENER_JS, 'utf8');
     assert.match(
         src,
-        /changedKey\s*===\s*'fretSpacing'[\s\S]*?if\s*\(fretG\)\s*buildBoard\(\)/,
+        /changedKey\s*===\s*'fretSpacing'[\s\S]*?if\s*\(\s*getFretG\(\)\s*\)\s*buildBoard\(\)/,
         'the panel bg listener must rebuild the board when fretSpacing changes',
     );
 });
