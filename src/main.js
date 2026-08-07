@@ -100,6 +100,7 @@ import { createTapChevronAndLabelPools } from './instance/geometry/tap-chevron-a
 import { createBeatAndSectionLabels } from './instance/render/beat-and-section-labels.js';
 import { finalizeInstancedMeshBatches } from './instance/render/finalize-instanced-meshes.js';
 import { createChordRenderer } from './instance/render/chords.js';
+import { createSingleNoteRenderer } from './instance/render/single-notes.js';
 import {
     bnvSampleAt, canvasSize, darkenHex, disposeGroupTree, effectiveVfov, noteHasVibrato,
     teachingDegreeLabel, teachingFingerLabel, tremoloOffsetWorldX, vibratoSemisAtTime,
@@ -299,6 +300,11 @@ function createFactory() {
     // frame).
     let chordRenderer = null;
     const _chordAccum = {};
+    // The standalone-note renderer (instance/render/single-notes.js),
+    // (re)built in initScene() alongside noteRenderer/chordRenderer. Reads
+    // the same _noteFrame/_chordAccum objects above -- see
+    // single-notes.js's doc comment.
+    let singleNoteRenderer = null;
     // Magenta-red face fill for miss — see initScene() for construction
     // (uses mMissOutline ×4 + mEdgeTransparent ×2).
     let mMissEdgeArrays = null;
@@ -1611,6 +1617,14 @@ function createFactory() {
             _chordVerdicts,
             _noteStreamBracketStrings: _scrNoteStreamBracketStrings,
             _ghostPrevBuf: _scrGhostPrevBuf,
+        });
+
+        singleNoteRenderer = createSingleNoteRenderer({
+            noteRenderer, arpeggioLaneRail, validString, xFret, xFretMid, sY,
+            drawArpBrackets, ctx,
+            _ghostPrevBuf: _scrGhostPrevBuf,
+            _noteStreamBracketStrings: _scrNoteStreamBracketStrings,
+            _frameLabeledKeys,
         });
 
         // ── Pre-warm pools (feedBack#226) ─────────────────────────────
@@ -3481,25 +3495,6 @@ function createFactory() {
             ? lookaheadComputeFretBounds(now, anchors, notes, chords)
             : null;
 
-        // Open-string note width: same outer span as chord frame (anchor + padX,
-        // or default 4-fret window when chart has no anchor at t).
-        const padChordOpenX = NW * 0.4;
-        const openNoteLaneBoxW = chartTime => {
-            const chAncB = anchorLaneBoundsAt(anchors, chartTime);
-            if (chAncB) {
-                const xl = fretX(chAncB.dMin);
-                const xr = fretX(chAncB.dMax);
-                if (xr > xl) return (xr - xl) + padChordOpenX * 2;
-            }
-            const spanF = 4;
-            const fMinCh = 1;
-            const fMaxCh = fMinCh + spanF - 1;
-            const xl = fretX(fMinCh - 1);
-            const xr = fretX(Math.max(fMaxCh, fMinCh + 2));
-            if (xr > xl) return (xr - xl) + padChordOpenX * 2;
-            return 40 * K;
-        };
-
         // ── Frame state ───────────────────────────────────────────────
         // Reuse hoisted scratch arrays — reset only the live [0..nStr) /
         // [0..NFRETS] range instead of allocating new arrays every frame.
@@ -3868,10 +3863,16 @@ function createFactory() {
         updateStringHighlights(noteState);
         pbEnd(3);
 
-        // Active frets (notes in cooldown window) + highway intensity
+        // Active frets (notes in cooldown window) + highway intensity.
+        // highwayIntensity is declared here but seeded on _chordAccum below
+        // (with camWX/camWSum/camDistMin/camDistMax/camDistGot) -- both the
+        // single-notes loop and the chord loop accumulate into that shared
+        // object across the frame; this closure local is only assigned once,
+        // via the copy-back after both loops have run (see accum's doc
+        // comment in instance/render/single-notes.js).
+        let highwayIntensity;
         _scrActiveFrets.clear();
         const activeFrets = _scrActiveFrets;
-        let highwayIntensity = 0;
         for (let f = 1; f <= NFRETS; f++) {
             if (now - fretLastActiveTime[f] < FRET_COOLDOWN) activeFrets.add(f);
         }
@@ -3885,8 +3886,7 @@ function createFactory() {
         let camHystF = CAM_TGT_HYST_C;
         let camT0 = now - CAM_TGT_BEHIND;
         let camT1 = now + camAhead;
-        let camWX = 0, camWSum = 0;
-        let camDistMin = 99, camDistMax = 0, camDistGot = false;
+        let camWX, camWSum, camDistMin, camDistMax, camDistGot;
         const camDistHystF = CAM_DIST_HYST_T + (CAM_DIST_HYST_C - CAM_DIST_HYST_T) * zoomSmoothing;
         if (!(cameraMode === 'lookahead')) {
             cs = cameraSmoothing;
@@ -3914,6 +3914,30 @@ function createFactory() {
         // pullback was added to keep on screen. The future side
         // (camT1) is left alone so the #34 invariant (distant
         // high-fret onsets don't pre-pull the camera) still holds.
+
+        // _noteFrame gets the camera fields both the single-notes loop and
+        // drawChords() need (camT0/camT1/camTau/camHystF/camDistHystF/
+        // cameraMode/_leanSus), alongside what it already carries for
+        // noteRenderer.drawNote() -- one frame bag, populated once before
+        // either loop runs.
+        _noteFrame.camT0 = camT0;
+        _noteFrame.camT1 = camT1;
+        _noteFrame.camTau = camTau;
+        _noteFrame.camHystF = camHystF;
+        _noteFrame.camDistHystF = camDistHystF;
+        _noteFrame.cameraMode = cameraMode;
+        _noteFrame._leanSus = _leanSus;
+        // _chordAccum is the small mutable object both the single-notes
+        // loop and drawChords() accumulate into across the frame
+        // (highwayIntensity, camWX, camWSum, camDistMin, camDistMax,
+        // camDistGot); seeded once here, read back into this closure's
+        // locals after both loops have run.
+        _chordAccum.highwayIntensity = 0;
+        _chordAccum.camWX = 0;
+        _chordAccum.camWSum = 0;
+        _chordAccum.camDistMin = 99;
+        _chordAccum.camDistMax = 0;
+        _chordAccum.camDistGot = false;
 
         // ── Song-change detection ─────────────────────────────────────────
         // reconnect() (used for arrangement switches and splitscreen song
@@ -4088,186 +4112,32 @@ function createFactory() {
         }
 
         pbBeg(4);
-        // ── Single notes ──────────────────────────────────────────────
-        // Reset the per-frame fret-label dedup set so stacked labels from
-        // multiple strings at the same onset/fret (arpeggio, synth chord) don't repeat.
-        _frameLabeledKeys.clear();
-        // Tracks which (chordId → Set<stringIndex>) pairs already had
-        // brackets drawn by the note-stream loop, so the chord loop can
-        // skip duplicate bracket draws for the same string.
-        // Hoisted Map — clear (rather than reallocate) so the per-frame
-        // chord-bracket dedupe doesn't churn GC in dense arpeggio passages.
-        // (The inner Sets stored as values lose their Map reference on
-        // .clear() and get GC'd along with the keys; only the outer Map
-        // is reused.)
-        _scrNoteStreamBracketStrings.clear();
-        const _noteStreamBracketStrings = _scrNoteStreamBracketStrings;
-        _scrLastFretForString.fill(undefined, 0, nStr);
+        // Standalone-note render loop -- see instance/render/single-notes.js.
+        // Fills lastFretForString (passed to drawChords below, same object
+        // reference) and accumulates into the shared _chordAccum object
+        // (already seeded above, alongside _noteFrame's camera fields).
         const lastFretForString = _scrLastFretForString;
-        if (notes) {
-            // Start 30s before now — conservative enough to include any arpeggio
-            // persist window while skipping the bulk of old notes in long songs.
-            // The arpPersistKeys check below guards the rare notes that are even
-            // older and still visible (only possible for unrealistically long HS).
-            const _noteRenderLo = lowerBoundT(notes, now - 30);
-            for (let _ni = _noteRenderLo; _ni < notes.length; _ni++) {
-                const n = notes[_ni];
-                if (n.f > 0 && n.t > now && n.t < now + 2) activeFrets.add(n.f);
-                if (n.t > now) {
-                    const dt = n.t - now;
-                    if (dt < AHEAD) highwayIntensity = Math.max(highwayIntensity, 1 - dt / AHEAD);
-                }
-                // Far-future notes are always skipped — arpGhostActive
-                // timing handles when the ghost appears for upcoming arp notes.
-                // Notes are time-sorted so everything beyond t1 can be skipped entirely.
-                if (n.t > t1) break;
-                // Past-window arp notes are exempted from the back-window skip
-                // so their fretboard ghost + brackets persist until arpBounds.end.
-                // ndVerdictT0 extends the window when a note-detect provider is
-                // attached so async verdicts still land while drawable.
-                const _inArpPersist = _arpPersistKeys.has(_noteKey(n.t, n.s));
-                if (!_inArpPersist && n.t + (n.sus || 0) < ndVerdictT0) continue;
-                if (!validString(n.s)) continue;
-                // Suppress the gem for linkNext slide-target notes (skipBody=true).
-                // The sustain/slide trail still renders because it now lives outside
-                // the !skipBody gate in drawNote().
-                const _isSlideTgt = !!(_slideTargetSet && _slideTargetSet.has(_noteKey(n.t, n.s)));
-                // Always show the fret label — suppressing it for repeated frets on the same
-                // string caused the label to be invisible throughout the note's flight and
-                // only appear moments before being played (when the previous note's linger
-                // window expired).  Each note now owns its label for its full flight.
-                const skipLabel = false;
-                let singleOpenX;
-                if (n.f === 0) {
-                    const ab = anchorLaneBoundsAt(anchors, n.t);
-                    if (ab) singleOpenX = (xFret(ab.dMin) + xFret(ab.dMax)) / 2;
-                }
-                const singleOpenLaneW = n.f === 0 ? openNoteLaneBoxW(n.t) : undefined;
-                const arGhostCid = arpeggioLaneRail.arpeggioChordIdForNoteWithInferCache(
-                    n,
-                    bundle.handShapes,
-                    bundle.chordTemplates,
-                    notes,
-                    arpGhostHsInfer,
-                );
-                const _arpBoundsForNote = arGhostCid != null
-                    ? arpeggioLaneRail.arpHsBoundsForNote(n, bundle.handShapes, arpGhostHsInfer)
-                    : null;
-                noteRenderer.drawNote(
-                    n,
-                    now,
-                    singleOpenX,
-                    skipLabel,
-                    _isSlideTgt,
-                    GHOST_HOLD_AFTER_ONSET,
-                    singleOpenLaneW,
-                    arGhostCid != null,
-                    arGhostCid,
-                    arGhostCid != null,
-                    _arpBoundsForNote,
-                    _ghostPrevBuf.get(Math.round(n.t * 1e4) * 10 + n.s) ?? -Infinity,
-                    _arpBoundsForNote !== null, // showDropLine: white line for arp note-stream notes
-                    _noteFrame,
-                );
-                if (arGhostCid != null) {
-                    const _arpBounds = _arpBoundsForNote;
-                    if (_arpBounds) {
-                        // Synth-onset-match handshapes show ghost fret numbers but not [ ] brackets.
-                        if (!_arpSynthOnsetHsSet.has(_arpBounds.start)) {
-                            // Open-string bracket X: always use the anchor at the
-                            // handshape START time (not n.t, not now) so the bracket
-                            // position stays fixed throughout the arpeggio even when
-                            // the chart anchor changes mid-pattern.
-                            const _arpBrktAncB = n.f === 0
-                                ? anchorLaneBoundsAt(anchors, _arpBounds.start)
-                                : null;
-                            const _bx = n.f === 0
-                                ? (_arpBrktAncB
-                                    ? (xFret(_arpBrktAncB.dMin) + xFret(_arpBrktAncB.dMax)) / 2
-                                    : (singleOpenX !== undefined ? singleOpenX : ctx.cam.curX))
-                                : xFretMid(n.f);
-                            const _openHalfW = (() => {
-                                if (n.f !== 0) return null;
-                                if (_arpBrktAncB) {
-                                    const _xl = xFret(_arpBrktAncB.dMin), _xr = xFret(_arpBrktAncB.dMax);
-                                    if (_xr > _xl) return Math.max(0.22, (_xr - _xl + NW * 0.4 * 2) * 0.96 / (40 * K)) * 20 * K;
-                                }
-                                return singleOpenLaneW != null ? Math.max(0.22, singleOpenLaneW * 0.96 / (40 * K)) * 20 * K : null;
-                            })();
-                            drawArpBrackets(_bx, sY(n.s), _arpBounds.start - now, _arpBounds.end, now, n.s, n.f === 0, _openHalfW);
-                            // Record that this (chordId:occurrenceStart, string) pair has brackets
-                            // so the chord loop doesn't draw a second set on the same string.
-                            // Key includes the arp occurrence start time so two separate arp
-                            // sequences sharing the same chord template ID don't suppress each other.
-                            const _nsbKey = arGhostCid + ':' + _arpBoundsForNote.start;
-                            let _nsbSet = _noteStreamBracketStrings.get(_nsbKey);
-                            if (!_nsbSet) { _nsbSet = new Set(); _noteStreamBracketStrings.set(_nsbKey, _nsbSet); }
-                            _nsbSet.add(n.s);
-                        }
-                    }
-                }
-                lastFretForString[n.s] = n.f;
-                // Onset in window OR started before the window but
-                // still sustaining right now. Gate sustain carry-over
-                // against the current frame time so camera framing
-                // releases as soon as the sustain is no longer
-                // rendered on screen.
-                if (!(cameraMode === 'lookahead')) {
-                const nInWin = n.t >= camT0 && n.t <= camT1;
-                const nSusActive = n.t < camT0 && n.t + (n.sus || 0) >= now;
-                if (n.f > 0 && (nInWin || nSusActive)) {
-                    // Symmetric decay around now: previously this
-                    // clamped n.t - now at 0, giving every past-
-                    // onset note weight 1. That was a tolerable
-                    // approximation when the past window was 0.2 s
-                    // (camT0), but the sustain extension widens
-                    // the past side to seconds for held notes — a
-                    // 2-second-old ringing sustain would otherwise
-                    // pin camWX as strongly as a fresh note and
-                    // stale-out the framing for the current
-                    // phrase. Math.abs lets old sustains decay on
-                    // the same time-constant as future notes,
-                    // matching each mode's intent: twitchy
-                    // (camTau=0.35 s) drops a 0.2 s-old note's
-                    // weight to ~0.56 (consistent with "react to
-                    // recent only"), calm (camTau=0.9 s) to ~0.80
-                    // (consistent with "average a wider window").
-                    // Weight is still 1 at onset.
-                    const w = Math.exp(-Math.abs(n.t - now) / camTau);
-                    camWX   += xFretMid(n.f) * w;
-                    camWSum += w;
-                    if (n.f < camDistMin) camDistMin = n.f;
-                    if (n.f > camDistMax) camDistMax = n.f;
-                    camDistGot = true;
-                }
-                }
-            }
-        }
+        singleNoteRenderer.drawSingleNotes(
+            notes, anchors, bundle, now, t1, ndVerdictT0, activeFrets, lastFretForString,
+            arpGhostHsInfer, _arpPersistKeys, _slideTargetSet, _arpSynthOnsetHsSet,
+            _chordAccum, _noteFrame,
+        );
 
         pbEnd(4);
         pbBeg(5);
-        // Chords -- see instance/render/chords.js. `_noteFrame` gets the extra
-        // fields drawChords() needs (camT0/camT1/camTau/camHystF/
-        // camDistHystF/cameraMode/_leanSus) alongside what it already
-        // carries for noteRenderer.drawNote() -- one frame bag, not two.
-        // `_chordAccum` is the small mutable object both this loop and the
-        // single-notes loop above accumulate into across the frame
-        // (highwayIntensity, camWX, camWSum, camDistMin, camDistMax,
-        // camDistGot); its properties are synced back into the closure
-        // vars immediately after, matching note.js's noteVerdictState shape.
-        _noteFrame.camT0 = camT0;
-        _noteFrame.camT1 = camT1;
-        _noteFrame.camTau = camTau;
-        _noteFrame.camHystF = camHystF;
-        _noteFrame.camDistHystF = camDistHystF;
-        _noteFrame.cameraMode = cameraMode;
-        _noteFrame._leanSus = _leanSus;
-        _chordAccum.highwayIntensity = highwayIntensity;
-        _chordAccum.camWX = camWX;
-        _chordAccum.camWSum = camWSum;
-        _chordAccum.camDistMin = camDistMin;
-        _chordAccum.camDistMax = camDistMax;
-        _chordAccum.camDistGot = camDistGot;
+        // Chords -- see instance/render/chords.js. Continues accumulating
+        // into the SAME _chordAccum object the single-notes loop just wrote,
+        // and reads the SAME _noteFrame camera fields.
+        chordRenderer.drawChords(
+            chords, notes, anchors, bundle, now, t1, ndVerdictT0,
+            activeFrets, lastFretForString, _chordAccum, _noteFrame,
+        );
+        highwayIntensity = _chordAccum.highwayIntensity;
+        camWX = _chordAccum.camWX;
+        camWSum = _chordAccum.camWSum;
+        camDistMin = _chordAccum.camDistMin;
+        camDistMax = _chordAccum.camDistMax;
+        camDistGot = _chordAccum.camDistGot;
         chordRenderer.drawChords(
             chords, notes, anchors, bundle, now, t1, ndVerdictT0,
             activeFrets, lastFretForString, _chordAccum, _noteFrame,

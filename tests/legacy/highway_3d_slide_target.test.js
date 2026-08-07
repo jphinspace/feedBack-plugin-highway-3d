@@ -16,6 +16,11 @@ const path = require('node:path');
 
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 const NOTE_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'note.js');
+// The standalone-note loop that consumes _slideTargetSet (renamed
+// slideTargetSet, a plain function parameter) moved to
+// instance/render/single-notes.js in Stage 7 Track B / Track C -- the
+// pre-pass that BUILDS _slideTargetSet stayed in main.js's update().
+const SINGLE_NOTES_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'single-notes.js');
 
 test('a _slideTargetSet pre-pass builds the suppressed-gem set from bundle.notes', () => {
     const src = fs.readFileSync(SCREEN_JS, 'utf8');
@@ -32,18 +37,18 @@ test('a _slideTargetSet pre-pass builds the suppressed-gem set from bundle.notes
 });
 
 test('_isSlideTgt is derived from _slideTargetSet membership', () => {
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
+    const src = fs.readFileSync(SINGLE_NOTES_JS, 'utf8');
     assert.match(
         src,
-        /_isSlideTgt\s*=\s*!!\(\s*_slideTargetSet\s*&&\s*_slideTargetSet\.has\(/,
-        '_isSlideTgt must test _slideTargetSet membership',
+        /_isSlideTgt\s*=\s*!!\(\s*slideTargetSet\s*&&\s*slideTargetSet\.has\(/,
+        '_isSlideTgt must test slideTargetSet membership',
     );
 });
 
 test('_isSlideTgt is threaded into drawNote as the skipBody argument', () => {
     // drawNote(n, now, openX, skipLabel, skipBody, ...) — _isSlideTgt sits in
     // the 5th (skipBody) position so the gem body is suppressed.
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
+    const src = fs.readFileSync(SINGLE_NOTES_JS, 'utf8');
     assert.match(
         src,
         /drawNote\(\s*n\s*,\s*now\s*,\s*singleOpenX\s*,\s*skipLabel\s*,\s*_isSlideTgt\s*,/,
