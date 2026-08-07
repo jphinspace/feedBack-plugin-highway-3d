@@ -1402,7 +1402,7 @@ function createFactory() {
         // and before the notedetect listener setup further down, which
         // injects scoreFx.fxHandle/fxResolvePalette/getFxGen).
         scoreFx = createScoreFx({
-            getCam: () => cam, getProbe: () => _probe, sY, getNStr: () => nStr,
+            ctx, getCam: () => cam, getProbe: () => _probe, sY, getNStr: () => nStr,
             noteDetectLabels, getNoteDetectFrameNowMs: () => noteDetectFrameNowMs,
         });
 

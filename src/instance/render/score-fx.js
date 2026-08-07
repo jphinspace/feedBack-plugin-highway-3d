@@ -24,8 +24,11 @@
 // arrow function; noteDetectLabels is the same array reference note.js
 // already receives as a plain dep, mutated in place via `.length = 0` and
 // `.push()`, only ever REPLACED at teardown()/next-init() -- same lifetime
-// as this whole factory).
-export function createScoreFx({ getCam, getProbe, sY, getNStr, noteDetectLabels, getNoteDetectFrameNowMs }) {
+// as this whole factory). `ctx` is the per-instance state object
+// (ctx.cam.curX etc.) -- drawScoreFx's 2D-canvas-context parameter is
+// named `ctx2d`, not `ctx`, specifically so it can't shadow this dep the
+// way the pre-move code accidentally did (see drawScoreFx's own comment).
+export function createScoreFx({ ctx, getCam, getProbe, sY, getNStr, noteDetectLabels, getNoteDetectFrameNowMs }) {
     const _FX_POP_LIFE_MS = 700;
     const _FX_BURST_LIFE_MS = 900;
     const _FX_BURST_N = 36;
@@ -148,21 +151,19 @@ export function createScoreFx({ getCam, getProbe, sY, getNStr, noteDetectLabels,
     // Same overlay layer + projection pattern as drawNotedetectLabels;
     // costs one early-out when nothing is active.
     //
-    // NOTE (pre-existing, verified via extraction, NOT introduced by this
-    // move): the parameter is named `ctx` (shadowing the module's own
-    // per-instance `ctx` concept, which this function never received as a
-    // dep in the first place) because the ORIGINAL main.js code already
-    // named its 2D-canvas-context parameter `ctx` and read `ctx.cam.curX`
-    // off it -- CanvasRenderingContext2D has no `.cam` property, so that
-    // read is `undefined.curX`, which throws. This function is only called
-    // when a "+N" pop, milestone burst, or ring-pulse is actually active
-    // (the `if (!anyPop && !anyBurst && ringAge >= 600) return;` guard
-    // above it), which requires a live note_detect score provider actively
-    // reporting points/mult/popKey -- not exercised by any of this repo's
-    // Playwright checks (no scorer is mounted), which is why this has never
-    // surfaced. Preserved byte-for-byte per the "no behaviour changes in a
-    // move commit" rule; flagged for a follow-up fix, not fixed here.
-    function drawScoreFx(ctx, W, H) {
+    // BUGFIX (follow-up to the extraction commit): the 2D-canvas-context
+    // parameter used to be named `ctx`, shadowing this module's own
+    // per-instance `ctx` dep, so the strike-line-center probe read
+    // `ctx.cam.curX` off the CanvasRenderingContext2D -- which has no
+    // `.cam` property -- and threw `undefined.curX`. Verified via a
+    // controlled A/B against the pre-extraction commit that this bug
+    // predates the move (same crash, same trigger). Only reachable when a
+    // live note_detect score provider fires a milestone/multiplier-tier-up
+    // event while a "+N" pop is also active, which none of this repo's
+    // Playwright checks exercise (no scorer mounted) -- confirmed fixed via
+    // a synthetic notedetect:fx dispatch. Renamed to `ctx2d` and reads the
+    // real per-instance `ctx` dep for `.cam.curX`.
+    function drawScoreFx(ctx2d, W, H) {
         const cam = getCam(), _probe = getProbe(), nStr = getNStr();
         if (!cam || !_probe) return;
         const nowMs = getNoteDetectFrameNowMs() || performance.now();
@@ -185,7 +186,7 @@ export function createScoreFx({ getCam, getProbe, sY, getNStr, noteDetectLabels,
         if (!anyPop && !anyBurst && ringAge >= 600) return;
 
         const pal = _fxPalette;
-        ctx.save();
+        ctx2d.save();
 
         // Strike-line center in screen px — anchor for bursts + pulses.
         let cx = W / 2, cy = H * 0.72, centerOk = false;
@@ -205,13 +206,13 @@ export function createScoreFx({ getCam, getProbe, sY, getNStr, noteDetectLabels,
         if (centerOk && ringAge < 600) {
             const t = ringAge / 600;
             const ease = 1 - Math.pow(1 - t, 2);
-            ctx.beginPath();
-            ctx.arc(cx, cy, 20 + ease * Math.min(W, H) * 0.28, 0, Math.PI * 2);
-            ctx.strokeStyle = _fxRingMult >= 4 ? pal.accent2 : pal.accent;
-            ctx.globalAlpha = 0.6 * (1 - t);
-            ctx.lineWidth = 3;
-            ctx.stroke();
-            ctx.globalAlpha = 1;
+            ctx2d.beginPath();
+            ctx2d.arc(cx, cy, 20 + ease * Math.min(W, H) * 0.28, 0, Math.PI * 2);
+            ctx2d.strokeStyle = _fxRingMult >= 4 ? pal.accent2 : pal.accent;
+            ctx2d.globalAlpha = 0.6 * (1 - t);
+            ctx2d.lineWidth = 3;
+            ctx2d.stroke();
+            ctx2d.globalAlpha = 1;
         }
 
         // Milestone bursts.
@@ -222,22 +223,22 @@ export function createScoreFx({ getCam, getProbe, sY, getNStr, noteDetectLabels,
                 const age = nowMs - b.bornMs;
                 if (age >= _FX_BURST_LIFE_MS) { b.active = false; continue; }
                 const t = age / _FX_BURST_LIFE_MS;
-                ctx.globalAlpha = 1 - t;
+                ctx2d.globalAlpha = 1 - t;
                 for (let j = 0; j < _FX_BURST_N; j++) {
                     b.px[j] += b.vx[j];
                     b.py[j] += b.vy[j];
                     b.vy[j] += 0.08;
-                    ctx.fillStyle = (j & 1) ? pal.accent : pal.accent2;
-                    ctx.fillRect(cx + b.px[j] - 2, cy + b.py[j] - 2, 4, 4);
+                    ctx2d.fillStyle = (j & 1) ? pal.accent : pal.accent2;
+                    ctx2d.fillRect(cx + b.px[j] - 2, cy + b.py[j] - 2, 4, 4);
                 }
-                ctx.globalAlpha = 1;
+                ctx2d.globalAlpha = 1;
             }
         }
 
         // "+N" pops: rise off the gem and fade over the back half.
         if (anyPop) {
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
+            ctx2d.textAlign = 'center';
+            ctx2d.textBaseline = 'middle';
             for (let i = 0; i < _fxPops.length; i++) {
                 const p = _fxPops[i];
                 if (!p.active) continue;
@@ -249,18 +250,18 @@ export function createScoreFx({ getCam, getProbe, sY, getNStr, noteDetectLabels,
                 const t = age / _FX_POP_LIFE_MS;
                 const sx = (_probe.x * 0.5 + 0.5) * W;
                 const sy2 = (-_probe.y * 0.5 + 0.5) * H - t * 30;
-                ctx.globalAlpha = t < 0.4 ? 1 : 1 - (t - 0.4) / 0.6;
-                ctx.font = `bold ${13 + (p.mult - 1) * 2}px '${pal.font}', sans-serif`;
-                ctx.lineWidth = 4;
-                ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-                ctx.strokeText(p.text, sx, sy2);
-                ctx.fillStyle = pal.accent;
-                ctx.fillText(p.text, sx, sy2);
+                ctx2d.globalAlpha = t < 0.4 ? 1 : 1 - (t - 0.4) / 0.6;
+                ctx2d.font = `bold ${13 + (p.mult - 1) * 2}px '${pal.font}', sans-serif`;
+                ctx2d.lineWidth = 4;
+                ctx2d.strokeStyle = 'rgba(0,0,0,0.8)';
+                ctx2d.strokeText(p.text, sx, sy2);
+                ctx2d.fillStyle = pal.accent;
+                ctx2d.fillText(p.text, sx, sy2);
             }
-            ctx.globalAlpha = 1;
+            ctx2d.globalAlpha = 1;
         }
 
-        ctx.restore();
+        ctx2d.restore();
     }
 
     // Backward-seek reset: a practice loop / rewind re-judges the same
