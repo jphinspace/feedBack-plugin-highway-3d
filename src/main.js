@@ -530,9 +530,9 @@ function createFactory() {
     // loadSettings, applied by _applyBgTheme (clear + fog + board plane).
     let bgThemeId = 'default';   // BACKGROUND axis (clear + fog)
     let hwThemeId = 'default';   // HIGHWAY axis (board + lane + laneDim)
-    // Board (fretboard/highway-surface) plane material — kept so the theme
-    // can recolor it live without rebuilding the board. Set in buildBoard().
-    let _boardPlaneMat = null;
+    // _boardPlaneMat lives on ctx.board now (see instance/ctx.js) -- the
+    // fretboard/highway-surface plane material, kept so the theme can
+    // recolor it live without rebuilding the board. Set in buildBoard().
     // Per-render opt-out for plugins borrowing the highway as a viz: when the
     // mount bundle sets bgReactive === false, suppress the audio-reactive
     // background for THIS instance only (no shared h3d_bg_* write). Captured
@@ -882,33 +882,14 @@ function createFactory() {
     /** Lavender gradient for arpeggio box interior (cyan × lavender blend — fades back to cyan). */
     let chordFrameGradTexArp = null;
 
-    // Dynamic glowing string meshes (BoxGeometry, one per string)
-    let stringLines = [];
-    // Static thin-line glow layer behind each string (one Line per
-    // string). Retained so _applyVibrancy() can mutate opacity in
-    // place — without this the layer stays at its built-in opacity
-    // until the next palette change rebuilds buildBoard().
-    let stringLineGlows = [];
-    // One MeshStandardMaterial per fret wire (index = fret 0..NFRETS).
-    // Updated each frame to gold when inside the active anchor range,
-    // gray otherwise. Reset to [] on every buildBoard() rebuild.
-    let fretWireMats = [];
-    // Shared bowed TubeGeometry for all fret wires (centered at x=0;
-    // each fret mesh only differs by position). Disposed on rebuild +
-    // teardown. See FRET_BOW_DZ constants.
-    let fretTubeGeo = null;
-    /** Nut + headstock 3D subtree; visibility toggled from settings without rebuild. */
-    let nutHeadstockGroup = null;
-    /** Left edge X of drawable string meshes; updated in buildBoard() at nut / fret junction. */
-    let boardStringStartX = fretX(0);
-    /** Open-string label column X — over headstock, left of nut (set in buildBoard()). */
-    let boardTuningLabelX = -4.2 * K;
-    // Fret inlay number label sprites (one per INLAY_LABEL_FRETS entry).
-    // Retained so update() can rescale them live when _textSizeMul changes.
-    let _inlayLabels = [];
-    // Cloned SpriteMaterials for the inlay labels — disposed on rebuild and
-    // destroy() to prevent GPU leaks across palette changes or panel reuse.
-    let _inlayMats = [];
+    // Fretboard/nut/headstock geometry + materials (stringLines,
+    // stringLineGlows, fretWireMats, fretTubeGeo, _boardPlaneMat,
+    // nutHeadstockGroup, boardStringStartX, boardTuningLabelX, _inlayLabels,
+    // _inlayMats) now live on `ctx.board` -- see instance/ctx.js's doc
+    // comment. All written by buildBoard(); read by
+    // updateStringHighlights()/_applyVibrancy()/_applyBgTheme()/
+    // _syncOpenStringPitchLabels()/update()'s fret-wire-highlight sections/
+    // teardown(), none of which rebuild it themselves.
     // Open-string tuning labels beside the headstock (issue: per-song tuning).
     let _tuningLabelSprites = [], _tuningLabelMats = [];
     let _lastOpenStringLblSig = '';
@@ -1246,7 +1227,7 @@ function createFactory() {
                 palSig += typeof c === 'number' ? (c >>> 0).toString(16) : String(c);
             }
         }
-        return `${nStr}|${capo}|${tStr}|${arrIdx}|${labels.join(',')}|${palSig}|${_textSizeMul.toFixed(3)}|${boardStringStartX.toFixed(6)}|${boardTuningLabelX.toFixed(6)}`;
+        return `${nStr}|${capo}|${tStr}|${arrIdx}|${labels.join(',')}|${palSig}|${_textSizeMul.toFixed(3)}|${ctx.board.boardStringStartX.toFixed(6)}|${ctx.board.boardTuningLabelX.toFixed(6)}`;
     }
 
     function _syncOpenStringPitchLabels(bundle) {
@@ -1278,8 +1259,8 @@ function createFactory() {
             _lastSyncPaletteRef === activePalette &&
             _lastSyncNStr === nStr &&
             _lastSyncTextSizeMul === _textSizeMul &&
-            _lastSyncStartX === boardStringStartX &&
-            _lastSyncLabelX === boardTuningLabelX
+            _lastSyncStartX === ctx.board.boardStringStartX &&
+            _lastSyncLabelX === ctx.board.boardTuningLabelX
         ) return;
         // One of the inputs changed — fall through to the canonical signature
         // check (catches value-equal-but-different-ref tuning arrays).
@@ -1294,13 +1275,13 @@ function createFactory() {
         _lastSyncPaletteRef = activePalette;
         _lastSyncNStr = nStr;
         _lastSyncTextSizeMul = _textSizeMul;
-        _lastSyncStartX = boardStringStartX;
-        _lastSyncLabelX = boardTuningLabelX;
+        _lastSyncStartX = ctx.board.boardStringStartX;
+        _lastSyncLabelX = ctx.board.boardTuningLabelX;
         if (sig === _lastOpenStringLblSig && _tuningLabelSprites.length === nStr) return;
         _disposeOpenStringPitchSprites();
         _lastOpenStringLblSig = sig;
         // Left of nut/cordas — centered on headstock mass so text does not sit on the strings.
-        const labelX = boardTuningLabelX;
+        const labelX = ctx.board.boardTuningLabelX;
         const zLabel = -0.08 * K;
         const scalePx = 2.42 * _textSizeMul * K;
         for (let s = 0; s < nStr; s++) {
@@ -2759,12 +2740,12 @@ function createFactory() {
                 // Flip visibility on the already-built sprites; no
                 // need to rebuild the board (cheaper, preserves the
                 // shared materials and avoids palette re-apply churn).
-                for (const lbl of _inlayLabels) lbl.visible = inlayLabelsVisible;
+                for (const lbl of ctx.board._inlayLabels) lbl.visible = inlayLabelsVisible;
                 return;
             }
             if (changedKey === 'nutHeadstockVisible') {
                 loadSettings();
-                if (nutHeadstockGroup) nutHeadstockGroup.visible = nutHeadstockVisible;
+                if (ctx.board.nutHeadstockGroup) ctx.board.nutHeadstockGroup.visible = nutHeadstockVisible;
                 return;
             }
             if (changedKey === 'tuningLabelsVisible') {
@@ -2776,7 +2757,7 @@ function createFactory() {
             if (changedKey === 'nutColor' || changedKey === 'headstockColor') {
                 loadSettings();
                 if (fretG) buildBoard();
-                for (const lbl of _inlayLabels) lbl.visible = inlayLabelsVisible;
+                for (const lbl of ctx.board._inlayLabels) lbl.visible = inlayLabelsVisible;
                 return;
             }
             if (changedKey === 'reactive' || changedKey === 'showFretOnNote' ||
@@ -2865,7 +2846,7 @@ function createFactory() {
                 // A scene-color axis changed (background = bgTheme:
                 // clear+fog; highway = hwTheme: board plane + lane). Recolor
                 // in place — no mesh rebuild needed (the board plane material
-                // is mutated via _boardPlaneMat, the lane via mLaneOdd/Even).
+                // is mutated via ctx.board._boardPlaneMat, the lane via mLaneOdd/Even).
                 // _applyBgTheme reapplies both axes from their own keys, so
                 // changing one dropdown retints only its half.
                 loadSettings();
@@ -3242,12 +3223,12 @@ function createFactory() {
                 }
             }
         }
-        // stringLines[s].material.opacity is overwritten by
+        // ctx.board.stringLines[s].material.opacity is overwritten by
         // updateStringHighlights() every frame, so the closed-form
         // value would be stomped. updateStringHighlights() reads
         // _vibrancyIdleOp directly instead — keep that in sync.
-        for (let s = 0; s < stringLineGlows.length; s++) {
-            const line = stringLineGlows[s];
+        for (let s = 0; s < ctx.board.stringLineGlows.length; s++) {
+            const line = ctx.board.stringLineGlows[s];
             if (line && line.material) line.material.opacity = lineGlowOp;
         }
         _vibrancyIdleOp = idleOp;
@@ -3438,7 +3419,7 @@ function createFactory() {
         }
         // --- Highway axis: board plane + lane ---
         const hw = highwayAxisColors(hwThemeId);
-        if (_boardPlaneMat) _boardPlaneMat.color.setHex(hw.board);
+        if (ctx.board._boardPlaneMat) ctx.board._boardPlaneMat.color.setHex(hw.board);
         // Lit lane strip + its dimmer alternating row. Fall back to the
         // hardcoded stock lane colors when the highway theme omits them.
         const laneLit = (typeof hw.lane === 'number') ? hw.lane : HIGHWAY_LANE_STRIPE_ODD_HEX;
@@ -3536,10 +3517,10 @@ function createFactory() {
             const child = fretG.children[0];
             child.traverse((o) => {
                 if (o instanceof T.Sprite) return;
-                // fretTubeGeo is shared across all fret meshes — disposing it
+                // ctx.board.fretTubeGeo is shared across all fret meshes — disposing it
                 // per-mesh here would fire one redundant dispose event per
                 // fret. Skip it; it's disposed exactly once below.
-                if (o.geometry !== fretTubeGeo) o.geometry?.dispose?.();
+                if (o.geometry !== ctx.board.fretTubeGeo) o.geometry?.dispose?.();
                 const mat = o.material;
                 if (mat) {
                     const mats = Array.isArray(mat) ? mat : [mat];
@@ -3548,15 +3529,15 @@ function createFactory() {
             });
             fretG.remove(child);
         }
-        stringLines = [];
-        stringLineGlows = [];
+        ctx.board.stringLines = [];
+        ctx.board.stringLineGlows = [];
         // Fret wire materials were already disposed by the child.traverse()
         // above (each is attached 1:1 to a fret mesh) — just clear the
-        // tracking array. The shared fretTubeGeo was skipped by that
+        // tracking array. The shared ctx.board.fretTubeGeo was skipped by that
         // traverse, so dispose it exactly once here.
-        fretWireMats = [];
-        fretTubeGeo?.dispose?.();
-        fretTubeGeo = null;
+        ctx.board.fretWireMats = [];
+        ctx.board.fretTubeGeo?.dispose?.();
+        ctx.board.fretTubeGeo = null;
 
         const board = boardSpanX();
         const bw = board.width + 4 * K;
@@ -3567,16 +3548,16 @@ function createFactory() {
         const pg = new T.PlaneGeometry(bw, blAhead);
         // Board (highway-surface) color comes from the active HIGHWAY scene
         // theme (default theme = the original 0x08080e). Kept on
-        // _boardPlaneMat so _applyBgTheme can recolor it live without
+        // ctx.board._boardPlaneMat so _applyBgTheme can recolor it live without
         // rebuilding the board.
         const pm = new T.MeshLambertMaterial({ color: highwayAxisColors(hwThemeId).board, transparent: true, opacity: 0.6 });
-        _boardPlaneMat = pm;
+        ctx.board._boardPlaneMat = pm;
         const p = new T.Mesh(pg, pm);
         p.rotation.x = -Math.PI / 2;
         p.position.set(board.center, S_BASE - NH / 2 - 2 * K, -blAhead / 2);
         fretG.add(p);
 
-        // Thin Line strings (glow layer). Retained in stringLineGlows[]
+        // Thin Line strings (glow layer). Retained in ctx.board.stringLineGlows[]
         // so vibrancy slider changes can mutate opacity in place
         // without rebuilding the board geometry.
         // Nut lateral layout (matches headstock block below): playing strings start at the
@@ -3589,19 +3570,19 @@ function createFactory() {
         const nutFrontX = nutXC + nutLenX * 0.5;
         const nutJoinX = nutFrontX + 0.03 * K;
         const bridgeTipX = xFret(NFRETS) + 2 * K * mir;
-        boardStringStartX = Math.min(nutJoinX, bridgeTipX);
-        boardTuningLabelX = (nutRearX + xHeadLeft) * 0.5 - 0.15 * K * mir;
+        ctx.board.boardStringStartX = Math.min(nutJoinX, bridgeTipX);
+        ctx.board.boardTuningLabelX = (nutRearX + xHeadLeft) * 0.5 - 0.15 * K * mir;
         const stringEndX = Math.max(nutJoinX, bridgeTipX);
-        const strSpan = Math.max(stringEndX - boardStringStartX, 1.5 * K);
+        const strSpan = Math.max(stringEndX - ctx.board.boardStringStartX, 1.5 * K);
 
         const lineGlowOp = 0.15 + 0.35 * vibrancy;
         for (let s = 0; s < nStr; s++) {
-            const pts = [new T.Vector3(boardStringStartX, sY(s), 0), new T.Vector3(stringEndX, sY(s), 0)];
+            const pts = [new T.Vector3(ctx.board.boardStringStartX, sY(s), 0), new T.Vector3(stringEndX, sY(s), 0)];
             const g = new T.BufferGeometry().setFromPoints(pts);
             const line = new T.Line(g, new T.LineBasicMaterial({ color: activePalette[s], transparent: true, opacity: lineGlowOp }));
             line.renderOrder = 7; // above sus rails (4/5), below chord fill (10)
             fretG.add(line);
-            stringLineGlows.push(line);
+            ctx.board.stringLineGlows.push(line);
         }
 
         // BoxGeometry strings — emissive glow driven by updateStringHighlights()
@@ -3616,14 +3597,14 @@ function createFactory() {
             });
             const mesh = new T.Mesh(g, mat);
             mesh.renderOrder = renderOrderForLayerAtZ(0, 'BOARD_STRING');
-            mesh.position.set(boardStringStartX + strSpan * 0.5, sY(s), 0);
+            mesh.position.set(ctx.board.boardStringStartX + strSpan * 0.5, sY(s), 0);
             fretG.add(mesh);
-            stringLines.push(mesh);
+            ctx.board.stringLines.push(mesh);
         }
 
         // Guitar nut + headstock — grouped so visibility + colors are user-tunable.
         {
-            nutHeadstockGroup = new T.Group();
+            ctx.board.nutHeadstockGroup = new T.Group();
             const yTopN = Math.max(sY(0), sY(nStr - 1));
             const yBottomN = Math.min(sY(0), sY(nStr - 1));
             const yMidN = (yTopN + yBottomN) / 2;
@@ -3660,7 +3641,7 @@ function createFactory() {
                 mapleDark,
             );
             headCore.position.set(coreCX, yMidN, zBack - headCoreD * 0.35);
-            nutHeadstockGroup.add(headCore);
+            ctx.board.nutHeadstockGroup.add(headCore);
 
             const xs = 14;
             const ys = 12;
@@ -3697,7 +3678,7 @@ function createFactory() {
             rampGeo.setAttribute('position', new T.BufferAttribute(posR, 3));
             rampGeo.setIndex(idxR);
             rampGeo.computeVertexNormals();
-            nutHeadstockGroup.add(new T.Mesh(rampGeo, mapleMat));
+            ctx.board.nutHeadstockGroup.add(new T.Mesh(rampGeo, mapleMat));
 
             const boneMat = new T.MeshStandardMaterial({
                 color: nutBase, roughness: 0.38, metalness: 0.02,
@@ -3714,7 +3695,7 @@ function createFactory() {
                 boneMat,
             );
             nutBody.position.set(nutXC, yMidN, nutZc);
-            nutHeadstockGroup.add(nutBody);
+            ctx.board.nutHeadstockGroup.add(nutBody);
 
             const crownR = nutLenX * 0.52;
             const crownSeg = new T.CylinderGeometry(
@@ -3728,7 +3709,7 @@ function createFactory() {
                 yMidN + nutHalfH - 0.02 * K,
                 nutZc + nutD * 0.22,
             );
-            nutHeadstockGroup.add(crown);
+            ctx.board.nutHeadstockGroup.add(crown);
 
             const slotDrop = 0.11 * K;
             const slotHalfW = STR_THICK * 1.15;
@@ -3739,10 +3720,10 @@ function createFactory() {
                     grooveMat,
                 );
                 gr.position.set(nutXC, sY(st), slotZ);
-                nutHeadstockGroup.add(gr);
+                ctx.board.nutHeadstockGroup.add(gr);
             }
-            nutHeadstockGroup.visible = nutHeadstockVisible;
-            fretG.add(nutHeadstockGroup);
+            ctx.board.nutHeadstockGroup.visible = nutHeadstockVisible;
+            fretG.add(ctx.board.nutHeadstockGroup);
         }
 
         // Fret wires — bowed metal TubeGeometry (backported from
@@ -3759,7 +3740,7 @@ function createFactory() {
         // reads as brass. depthTest:false: string BoxGeometry (MeshStandard,
         // depthWrite:true) writes depth at Z=+STR_THICK/2; wires near Z=0
         // would fail the depth test at string pixels despite higher layer.
-        // Colors are updated each frame by the fretWireMats loop in update(),
+        // Colors are updated each frame by the ctx.board.fretWireMats loop in update(),
         // which drives every wire to one of two tiers: FRET_WIRE_IDLE_* by
         // default, FRET_WIRE_ACTIVE_* inside the anchor lane. The material is
         // created at the idle tier so frame 0 (before update() first runs)
@@ -3779,7 +3760,7 @@ function createFactory() {
             FRET_BOW_DZ * zm,
         ));
         const tubeCurve = new T.CatmullRomCurve3(tubePath);
-        fretTubeGeo = new T.TubeGeometry(
+        ctx.board.fretTubeGeo = new T.TubeGeometry(
             tubeCurve, FRET_TUBE_SEG, FRET_TUBE_RADIUS, FRET_TUBE_RADIAL, false,
         );
         for (let f = 0; f <= NFRETS; f++) {
@@ -3792,11 +3773,11 @@ function createFactory() {
                 // later-drawn transparent elements despite depthTest:false.
                 transparent: true, opacity: FRET_WIRE_IDLE_OP, depthTest: false, depthWrite: false,
             });
-            const fw = new T.Mesh(fretTubeGeo, mat);
+            const fw = new T.Mesh(ctx.board.fretTubeGeo, mat);
             fw.position.set(x, wireMidY, 0);
             fw.renderOrder = renderOrderForLayerAtZ(0, 'BOARD_FRET_WIRE');
             fretG.add(fw);
-            fretWireMats[f] = mat;
+            ctx.board.fretWireMats[f] = mat;
         }
 
         // Fret dots — flat circles (CircleGeometry) lying in the XY plane and
@@ -3840,12 +3821,12 @@ function createFactory() {
         // Materials are cloned from the txtMat cache with depthWrite:false so
         // the sprites don't write stale depth values that would clip incoming
         // notes (which arrive from large negative Z). Clones are tracked in
-        // _inlayMats for explicit disposal on rebuild and destroy().
+        // ctx.board._inlayMats for explicit disposal on rebuild and destroy().
         // Scale uses (0.5 + textSize) directly — _textSizeMul is stale here
         // (only refreshed at the top of update()); update() rescales live.
-        for (const m of _inlayMats) m.dispose();
-        _inlayMats = [];
-        _inlayLabels = [];
+        for (const m of ctx.board._inlayMats) m.dispose();
+        ctx.board._inlayMats = [];
+        ctx.board._inlayLabels = [];
         for (const f of INLAY_LABEL_FRETS) {
             const mat = textSprites.txtMat(f, '#7abfcc', false, 'fretRow').clone();
             mat.depthWrite = false;
@@ -3856,8 +3837,8 @@ function createFactory() {
             lbl.position.set(xFretMid(f), yTop - S_GAP * 0.4, -K);
             lbl.visible = inlayLabelsVisible;
             fretG.add(lbl);
-            _inlayLabels.push(lbl);
-            _inlayMats.push(mat);
+            ctx.board._inlayLabels.push(lbl);
+            ctx.board._inlayMats.push(mat);
         }
     }
 
@@ -3880,7 +3861,7 @@ function createFactory() {
         const venueGemMul = _venueSceneOverride ? VENUE_GEM_EMISSIVE_MUL : 1;
 
         for (let s = 0; s < nStr; s++) {
-            const mesh = stringLines[s];
+            const mesh = ctx.board.stringLines[s];
             if (mesh) {
                 const intensity = Math.max(
                     noteState.stringSustain[s] ? 1 : 0,
@@ -4353,10 +4334,10 @@ function createFactory() {
         // Guard: only update when the multiplier actually changed.
         if (_textSizeMul !== _textSizeMulApplied) {
             _textSizeMulApplied = _textSizeMul;
-            for (let i = 0; i < _inlayLabels.length; i++) {
+            for (let i = 0; i < ctx.board._inlayLabels.length; i++) {
                 const f = INLAY_LABEL_FRETS[i];
                 const s = 5.5 * _textSizeMul * K * fretLabelScaleForFret(f);
-                _inlayLabels[i].scale.set(s, s, 1);
+                ctx.board._inlayLabels[i].scale.set(s, s, 1);
             }
         }
         _syncOpenStringPitchLabels(bundle);
@@ -4669,13 +4650,13 @@ function createFactory() {
         // so the gold fret wires on the board align with the lane edges:
         //   dMin = fret - 1,  dMax = fret + width - 1
         // e.g. { fret:3, width:4 } → dMin=2, dMax=6 → wires 2,3,4,5,6 gold.
-        if (fretWireMats.length) {
+        if (ctx.board.fretWireMats.length) {
             const _fwBounds = anchors && anchors.length
                 ? anchorLaneBoundsAt(anchors, now) : null;
             const _fwMin = _fwBounds ? _fwBounds.dMin : -1;
             const _fwMax = _fwBounds ? _fwBounds.dMax : -1;
             for (let _f = 0; _f <= NFRETS; _f++) {
-                const _m = fretWireMats[_f];
+                const _m = ctx.board.fretWireMats[_f];
                 if (!_m) continue;
                 if (_fwMin >= 0 && _f >= _fwMin && _f <= _fwMax) {
                     _m.color.setHex(FRET_WIRE_ACTIVE_HEX);
@@ -6695,7 +6676,7 @@ function createFactory() {
         // frame-rate independent and honours playback speed. Seeking
         // backward resets it — otherwise a flash from a hit we jumped away
         // from would linger on the wire.
-        if (fretWireMats.length && _fwHitColor) {
+        if (ctx.board.fretWireMats.length && _fwHitColor) {
             // Resolve accumulated chord hits: a chord's flash frames the
             // LANE, not its own shape. The lit lane strip spans the anchor's
             // width (min ~4 frets), which can run a fret past the chord's
@@ -6750,7 +6731,7 @@ function createFactory() {
                 if (_f < 0) break;                       // nothing lit
                 if (_i === 1 && _f === _fwLo) break;     // single wire lit
                 const _g = _fwHitGlow[_f];
-                const _m = fretWireMats[_f];
+                const _m = ctx.board.fretWireMats[_f];
                 if (!_m) continue;
                 _m.color.lerp(_fwHitColor, _g);
                 _m.emissive.lerp(_fwHitEmissive, _g);
@@ -8048,9 +8029,9 @@ function createFactory() {
             // yank a still-in-use texture out from under another
             // mount.
             scene.traverse((obj) => {
-                // fretTubeGeo is shared across all fret meshes — dispose it
+                // ctx.board.fretTubeGeo is shared across all fret meshes — dispose it
                 // exactly once below, not once per mesh here.
-                if (obj.geometry !== fretTubeGeo) obj.geometry?.dispose?.();
+                if (obj.geometry !== ctx.board.fretTubeGeo) obj.geometry?.dispose?.();
                 if (obj.material) {
                     const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
                     for (const m of mats) m?.dispose?.();
@@ -8133,8 +8114,8 @@ function createFactory() {
         if (ren) { ren.dispose(); ren = null; }
         scene = cam = noteG = beatG = lblG = fretG = tuningLblG = null;
         ambLight = dirLight = null;
-        mStr = []; mGlow = []; mSus = []; mStrHitOutline = []; mAccentOutline = []; mAccentCore = []; mAccentHaloNear = []; mAccentHaloMid = []; mAccentHaloFar = []; _accentShellsByString = []; mWhiteOutline = mSusOutline = null; mMissOutline = null; mHitSusOutline = null; stringLines = []; stringLineGlows = []; _boardPlaneMat = null; fretWireMats = []; fretTubeGeo?.dispose?.(); fretTubeGeo = null;
-        for (const m of _inlayMats) m?.dispose?.(); _inlayMats = []; _inlayLabels = [];
+        mStr = []; mGlow = []; mSus = []; mStrHitOutline = []; mAccentOutline = []; mAccentCore = []; mAccentHaloNear = []; mAccentHaloMid = []; mAccentHaloFar = []; _accentShellsByString = []; mWhiteOutline = mSusOutline = null; mMissOutline = null; mHitSusOutline = null; ctx.board.stringLines = []; ctx.board.stringLineGlows = []; ctx.board._boardPlaneMat = null; ctx.board.fretWireMats = []; ctx.board.fretTubeGeo?.dispose?.(); ctx.board.fretTubeGeo = null;
+        for (const m of ctx.board._inlayMats) m?.dispose?.(); ctx.board._inlayMats = []; ctx.board._inlayLabels = [];
         // mTapChevron: dispose explicitly — if no tap marker ever
         // spawned a pooled mesh, the scene.traverse() pass above never
         // reaches this material.

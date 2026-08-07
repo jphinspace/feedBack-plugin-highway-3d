@@ -1,5 +1,5 @@
-import { fretMid } from '../core/fret-geometry.js';
-import { CAM_DIST_BASE, CAM_LOCK_CENTER_FRET, DEFAULT_LOOKAHEAD_FRET_SPAN } from '../core/constants.js';
+import { fretMid, fretX } from '../core/fret-geometry.js';
+import { CAM_DIST_BASE, CAM_LOCK_CENTER_FRET, DEFAULT_LOOKAHEAD_FRET_SPAN, K } from '../core/constants.js';
 
 // The per-instance shared-state object (Stage 7 Track B). Where note.js's
 // `deps`/`frame` split works because each field is owned by exactly ONE
@@ -72,6 +72,27 @@ export function createCtx(id) {
             _lookaheadCamPrevNow: null,
             _lookaheadLowBonusU: 0,
             _lookaheadHiNeckLatch: false,
+        },
+        // Fretboard/nut/headstock geometry + materials -- all written once
+        // per buildBoard() call (initScene(), a rebuild, or a lefty/string-
+        // count change), then read by a handful of other functions
+        // (updateStringHighlights(), _applyVibrancy(), _applyBgTheme(),
+        // _syncOpenStringPitchLabels(), update()'s fret-wire-highlight
+        // sections, teardown()) that never rebuild it themselves. Added
+        // alongside `cam` (3-ctx-1b) -- confirmed via the same whole-file
+        // grep to share zero fields with `cam`, so this is a fully
+        // independent slice, not an extension of the camera-pose migration.
+        board: {
+            stringLines: [],
+            stringLineGlows: [],
+            fretWireMats: [],
+            fretTubeGeo: null,
+            _boardPlaneMat: null,
+            nutHeadstockGroup: null,
+            boardStringStartX: fretX(0),
+            boardTuningLabelX: -4.2 * K,
+            _inlayLabels: [],
+            _inlayMats: [],
         },
     };
 }

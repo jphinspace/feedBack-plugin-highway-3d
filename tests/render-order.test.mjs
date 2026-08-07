@@ -223,7 +223,7 @@ test('static fret wires use bowed TubeGeometry + MeshStandardMaterial, named boa
     );
     assert.match(
         s,
-        /new\s+T\.Mesh\(\s*fretTubeGeo\s*,\s*mat\s*\)/,
+        /new\s+T\.Mesh\(\s*ctx\.board\.fretTubeGeo\s*,\s*mat\s*\)/,
         'buildBoard fret wires must reuse the shared fretTubeGeo (not T.Line)',
     );
     assert.match(
