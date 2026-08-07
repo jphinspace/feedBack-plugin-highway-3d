@@ -1,23 +1,19 @@
 import { K, VENUE_HAZE_STEADY } from '../core/constants.js';
 import { emitSettingChange } from '../settings/store.js';
 
-// Venue viz mode: a small-club stage backdrop (static plate + optional
-// crowd video layers + haze) that replaces the normal off/particles/
-// silhouettes/etc background when active. Reached only through the
-// viz-picker Venue flow (window.h3dVenueSceneSetActive), never a
-// user-selectable h3d_bg_style value -- see settings/defaults.js's note on
-// why 'venue' is deliberately absent from BACKGROUND_STYLE_IDS.
-//
-// The setters below (h3dVenueSceneSetActive etc.) are named exports bound
-// onto window by src/globals.js, same contract as settings/setters.js.
-//
-// _venueSetSceneAssetsLoaded/_venueSetSceneLoadFailed/_venueSetSceneOverride
-// exist ONLY because src/main.js's BACKGROUND_STYLES.venue entry (not extracted
-// until Stage 6 -- it's the renderer half of this feature, this file is the
-// state/setter half) needs to write this module's state from outside it,
-// which only the declaring module can do directly. Prefer a real setter
-// here over exporting the raw `let` as a live binding for state an outside
-// caller needs to WRITE, not just read.
+/**
+ * Venue viz mode: a small-club stage backdrop (static plate + optional
+ * crowd video layers + haze) that replaces the normal background style when
+ * active. Reached only via `window.h3dVenueSceneSetActive`, never a
+ * user-selectable `h3d_bg_style` value — deliberately absent from
+ * `BACKGROUND_STYLE_IDS` (see `settings/defaults.js`).
+ *
+ * The `h3dVenueSet*` setters below are bound onto `window` by `src/globals.js`.
+ * `_venueSetSceneAssetsLoaded`/`_venueSetSceneLoadFailed`/`_venueSetSceneOverride`
+ * exist so `background/styles/venue.js` (the renderer half of this feature)
+ * can write this module's state — only the declaring module may reassign
+ * an `export let`, so an outside writer needs a setter function.
+ */
 
 export const VENUE_SCENE_ASSET_BASE = '/static/assets/venue/themes/small-club/';
 export const VENUE_BG_PLATE_PNG = 'bg-plate.png';
@@ -37,10 +33,13 @@ export let _venuePlateUrl = '';
 export let _venueSceneAssetsLoaded = false;
 export let _venueSceneLoadFailed = false;
 export const _venueTextureCache = new Map();
-// Crowd video layers (career mode). venue-crowd.js owns the <video>
-// elements and the crossfade timing; the renderer only maps them onto
-// two planes in front of the static plate. _venueCrowdRev bumps on any
-// element (re)assignment so update() knows to rebind textures.
+
+/**
+ * Crowd video layers (career mode). `venue-crowd.js` owns the `<video>`
+ * elements and crossfade timing; the renderer maps them onto two planes in
+ * front of the static plate. {@link _venueCrowdRev} bumps on any element
+ * (re)assignment so the renderer knows to rebind textures.
+ */
 export const _venueCrowdVideos = [null, null];
 export let _venueCrowdMix = 0;
 export let _venueCrowdRev = 0;
@@ -221,9 +220,7 @@ export function _venueSwapPlateIfNeeded(s) {
             s.loaded = true;
             _venueSceneAssetsLoaded = true;
             _venueSceneLoadFailed = false;
-            // The POV may have changed while this load was in flight (the
-            // plateLoading latch made concurrent swaps no-op). Re-sync to the
-            // current target so the backdrop isn't stranded on a stale plate.
+            // pov may have changed while this load was in flight; re-sync to the current target.
             if (_venueInstrumentPov !== pov) _venueSwapPlateIfNeeded(s);
         },
         () => {
@@ -258,9 +255,7 @@ export const h3dVenueSceneSetActive = (on) => {
 export const h3dVenueSceneSetMood = (state) => {
     _venueMoodState = String(state || 'idle').toLowerCase();
 };
-// Crowd video layers (career mode) — see venue-crowd.js. Layer 0/1 are
-// two coplanar backdrop planes; mix selects between them (0 → layer 0,
-// 1 → layer 1) so the caller can crossfade loop videos.
+/** Layer 0/1 are two coplanar backdrop planes; `mix` crossfades between them. */
 export const h3dVenueBackdropSetVideo = (layer, videoEl) => {
     const i = layer ? 1 : 0;
     const el = videoEl || null;
@@ -301,9 +296,6 @@ export const h3dVenueSceneGetState = () => {
     };
 };
 
-// See the module doc comment: BACKGROUND_STYLES.venue (src/main.js) calls these
-// instead of assigning _venueSceneAssetsLoaded/_venueSceneLoadFailed/
-// _venueSceneOverride directly.
 export function _venueSetSceneAssetsLoaded(v) { _venueSceneAssetsLoaded = v; }
 export function _venueSetSceneLoadFailed(v) { _venueSceneLoadFailed = v; }
 export function _venueSetSceneOverride(v) { _venueSceneOverride = v; }

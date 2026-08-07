@@ -9,9 +9,7 @@ import {
     _venueSwapPlateIfNeeded, _venueTextureCache,
 } from '../venue.js';
 
-// Venue visualization — generated small-club raster bg plate
-// behind the highway. Activated via h3dVenueSceneSetActive(true)
-// when Visualization = Venue; does not persist as a user bg style.
+/** Small-club raster backdrop behind the highway. Activated via `h3dVenueSceneSetActive(true)`; not a persisted user bg style. */
 export const venue = {
     build(scene, settings) {
         const coeffs = venueMoodCoeffs(_venueMoodState);
@@ -88,10 +86,9 @@ export const venue = {
             () => _venueMarkFailed('failed to load small-club bg plate'),
         );
 
-        // Crowd video planes (career mode): two crossfading layers
-        // just in front of the static plate (which stays mounted as
-        // the no-pack / load-failure fallback). Textures bind lazily
-        // in update() when venue-crowd.js assigns video elements.
+        // Crowd video planes (career mode): two crossfading layers in front of the
+        // static plate, which stays mounted as the no-pack / load-failure fallback.
+        // Textures bind lazily in update() when venue-crowd.js assigns video elements.
         state.crowd = { layers: [], rev: -1 };
         for (let i = 0; i < 2; i++) {
             const geo = new T.PlaneGeometry(1, 1);
@@ -101,8 +98,7 @@ export const venue = {
             });
             const mesh = new T.Mesh(geo, mat);
             mesh.visible = false;
-            // Layer 1 sits nearest so three.js's back-to-front
-            // transparent sort draws it after layer 0.
+            // Layer 1 sits nearest so three.js's back-to-front transparent sort draws it after layer 0.
             const layer = {
                 mesh, geo, mat, tex: null, videoEl: null,
                 cam: settings.cam,
@@ -154,9 +150,8 @@ export const venue = {
                 * (coeffs.haze / VENUE_HAZE_STEADY);
         }
         if (s.crowd) {
-            // Rebind VideoTextures when venue-crowd.js (re)assigns
-            // elements. VideoTexture samples the element every frame,
-            // so a src change on the same element needs no rebind.
+            // VideoTexture samples the element every frame, so a src change on the
+            // same element needs no rebind — only rebind when the element itself changes.
             if (s.crowd.rev !== _venueCrowdRev) {
                 s.crowd.rev = _venueCrowdRev;
                 s.crowd.layers.forEach((layer, i) => {
@@ -182,24 +177,17 @@ export const venue = {
             const warm = coeffs.warmth;
             s.crowd.layers.forEach((layer, i) => {
                 const el = layer.videoEl;
-                // videoWidth === 0 until metadata lands — showing the
-                // plane before that paints a black flash over the plate.
+                // videoWidth === 0 until metadata lands — showing the plane before that
+                // paints a black flash over the plate.
                 const ready = !!el && el.videoWidth > 0;
-                // venue-crowd.js swaps src on the same element (loop ↔
-                // stinger); a new intrinsic size needs a fresh
-                // cover-crop, which fitBackdropPlane only reapplies
-                // on camera aspect changes.
                 if (ready && (layer.lastVidW !== el.videoWidth ||
                               layer.lastVidH !== el.videoHeight)) {
                     layer.lastVidW = el.videoWidth;
                     layer.lastVidH = el.videoHeight;
                     layer.applyCoverCrop();
                 }
-                // Layer 0 (rear) stays fully opaque whenever any of the
-                // fade involves it: two half-transparent layers would
-                // let the static plate behind bleed through (~25% at
-                // mid-fade). The crossfade is therefore layer 1 (front)
-                // fading over an opaque layer 0 — in both directions.
+                // Layer 0 (rear) stays fully opaque whenever the fade involves it — two
+                // half-transparent layers would let the static plate bleed through.
                 const opacity = i === 0
                     ? (_venueCrowdMix < 0.999 ? 1 : 0)
                     : _venueCrowdMix;
@@ -225,8 +213,7 @@ export const venue = {
                 p.mat.dispose?.();
             }
         }
-        // Crowd planes: this style owns the VideoTextures; the
-        // <video> elements belong to venue-crowd.js and survive.
+        // The <video> elements belong to venue-crowd.js and survive; this style owns the VideoTextures.
         if (s.crowd) {
             for (const layer of s.crowd.layers) {
                 layer.mesh?.parent?.remove(layer.mesh);
@@ -238,9 +225,7 @@ export const venue = {
                 layer.tex?.dispose?.();
             }
         }
-        // Dispose the cached plate textures too — the module-level cache
-        // otherwise keeps every loaded POV plate GPU-resident for the
-        // page lifetime (steady VRAM growth across POV/arrangement swaps).
+        // The module-level plate cache otherwise keeps every loaded POV texture GPU-resident for the page lifetime.
         try {
             _venueTextureCache.forEach((tex) => { tex?.dispose?.(); });
         } catch (_) { /* visual-only */ }
