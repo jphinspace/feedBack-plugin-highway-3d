@@ -1,10 +1,6 @@
-// Chart-data helpers with no fret-geometry dependency: string-count
-// resolution, open-string tuning/pitch labels, fret-column reference
-// markers, chart-time binary search, arrangement <anchor> lookups, and BPM
-// estimation.
-
 import { MAX_RENDER_STRINGS, NSTR, NFRETS, DOTS } from './constants.js';
 
+/** Resolves the active string count from `bundle.stringCount`, falling back to arrangement name. */
 export function resolveStringCount(bundle) {
     const sc = bundle && bundle.stringCount;
     if (Number.isFinite(sc) && sc >= 1) {
@@ -13,17 +9,23 @@ export function resolveStringCount(bundle) {
     return /bass/i.test(bundle?.songInfo?.arrangement || '') ? 4 : NSTR;
 }
 
-/** Chart-format tuning entries are semitone offsets from instrument standard. */
+/** Semitone-indexed note names, sharp spelling. */
 export const _NOTE_NAMES_SHARP = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
-// Open-string MIDI (thick → thin), matched to RS string index 0 low.
+/** Open-string MIDI numbers (thick to thin) for each supported tuning. */
 export const _BASE_OPEN_MIDI_BASS4 = Object.freeze([28, 33, 38, 43]);
 export const _BASE_OPEN_MIDI_BASS5 = Object.freeze([23, 28, 33, 38, 43]);
 export const _BASE_OPEN_MIDI_GUITAR6 = Object.freeze([40, 45, 50, 55, 59, 64]);
 export const _BASE_OPEN_MIDI_GUITAR7 = Object.freeze([35, 40, 45, 50, 55, 59, 64]);
-// F#/B/E standard extension — low string is a fifth below RS 7‑string low B.
 export const _BASE_OPEN_MIDI_GUITAR8 = Object.freeze([28, 35, 40, 45, 50, 55, 59, 64]);
 
+/**
+ * Base open-string MIDI numbers for a string count and arrangement, before
+ * any chart tuning offset or capo is applied.
+ * @param {number} sc - string count
+ * @param {string} [arrangement] - arrangement name, checked for "bass"
+ * @returns {number[]}
+ */
 export function _baseOpenStringMidis(sc, arrangement) {
     const isBass = /bass/i.test(arrangement || '');
     if (sc === 4 && isBass) return _BASE_OPEN_MIDI_BASS4.slice();
@@ -46,6 +48,7 @@ export function _baseOpenStringMidis(sc, arrangement) {
     return g6;
 }
 
+/** Formats a MIDI note number as a pitch label, e.g. `E2`. */
 export function _midiToPitchLabel(midi) {
     const m = Math.round(midi);
     const octave = Math.floor(m / 12) - 1;
@@ -54,15 +57,14 @@ export function _midiToPitchLabel(midi) {
 }
 
 /**
- * @param {number} nEffective string count clamped like nStr / resolveStringCount
- * @param {Record<string, unknown>} songInfo WS song_info blob (subset)
+ * Open-string pitch labels for the active tuning and capo.
+ * @param {object} bundle - render bundle; preferred source for tuning/capo
+ * @param {Record<string, unknown>} songInfo - fallback source for tuning/capo
+ * @param {number} nEffective - string count clamped like `resolveStringCount`
+ * @returns {string[]}
  */
 export function _openStringPitchLabelsForTuning(bundle, songInfo, nEffective) {
     const n = Number.isFinite(nEffective) ? Math.min(Math.max(1, Math.trunc(nEffective)), MAX_RENDER_STRINGS) : resolveStringCount(bundle);
-    // bundle first: chart-transform substitutes tuning/capo there, while
-    // songInfo keeps the chart's originals by contract. A malformed
-    // (non-array) bundle.tuning falls back to songInfo instead of
-    // blanking the labels.
     let tuning = Array.isArray(bundle.tuning) ? bundle.tuning : (songInfo && songInfo.tuning);
     let cap = bundle.capo;
     cap = Number.isFinite(cap) ? cap : (songInfo && Number.isFinite(songInfo.capo) ? songInfo.capo : 0);
@@ -78,17 +80,15 @@ export function _openStringPitchLabelsForTuning(bundle, songInfo, nEffective) {
     }
     return labels;
 }
-// Fret-column reference markers: floor-aligned fret-number sprites
-// that scroll toward the hit line every Nth measure. When the chart
-// has <anchor>, the row uses the inlay cadence (DOTS) around the
-// anchor fret: two marker positions before and three after the
-// snapped cadence cell (e.g. anchor fret 7 → 3,5,7,9,12,15).
+
+/** Fret-column marker spacing around a chart anchor: markers before/after the nearest cadence cell. */
 export const FRET_COL_MARKER_ANCHOR_BACK = 2;
 export const FRET_COL_MARKER_ANCHOR_FWD = 3;
 
 /**
- * @param {number} anchorFret Chart anchor `.fret` (world start fret).
- * @param {number[]} [cadence] Ascending frets (e.g. DOTS).
+ * Fret-column reference-marker positions around a chart anchor.
+ * @param {number} anchorFret - chart anchor `.fret`
+ * @param {number[]} [cadence] - ascending frets to choose markers from
  * @returns {number[]}
  */
 export function fretColumnMarkersForAnchor(anchorFret, cadence = DOTS) {
@@ -108,21 +108,17 @@ export function fretColumnMarkersForAnchor(anchorFret, cadence = DOTS) {
     return cadence.slice(i0, i1);
 }
 
-// Fast integer key for (t, s) pairs — avoids per-frame string allocation in
-// hot-path Set lookups. Encodes chart time in 0.1 ms steps (sufficient for
-// chart-format note precision) combined with the string index.
-// t range 0–600 s → 0–6,000,000; * 10 + s(0–7) = max 60,000,007 < 2^53 ✓.
-// The |0 truncates to int32 but the outer multiply stays in float64, so the
-// key is always a safe JS integer for songs ≤ 214,748 s (well above any song).
+/** Encodes a `(chartTime, string)` pair as a single safe integer key, for Set/Map lookups. */
 export function _noteKey(t, s) { return ((t * 10000 + 0.5) | 0) * 10 + s; }
 
-// Binary lower-bound: returns the first index i in arr where arr[i].t >= t.
-// Assumes arr is sorted ascending by .t (bundle.notes / bundle.chords always are).
-// Byte-identical to core's bundle.lowerBoundT — kept as a local because this
-// plugin must run on downlevel hosts whose bundles don't carry the helper
-// (it's called from ~30 sites incl. top-level helpers that don't receive a
-// bundle). New code that already holds a bundle should prefer
-// bundle.lowerBoundT / bundle.lowerBoundTime.
+/**
+ * Binary-search lower bound: the first index `i` where `arr[i].t >= t`.
+ * Prefer `bundle.lowerBoundT`/`bundle.lowerBoundTime` when a bundle is
+ * available; this exists for call sites that don't hold one.
+ * @param {{t: number}[]} arr - ascending-sorted by `.t`
+ * @param {number} t
+ * @returns {number}
+ */
 export function lowerBoundT(arr, t) {
     let lo = 0, hi = arr.length;
     while (lo < hi) {
@@ -134,18 +130,16 @@ export function lowerBoundT(arr, t) {
 }
 
 /**
- * Return the chart time of the first fretted event that can still affect
- * the camera at `now`, or the next fretted onset after it.
- *
- * This is intentionally a one-time full-chart scan. It runs only when a
- * new song/arrangement's arrays first arrive, allowing the camera to frame
- * the opening phrase during a silent intro instead of waiting for that
- * phrase to enter the live targeting window. Open strings do not define a
- * horizontal fret target, and malformed/out-of-range strings are ignored.
- *
- * Events already inside the behind-window, plus older sustains that are
- * still ringing at `now`, return `now` so bootstrap framing matches the
- * ordinary live path. Future events return their onset time.
+ * Chart time of the first fretted event that can still affect the camera at
+ * `now`, or the next fretted onset after it — used once per song to frame
+ * the opening phrase during a silent intro. Open strings and out-of-range
+ * strings are ignored.
+ * @param {object[]} notes
+ * @param {object[]} chords
+ * @param {number} now
+ * @param {number} behind - seconds before `now` still considered live
+ * @param {number} stringCount
+ * @returns {number | null}
  */
 export function hwyFirstRelevantFrettedTime(notes, chords, now, behind, stringCount) {
     const nStrings = Number.isFinite(stringCount) ? Math.max(0, Math.floor(stringCount)) : 0;
@@ -183,12 +177,12 @@ export function hwyFirstRelevantFrettedTime(notes, chords, now, behind, stringCo
     return Number.isFinite(first) ? first : null;
 }
 
-// Last arrangement <anchor> at or before chart time `t` (sorted by .time).
-// Mirrors static/highway.js getAnchorAt — until t reaches the first anchor’s
-// time, the first anchor still defines fret/width.
-// Binary search: this is called inside per-frame loops (lane slicing,
-// lookahead sampling, marker spawning), so the linear scan was O(samples *
-// numAnchors) on dense charts.
+/**
+ * The last arrangement `<anchor>` at or before chart time `t`.
+ * @param {{time: number}[]} anchorArr - ascending-sorted by `.time`
+ * @param {number} t
+ * @returns {object | null}
+ */
 export function getChartAnchorAt(anchorArr, t) {
     if (!anchorArr || !anchorArr.length) return null;
     let lo = 0, hi = anchorArr.length;
@@ -200,14 +194,13 @@ export function getChartAnchorAt(anchorArr, t) {
     return lo === 0 ? anchorArr[0] : anchorArr[lo - 1];
 }
 
-/** @returns {{ dMin: number, dMax: number } | null} */
+/**
+ * Highway-lane diagram span (0-indexed) for a chart anchor.
+ * @returns {{ dMin: number, dMax: number } | null}
+ */
 export function laneBoundsFromAnchor(anc) {
     if (!anc) return null;
     let fStart = Math.round(Number(anc.fret));
-    // Match anchorPlayedFretInclusiveSpan(): fret 0 (and below) clamps
-    // to 1, otherwise the lane span ends up one fret narrower than the
-    // played-fret span / label highlighting on charts that emit
-    // <anchor fret="0" width="N">.
     if (!Number.isFinite(fStart) || fStart < 1) fStart = 1;
     let w = Number(anc.width);
     if (!Number.isFinite(w)) w = 4;
@@ -218,16 +211,17 @@ export function laneBoundsFromAnchor(anc) {
     return { dMin, dMax };
 }
 
-/** Same horizontal span as the dynamic highway lane: anchor at chart time `t`. */
+/** Same span as {@link laneBoundsFromAnchor}, for the anchor active at chart time `t`. */
 export function anchorLaneBoundsAt(anchorArr, t) {
     if (!anchorArr || !anchorArr.length) return null;
     return laneBoundsFromAnchor(getChartAnchorAt(anchorArr, t));
 }
 
 /**
- * Inclusive chart-fret indices for the playing window (anchor `fret` + `width`),
- * e.g. fret=5 width=4 → 5..8. Unlike {@link laneBoundsFromAnchor}'s `dMin`/`dMax`
- * (diagram wire span), these are the labels shown on gems / row numbers.
+ * Inclusive chart-fret indices for the playing window (anchor `fret` +
+ * `width`), e.g. fret=5 width=4 -> 5..8. Unlike {@link laneBoundsFromAnchor}'s
+ * `dMin`/`dMax` (diagram wire span), these are the labels shown on gems and
+ * row numbers.
  * @returns {{ f0: number, f1: number } | null}
  */
 export function anchorPlayedFretInclusiveSpan(anc) {
@@ -241,10 +235,13 @@ export function anchorPlayedFretInclusiveSpan(anc) {
     return { f0, f1 };
 }
 
+/** Same span as {@link anchorPlayedFretInclusiveSpan}, for the anchor active at chart time `t`. */
 export function anchorPlayedFretSpanAt(anchorArr, t) {
     if (!anchorArr || !anchorArr.length) return null;
     return anchorPlayedFretInclusiveSpan(getChartAnchorAt(anchorArr, t));
 }
+
+/** Estimates BPM from the beats nearest chart time `t`, defaulting to 120 when unavailable. */
 export function computeBPM(beats, t) {
     if (!beats || beats.length < 2) return 120;
     let lo = 0, hi = beats.length;

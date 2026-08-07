@@ -3,44 +3,37 @@ import { SETTING_DEFAULTS, SCENE_THEME_IDS, FRET_NUMBER_GHOST_SCOPE_IDS } from '
 import { MAX_RENDER_STRINGS } from '../core/constants.js';
 import { _h3dHexToInt } from '../core/palette.js';
 
-// The h3dBgSet* setter wall. These are the ONLY way any code (settings.html,
-// the player-chrome control) mutates a background/highway setting -- every
-// setter funnels through writeGlobalSetting, which stages the value, persists
-// it, and fires the change pub-sub. Named exports here, bound onto
-// `window` by src/globals.js -- this file itself never touches `window`,
-// so globals.js stays the one auditable place the external surface is
-// assembled.
-//
-// The h3dVenueSet*/h3dVenueGet* family and the venue-specific bg/hwTheme-
-// adjacent state live in bg/venue.js instead of here (not yet extracted --
-// see the split plan) because they read/write venue.js's own mutable
-// state directly, which only the declaring module can do.
-
-// Settings.html setters — global keys; per-panel overrides via direct
-// localStorage edits today, runtime UI in a follow-up.
+/**
+ * The `h3dBgSet*` setter wall — the only way settings.html or the
+ * player-chrome control mutates a background/highway setting. Every setter
+ * funnels through {@link writeGlobalSetting}. Bound onto `window` by
+ * `src/globals.js`; this file itself never touches `window`.
+ *
+ * `h3dVenueSet*`/`h3dVenueGet*` live in `background/venue.js` instead,
+ * since they read/write that module's own state directly.
+ */
 export const h3dBgSetStyle = (v) => writeGlobalSetting('style', v);
 export const h3dBgSetIntensity = (v) => writeGlobalSetting('intensity', v);
 export const h3dBgSetReactive = (v) => writeGlobalSetting('reactive', !!v);
 export const h3dBgSetPalette = (v) => writeGlobalSetting('palette', v);
-// BACKGROUND scene-color axis (clear + fog only). Validated against
-// SCENE_THEME_IDS in coerceSetting; the listener re-applies clear/fog live and
-// independently of the highway axis.
+
+/** Background axis (clear + fog); independent of the highway axis. */
 export const h3dBgSetBgTheme = (v) => {
     const s = String(v);
     writeGlobalSetting('bgTheme', SCENE_THEME_IDS.includes(s) ? s : SETTING_DEFAULTS.bgTheme);
 };
-// HIGHWAY scene-color axis (board + lane + laneDim). Same id-set as the
-// background axis, so any highway can mix with any background. The listener
-// re-applies the board plane + lane live and independently.
+/** Highway axis (board + lane + laneDim); independent of the background axis. */
 export const h3dBgSetHwTheme = (v) => {
     const s = String(v);
     writeGlobalSetting('hwTheme', SCENE_THEME_IDS.includes(s) ? s : SETTING_DEFAULTS.hwTheme);
 };
-// Apply a user-defined per-string color set (core theming UI). `hexArray`
-// is up to 8 hex strings; invalid/missing entries fall back to the default
-// palette per index. Writes the colors, then flips the palette to 'custom'
-// — the palette listener retints all materials + rebuilds the board live.
-// Pass null/[] then h3dBgSetPalette('default') to revert.
+
+/**
+ * Sets a user-defined per-string color set and switches the active palette
+ * to `'custom'`. Invalid/missing entries fall back to the default palette
+ * per index. Pass `[]` then `h3dBgSetPalette('default')` to revert.
+ * @param {Array<string|null|undefined>} hexArray - up to {@link MAX_RENDER_STRINGS} hex strings
+ */
 export const h3dBgSetStringColors = (hexArray) => {
     const arr = Array.isArray(hexArray) ? hexArray : [];
     const norm = [];
@@ -51,7 +44,9 @@ export const h3dBgSetStringColors = (hexArray) => {
     writeGlobalSetting('customColors', JSON.stringify(norm));
     writeGlobalSetting('palette', 'custom');
 };
+
 export const h3dBgSetShowFretOnNote = (v) => writeGlobalSetting('showFretOnNote', !!v);
+/** @param {string} v - one of {@link FRET_NUMBER_GHOST_SCOPE_IDS} */
 export const h3dBgSetFretNumberGhostScope = (v) => {
     const s = String(v);
     writeGlobalSetting('fretNumberGhostScope', FRET_NUMBER_GHOST_SCOPE_IDS.includes(s) ? s : SETTING_DEFAULTS.fretNumberGhostScope);
@@ -61,6 +56,7 @@ export const h3dBgSetZoomSmoothing = (v) => writeGlobalSetting('zoomSmoothing', 
 export const h3dBgSetTiltSmoothing = (v) => writeGlobalSetting('tiltSmoothing', v);
 export const h3dBgSetCameraLockLow = (v) => writeGlobalSetting('cameraLockLow', !!v);
 export const h3dBgSetCameraLockZoom = (v) => writeGlobalSetting('cameraLockZoom', v);
+/** Legacy `'classic'` maps to `'steady'`. */
 export const h3dBgSetCameraMode = (v) => {
     let s = String(v);
     if (s === 'classic') s = 'steady';
@@ -98,11 +94,11 @@ export const h3dBgSetProjectionVisible = (v) => writeGlobalSetting('projectionVi
 export const h3dBgSetSlideArrowApproachVisible = (v) => writeGlobalSetting('slideArrowApproachVisible', !!v);
 export const h3dBgSetSlideArrowNeckVisible = (v) => writeGlobalSetting('slideArrowNeckVisible', !!v);
 export const h3dBgSetSlideArrowChainPreviewVisible = (v) => writeGlobalSetting('slideArrowChainPreviewVisible', !!v);
-// Custom image asset for the 'image' bg style (#19). Composite setter:
-// writes both the data URL (the bytes that drive the texture) and the
-// display filename, each emitting a change event. The listener
-// rebuilds on customImageDataUrl change when the image style is
-// active; customImageName is display-only and skips rebuild.
+
+/**
+ * Sets the custom image asset for the `'image'` background style.
+ * @param {{dataUrl?: string, name?: string}} [asset]
+ */
 export const h3dBgSetCustomImage = (asset) => {
     const a = asset || {};
     writeGlobalSetting('customImageDataUrl', a.dataUrl || '');
@@ -112,16 +108,17 @@ export const h3dBgClearCustomImage = () => {
     writeGlobalSetting('customImageDataUrl', '');
     writeGlobalSetting('customImageName', '');
 };
-// Custom video asset for the 'video' bg style (#19 follow-up).
-// Bytes live on disk under {config_dir}/plugin_uploads/highway_3d/
-// and are served by routes.py — localStorage only stores the
-// filename, which the renderer maps to the served URL. Single
-// global slot; the file picker in settings.html POSTs to the
-// upload route and then calls this setter with the response name.
+
+/**
+ * Sets the custom video asset for the `'video'` background style. Bytes
+ * live on disk under `{config_dir}/plugin_uploads/highway_3d/`, served by
+ * `routes.py`; only the filename is stored here.
+ * @param {{name?: string}} [asset]
+ */
 export const h3dBgSetCustomVideo = (asset) => {
     writeGlobalSetting('customVideoName', (asset && asset.name) || '');
 };
 export const h3dBgClearCustomVideo = () => writeGlobalSetting('customVideoName', '');
-// Back-compat alias for any caller that picked up the original
-// (inconsistent) name during this PR's review window.
+
+/** Alias for {@link h3dBgSetPalette}. */
 export const h3dSetPalette = h3dBgSetPalette;

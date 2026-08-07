@@ -23,8 +23,5 @@ export const SLIDE_RIBBON_INDICES = (() => {
     }
     return idx;
 })();
-// Three r170's setIndex() only wraps plain Arrays into Uint16BufferAttribute;
-// typed-array input gets assigned raw onto .index, which trips WebGL's
-// byteLength check. Convert once at module init so each pooled geometry
-// reuses the same Array reference instead of allocating per mesh.
+/** Plain-array copy of {@link SLIDE_RIBBON_INDICES} — `setIndex()` requires a plain Array. */
 export const SLIDE_RIBBON_INDICES_ARR = Array.from(SLIDE_RIBBON_INDICES);

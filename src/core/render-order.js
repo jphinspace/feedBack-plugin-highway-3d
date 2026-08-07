@@ -1,5 +1,6 @@
 import { K, GHOST_FRET_LBL_FADE_S } from './constants.js';
 
+/** Draw-order tiebreak layers for objects at the same world depth, back to front. */
 export const RENDER_ORDER_LAYER_STACK = Object.freeze([
     'CHORD_FILL',
     'CHORD_STRUM_FILL',
@@ -19,6 +20,7 @@ export const RENDER_ORDER_LAYER_STACK = Object.freeze([
     'ARP_NOTE_FRET_LABEL',
     'CHORD_FRET_LABEL',
 ]);
+/** Maps each {@link RENDER_ORDER_LAYER_STACK} name to its index. */
 export const RENDER_ORDER_LAYER_INDEX = Object.freeze(RENDER_ORDER_LAYER_STACK.reduce(
     (indexByLayer, layerName, layerIndex) => {
         indexByLayer[layerName] = layerIndex;
@@ -27,21 +29,19 @@ export const RENDER_ORDER_LAYER_INDEX = Object.freeze(RENDER_ORDER_LAYER_STACK.r
     Object.create(null)
 ));
 
+/** Base renderOrder at world Z = 0 (the hit line). */
 export const RENDER_ORDER_AT_Z_ZERO = 700;
+/** Minimum renderOrder for objects far behind the hit line. */
 export const RENDER_ORDER_FAR_CLAMP = 50;
 
 /**
- * Computes renderOrder from world depth plus a named layer.
- * Closer objects receive larger values and paint over farther objects; the
- * layer stack breaks ties at the same depth, keeping labels above note gems.
- *
- * The layer index is added as a sub-unit fraction (< 1) so the integer
- * depth bucket STRICTLY dominates: a farther object can never outrank a
- * nearer one merely because it sits on a higher layer. Adding the raw index
- * (0..N-1) directly would let the ~N-wide layer span leak across depth
- * buckets and re-introduce far-over-near bleed for notes within ~N draw
- * units of each other. Fraction granularity (1/N ≈ 0.06) stays well above
- * the 0.0001 intra-element sub-increments used at some call sites.
+ * Computes a renderOrder from world depth plus a named layer: closer objects
+ * paint over farther ones, and the layer stack breaks ties at equal depth.
+ * The layer index is added as a fraction below 1 so depth always dominates —
+ * a farther object can never outrank a nearer one just by its layer.
+ * @param {number} worldZ - world-space depth
+ * @param {string} layerName - one of {@link RENDER_ORDER_LAYER_STACK}
+ * @returns {number} renderOrder
  */
 export function renderOrderForLayerAtZ(worldZ, layerName) {
     const layerIndex = RENDER_ORDER_LAYER_INDEX[layerName];
@@ -53,13 +53,13 @@ export function renderOrderForLayerAtZ(worldZ, layerName) {
     return depthRenderOrder + layerIndex / RENDER_ORDER_LAYER_STACK.length;
 }
 /**
- * Post-hit tail fade shared by ghost fret digits and 3D chord UI: full
- * opacity until (holdS − fadeS) after onset, then linear fade over fadeS;
- * canceled when `nextSoon` — for ghosts: next note within `fadeS` of `now`;
- * for chord frame: next chord onset lies in chart time [hold − fade, hold]
- * after the current chord (so fade does not run into a same-window handoff).
- * @param {number} dt chart time minus now (negative once struck)
- * @param {number} fadeS linear fade duration (default: GHOST_FRET_LBL_FADE_S)
+ * Post-hit opacity multiplier shared by ghost fret digits and 3D chord UI:
+ * full opacity until `holdS - fadeS` after onset, then a linear fade.
+ * @param {number} dt - chart time minus now (negative once struck)
+ * @param {number} holdS - seconds to hold at full opacity before fading
+ * @param {boolean} nextSoon - suppresses the fade for an imminent handoff
+ * @param {number} [fadeS] - fade duration
+ * @returns {number} opacity multiplier in [0, 1]
  */
 export function hwyPostHitTailFadeMul(dt, holdS, nextSoon, fadeS = GHOST_FRET_LBL_FADE_S) {
     if (nextSoon || dt >= 0) return 1;
