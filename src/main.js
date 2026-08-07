@@ -114,6 +114,7 @@ import { createLookaheadPrepasses } from './instance/render/lookahead-prepasses.
 import { createHitSparks } from './instance/render/hit-sparks.js';
 import { createBloomComposer } from './instance/render/bloom-composer.js';
 import { createLookaheadMath } from './instance/model/lookahead-math.js';
+import { createNoteCameraTargets } from './instance/render/note-camera-targets.js';
 import {
     bnvSampleAt, canvasSize, darkenHex, disposeGroupTree, effectiveVfov, noteHasVibrato,
     teachingDegreeLabel, teachingFingerLabel, tremoloOffsetWorldX, vibratoSemisAtTime,
@@ -328,6 +329,10 @@ function createFactory() {
     // (re)built in initScene(). Injected as deps into cameraTarget/
     // cameraBootstrap below.
     let lookaheadMath = null;
+    // Steady-mode camera-distance/X-target resolver
+    // (instance/render/note-camera-targets.js), (re)built in initScene().
+    // Injected as a dep into cameraTarget/cameraBootstrap below.
+    let noteCameraTargets = null;
     // The camera-target resolver (instance/render/camera-target.js),
     // (re)built in initScene().
     let cameraTarget = null;
@@ -1645,8 +1650,11 @@ function createFactory() {
             ctx, xFret, xFretMid, validString, getMeasureStarts: () => _measureStarts,
         });
 
+        noteCameraTargets = createNoteCameraTargets({ ctx, xFretMid, camBaseDistU, camLowFretPullbackU });
+
         cameraTarget = createCameraTarget({
-            ctx, xFretMid, _applyNoteCamTargets, camLowFretPullbackU, camBaseDistU,
+            ctx, xFretMid, _applyNoteCamTargets: noteCameraTargets.applyNoteCamTargets,
+            camLowFretPullbackU, camBaseDistU,
             lookaheadSmoothCamStep: lookaheadMath.lookaheadSmoothCamStep,
             lookaheadTargetWorldX: lookaheadMath.lookaheadTargetWorldX,
         });
@@ -1662,7 +1670,7 @@ function createFactory() {
             lookaheadBootstrapTime: lookaheadMath.lookaheadBootstrapTime,
             lookaheadComputeFretBounds: lookaheadMath.lookaheadComputeFretBounds,
             lookaheadTargetWorldX: lookaheadMath.lookaheadTargetWorldX,
-            _applyNoteCamTargets, validString, filterValidNotes,
+            _applyNoteCamTargets: noteCameraTargets.applyNoteCamTargets, validString, filterValidNotes,
         });
 
         arpAndSlidePrepasses = createArpAndSlidePrepasses({ chordInference, _scrArpPersistKeys });
@@ -2644,105 +2652,8 @@ function createFactory() {
 
     // Lookahead-camera-mode pure math -- see instance/model/lookahead-math.js.
 
-    /* ── Camera target helper ────────────────────────────────────────── */
-    // Compute and apply ctx.cam.tgtX + ctx.cam.tgtDist from note-window-accumulated data.
-    // Used by BOTH the snap pre-pass (before drawNote() calls, skipDistHyst=true)
-    // and the main per-frame camera-target block (skipDistHyst=false) so the
-    // two paths can never drift out of sync.
-    //
-    // wX/wSum        recency-weighted fret-position centroid accumulator
-    // distMin/Max    min/max fret seen in the camera targeting window
-    // distGot        true iff at least one fretted note was in the window
-    // camHystF       X-axis hysteresis factor (from cameraSmoothing)
-    // camDistHystF   dist hysteresis factor (from zoomSmoothing)
-    // skipDistHyst   true on the snap/first-data frame — no previous ctx.cam.tgtDist
-    //                state exists, so bypass the dead-zone gate
-    //
-    // Side-effects: updates ctx.cam.tgtX, ctx.cam.tgtDist, ctx.cam.prevLowFretBonus.
-    // Returns: computed lockActive flag (caller is responsible for setting
-    //          ctx.cam.prevLockActive from the returned value).
-    function _applyNoteCamTargets(wX, wSum, distMin, distMax, distGot,
-                                  camHystF, camDistHystF, skipDistHyst) {
-        const lockActive = ctx.settings.cameraLockLow && (!distGot || distMax <= 12);
-        if (lockActive) {
-            // Locked view: frets 0-12 fit in frame, with the peak
-            // low-fret bonus baked in so nut chords stay framed.
-            // Both halves derive from the same helpers as the
-            // dynamic branch so future tuning of the base zoom
-            // curve or low-fret pullback can't desync them.
-            const lockedBaseU  = camBaseDistU(12);
-            const lockedBonusU = camLowFretPullbackU(1);
-            // cameraLockZoom slider 0..1 blends between MIN (closest)
-            // and MAX (furthest). Default 0.5 maps to ~1.0× so existing
-            // users see the same locked view as before this slider.
-            const lockZoomMul  = CAM_LOCK_ZOOM_MIN +
-                (CAM_LOCK_ZOOM_MAX - CAM_LOCK_ZOOM_MIN) * ctx.settings.cameraLockZoom;
-            ctx.cam.tgtX             = xFretMid(CAM_LOCK_CENTER_FRET);
-            ctx.cam.tgtDist          = (lockedBaseU + lockedBonusU) * K * lockZoomMul;
-            ctx.cam.prevLowFretBonus = lockedBonusU;
-        } else if (distGot) {
-            // Base zoom scales by fret count (distMax - distMin).
-            const baseDistU     = camBaseDistU(distMax - distMin);
-            // Low-fret pullback: world-X distance between frets is
-            // logarithmic, so a 2-fret span at the nut takes much
-            // more horizontal screen than the same span at fret 12.
-            // The base term scales by *fret count*, not world-X
-            // span, so low-fret clusters were under-allotted camera
-            // distance and clipped at the left edge (e.g. F power
-            // chord at fret 1 partially off-screen). Add a tapered
-            // bonus that kicks in below fret 5 and peaks at fret 1
-            // (≈16 extra fret-span units, i.e. 16*K world-units of
-            // distance), without affecting mid/high neck framing.
-            const lowFretBonusU = camLowFretPullbackU(distMin);
-            if (skipDistHyst) {
-                // First data frame — no previous ctx.cam.tgtDist state; apply
-                // directly without the hysteresis dead-zone check.
-                ctx.cam.tgtDist = (baseDistU + lowFretBonusU) * K;
-            } else {
-                // ctx.cam.tgtDist scales at (3 * K) per fret-span unit, so the
-                // hysteresis threshold (a fret-span dead zone) converts
-                // to ctx.cam.tgtDist-space by multiplying by 3 * K — NOT by
-                // FRET_WIDTH_MID, which is X-axis world-units-per-fret
-                // and a different unit (would over-tighten the gate by
-                // ~4x at SCALE = 2.25).
-                //
-                // Hysteresis is applied to the BASE portion only. The
-                // lowFretBonus changes by 4 fret-span units per integer
-                // fret near the nut, which sits below the default-
-                // cameraSmoothing (cs=0.5) dead zone of ~8.25 fret-span
-                // units (= 2.75 * 3) and would otherwise be suppressed
-                // for fret 2 → 1 / 3 → 1 transitions — exactly the
-                // corrections this bonus exists to provide. So gate the
-                // base, then always reflect bonus changes on top by
-                // tracking the last-committed bonus contribution
-                // (ctx.cam.prevLowFretBonus) and adjusting ctx.cam.tgtDist for its
-                // delta whether or not the base hysteresis fires.
-                //
-                // First frame after a lock release bypasses the gate
-                // entirely so a >12 fret note that disengaged the lock
-                // is guaranteed to widen the view. Without this, a
-                // small span jump (12→13 frets) at default settings
-                // can sit inside the dead zone and the camera fails
-                // to follow the high note that just opened the lock.
-                const candidateBase = baseDistU * K;
-                const baseTgt       = ctx.cam.tgtDist - ctx.cam.prevLowFretBonus * K;
-                const justUnlocked  = ctx.cam.prevLockActive;
-                if (justUnlocked || Math.abs(candidateBase - baseTgt) > camDistHystF * 3 * K) {
-                    ctx.cam.tgtDist = (baseDistU + lowFretBonusU) * K;
-                } else if (lowFretBonusU !== ctx.cam.prevLowFretBonus) {
-                    ctx.cam.tgtDist = baseTgt + lowFretBonusU * K;
-                }
-            }
-            ctx.cam.prevLowFretBonus = lowFretBonusU;
-        }
-        // X-axis: recency-weighted centroid with a hysteresis dead zone
-        // so small cluster shifts don't trigger visible pan motion.
-        if (!lockActive && wSum > 0) {
-            const candidateX = wX / wSum;
-            if (Math.abs(candidateX - ctx.cam.tgtX) > camHystF * FRET_WIDTH_MID) ctx.cam.tgtX = candidateX;
-        }
-        return lockActive;
-    }
+    // Steady-mode camera-distance/X-target resolver -- see
+    // instance/render/note-camera-targets.js.
 
     /** World-scale XY for purple lane rails = arpeggio ``ftSide`` / ``gLaneDivider`` edge (0.15×K). */
     function arpeggioLaneDividerXYScaleMatchFrameRim(accentMul = 1) {
