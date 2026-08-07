@@ -27,15 +27,15 @@ import {
     CHORD_BOX_EDGE_ALPHA, CHORD_BOX_FILL_GRAD_ALPHA, CHORD_BOX_HIT_BRIGHT_HEX,
     CHORD_BOX_MISS_DARK_HEX, CHORD_BOX_TEAL_DARK_HEX, CHORD_BOX_TEAL_HEX,
     CHORD_DIAG_POSITION_IDS, CHORD_FRAME_RIM_FRAC_H, CHORD_FRAME_RIM_MIN,
-    CHORD_FRAME_RIM_Z_MIN, CHORD_FRAME_RIM_Z_SCAL, CHORD_HWY_FADE_S, CHORD_HWY_LINGER_S, DDOTS,
+    CHORD_FRAME_RIM_Z_MIN, CHORD_FRAME_RIM_Z_SCAL, CHORD_HWY_FADE_S, CHORD_HWY_LINGER_S,
     DEFAULT_LOOKAHEAD_FRET_SPAN, DIAG_CELL_MAX, DIAG_CROSSFADE_S, DIAG_ENTRANCE_S,
-    DIAG_LINGER_S, DIAG_SIZE_MAX, DIAG_SIZE_MIN, DOTS, FOCUS_D, FOG_END, FOG_START,
-    FRET_BOW_DZ, FRET_COOLDOWN, FRET_EMISSIVE, FRET_LABEL_GOLD_HEX, FRET_LABEL_IDLE_HEX,
-    FRET_METALNESS, FRET_ROUGHNESS, FRET_ROW_FIT_BOOST_MAX, FRET_ROW_FIT_DEADBAND,
+    DIAG_LINGER_S, DIAG_SIZE_MAX, DIAG_SIZE_MIN, FOCUS_D, FOG_END, FOG_START,
+    FRET_COOLDOWN, FRET_LABEL_GOLD_HEX, FRET_LABEL_IDLE_HEX,
+    FRET_ROW_FIT_BOOST_MAX, FRET_ROW_FIT_DEADBAND,
     FRET_ROW_FIT_NDC_MIN, FRET_SCALE, FRET_SPACING_ANCHOR_F, FRET_SPACING_STRETCH_ABOVE12,
-    FRET_TUBE_RADIAL, FRET_TUBE_RADIUS, FRET_TUBE_SEG, FRET_WIRE_ACTIVE_HEX,
+    FRET_WIRE_ACTIVE_HEX,
     FRET_WIRE_ACTIVE_OP, FRET_WIRE_HIT_DECAY, FRET_WIRE_HIT_EMISSIVE, FRET_WIRE_HIT_HEX,
-    FRET_WIRE_HIT_INTENSITY, FRET_WIRE_HIT_OP, FRET_WIRE_IDLE_HEX, FRET_WIRE_IDLE_OP,
+    FRET_WIRE_HIT_INTENSITY, FRET_WIRE_HIT_OP,
     GHOST_FRET_LBL_FADE_S, GHOST_HOLD_AFTER_ONSET, GHOST_UPCOMING_WIN, HORPLUS_MIN_VFOV,
     HORPLUS_START_ASPECT, HIGHWAY_LANE_STRIPE_EVEN_HEX, HIGHWAY_LANE_STRIPE_ODD_HEX,
     HIGHWAY_LANE_STRIPE_OP_BASE, HIGHWAY_LANE_STRIPE_OP_INT, HIGHWAY_LANE_TIME_SLICES, INLAY_LABEL_FRETS,
@@ -117,6 +117,7 @@ import { createLookaheadMath } from './instance/model/lookahead-math.js';
 import { createNoteCameraTargets } from './instance/render/note-camera-targets.js';
 import { createScoreFx } from './instance/render/score-fx.js';
 import { createNutHeadstockBuilder } from './instance/geometry/nut-headstock.js';
+import { createFretMarkersBuilder } from './instance/geometry/fret-markers.js';
 import {
     bnvSampleAt, canvasSize, darkenHex, disposeGroupTree, effectiveVfov, noteHasVibrato,
     teachingDegreeLabel, teachingFingerLabel, tremoloOffsetWorldX, vibratoSemisAtTime,
@@ -684,6 +685,10 @@ function createFactory() {
     // (instance/geometry/nut-headstock.js), (re)built in initScene(), called
     // from buildBoard() on every rebuild (palette/theme/lefty/nStr changes).
     let nutHeadstockBuilder = null;
+    // Fret wires + fret dots + fret inlay labels builder
+    // (instance/geometry/fret-markers.js), (re)built in initScene(), called
+    // from buildBoard() on every rebuild.
+    let fretMarkersBuilder = null;
     // Hit-spark particle system (#3) -- see instance/render/hit-sparks.js.
     // _sparkPts/_sparkBurst/_sparkUpdate are populated by createHitSparks()
     // in initScene(); the backing Float32Arrays are private to that module.
@@ -1417,6 +1422,7 @@ function createFactory() {
         });
 
         nutHeadstockBuilder = createNutHeadstockBuilder({ ctx });
+        fretMarkersBuilder = createFretMarkersBuilder({ ctx, xFret, xFretMid, textSprites });
 
         fretG = new T.Group(); scene.add(fretG);
         tuningLblG = new T.Group(); scene.add(tuningLblG);
@@ -2333,120 +2339,9 @@ function createFactory() {
         // Guitar nut + headstock -- see instance/geometry/nut-headstock.js.
         nutHeadstockBuilder.buildNutHeadstock(fretG, nStr, sY, xHeadLeft, nutXC, nutLenX, nutRearX);
 
-        // Fret wires — bowed metal TubeGeometry (backported from
-        // highway_babylon). Board-string and fret-wire layers live in
-        // RENDER_ORDER_LAYER_STACK so the fretboard draws above note
-        // symbols and below fret labels.
-        // Tube (not T.Line): WebGL ignores linewidth > 1px on almost all
-        // platforms, so Line objects always render as hairlines. The tube
-        // bows in Z (middle strings pushed away from camera) so the row of
-        // frets reads as wrapping a cylindrical neck — see FRET_BOW_DZ.
-        // MeshStandardMaterial (vs the old flat MeshBasic): the scene's
-        // ambient+directional light glints across the rounded surface for a
-        // polished-steel look; the per-frame gold albedo (in-anchor) then
-        // reads as brass. depthTest:false: string BoxGeometry (MeshStandard,
-        // depthWrite:true) writes depth at Z=+STR_THICK/2; wires near Z=0
-        // would fail the depth test at string pixels despite higher layer.
-        // Colors are updated each frame by the ctx.board.fretWireMats loop in update(),
-        // which drives every wire to one of two tiers: FRET_WIRE_IDLE_* by
-        // default, FRET_WIRE_ACTIVE_* inside the anchor lane. The material is
-        // created at the idle tier so frame 0 (before update() first runs)
-        // already matches.
-        const yTop = Math.max(sY(0), sY(nStr - 1));
-        const yBottom = Math.min(sY(0), sY(nStr - 1));
-        const wireH = (yTop + S_GAP * 0.3) - (yBottom - S_GAP * 0.3);
-        const wireMidY = (yTop + yBottom) / 2;
-        // Single shared geometry centered at x=0, local Y -half..+half,
-        // bowed in Z by FRET_BOW_DZ * [0,0.6,1,0.6,0]. Reused by every fret
-        // (only mesh position differs). Symmetric in Y → invert/lefty-safe.
-        const yHalf = wireH * 0.5;
-        const zMults = [0, 0.6, 1, 0.6, 0];
-        const tubePath = zMults.map((zm, i) => new T.Vector3(
-            0,
-            -yHalf + (wireH * i) / (zMults.length - 1),
-            FRET_BOW_DZ * zm,
-        ));
-        const tubeCurve = new T.CatmullRomCurve3(tubePath);
-        ctx.board.fretTubeGeo = new T.TubeGeometry(
-            tubeCurve, FRET_TUBE_SEG, FRET_TUBE_RADIUS, FRET_TUBE_RADIAL, false,
-        );
-        for (let f = 0; f <= NFRETS; f++) {
-            const x = xFret(f);
-            const mat = new T.MeshStandardMaterial({
-                color: FRET_WIRE_IDLE_HEX, metalness: FRET_METALNESS, roughness: FRET_ROUGHNESS,
-                emissive: FRET_EMISSIVE,
-                // depthWrite:false (matches other transparent overlays here):
-                // a transparent fret must not write depth or it can occlude
-                // later-drawn transparent elements despite depthTest:false.
-                transparent: true, opacity: FRET_WIRE_IDLE_OP, depthTest: false, depthWrite: false,
-            });
-            const fw = new T.Mesh(ctx.board.fretTubeGeo, mat);
-            fw.position.set(x, wireMidY, 0);
-            fw.renderOrder = renderOrderForLayerAtZ(0, 'BOARD_FRET_WIRE');
-            fretG.add(fw);
-            ctx.board.fretWireMats[f] = mat;
-        }
-
-        // Fret dots — flat circles (CircleGeometry) lying in the XY plane and
-        // facing +Z so they always appear as perfect circles from the camera.
-        // depthWrite:false so they don't steal the depth buffer from the
-        // transparent string meshes. Slight negative Z recessed under the
-        // string plane. Radius 10% below the former 1.5*K dots.
-        const dotRZ = (1.5 * K * 0.9);
-        const dg = new T.CircleGeometry(dotRZ, 64);
-        const dm = new T.MeshBasicMaterial({
-            color: 0x556677,
-            transparent: true,
-            opacity: 1,
-            depthWrite: false,
-        });
-        const dotZBack = -STR_THICK * 0.85;
-        const my = (sY(0) + sY(nStr - 1)) / 2;
-        const addDot = (x, y) => {
-            const d = new T.Mesh(dg, dm);
-            d.position.set(x, y, dotZBack);
-            // Above the dynamic lane (1) and its dividers (2) so the
-            // translucent blue lane no longer paints over and hides the
-            // inlay; still well below strings / wires / notes,
-            // so those keep drawing on top of the inlay.
-            d.renderOrder = 3;
-            fretG.add(d);
-        };
-        for (const f of DOTS) {
-            const cx = xFretMid(f);
-            if (DDOTS.has(f)) {
-                addDot(cx, my - S_GAP * 0.7);
-                addDot(cx, my + S_GAP * 0.7);
-            } else {
-                addDot(cx, my);
-            }
-        }
-
-        // Fret inlay number labels — sprites sitting just behind the hit line
-        // (Z = -K) so camera-distance sorting in the transparent pass puts
-        // them before notes at Z = 0, letting notes paint on top.
-        // Materials are cloned from the txtMat cache with depthWrite:false so
-        // the sprites don't write stale depth values that would clip incoming
-        // notes (which arrive from large negative Z). Clones are tracked in
-        // ctx.board._inlayMats for explicit disposal on rebuild and destroy().
-        // Scale uses (0.5 + textSize) directly — _textSizeMul is stale here
-        // (only refreshed at the top of update()); update() rescales live.
-        for (const m of ctx.board._inlayMats) m.dispose();
-        ctx.board._inlayMats = [];
-        ctx.board._inlayLabels = [];
-        for (const f of INLAY_LABEL_FRETS) {
-            const mat = textSprites.txtMat(f, '#7abfcc', false, 'fretRow').clone();
-            mat.depthWrite = false;
-            mat.opacity = 0.55;
-            const lbl = new T.Sprite(mat);
-            const scale = 5.5 * (0.5 + ctx.settings.textSize) * fretLabelScaleForFret(f);
-            lbl.scale.set(scale * K, scale * K, 1);
-            lbl.position.set(xFretMid(f), yTop - S_GAP * 0.4, -K);
-            lbl.visible = ctx.settings.inlayLabelsVisible;
-            fretG.add(lbl);
-            ctx.board._inlayLabels.push(lbl);
-            ctx.board._inlayMats.push(mat);
-        }
+        // Fret wires + fret dots + fret inlay labels -- see
+        // instance/geometry/fret-markers.js.
+        fretMarkersBuilder.buildFretMarkers(fretG, nStr, sY);
     }
 
     // Lookahead-camera-mode pure math -- see instance/model/lookahead-math.js.
