@@ -30,9 +30,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
+const DOM_AND_SCENE_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'geometry', 'dom-and-scene.js');
 const ASPECT_PANEL_JS = path.join(__dirname, '..', '..', 'src', 'ui', 'aspect-panel.js');
 const SHORTCUTS_JS = path.join(__dirname, '..', '..', 'src', 'ui', 'shortcuts.js');
 const src = fs.readFileSync(SCREEN_JS, 'utf8');
+// The camera is constructed in dom-and-scene.js (Stage 7 Track B / 3-ctx-3);
+// camUpdate/applySize/destroy() stayed in main.js, so only the ctor check
+// below needs the concatenated source.
+const domAndSceneSrc = fs.readFileSync(DOM_AND_SCENE_JS, 'utf8');
 const panelSrc = fs.readFileSync(ASPECT_PANEL_JS, 'utf8');
 const shortcutsSrc = fs.readFileSync(SHORTCUTS_JS, 'utf8');
 
@@ -47,7 +52,7 @@ test('BASE_VFOV is a named constant (not a literal in the camera ctor)', async (
 
 test('the camera is constructed with BASE_VFOV, not a bare 70', () => {
     assert.match(
-        src,
+        domAndSceneSrc,
         /new\s+T\.PerspectiveCamera\(\s*BASE_VFOV\s*,/,
         'PerspectiveCamera must take BASE_VFOV as its vertical fov',
     );

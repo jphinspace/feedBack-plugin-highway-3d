@@ -86,6 +86,7 @@ import { createNoteRenderer } from './instance/render/note.js';
 import { createNotedetectListeners } from './instance/notedetect/listeners.js';
 import { createCtx } from './instance/ctx.js';
 import { pool } from './core/pool.js';
+import { createDomAndScene } from './instance/geometry/dom-and-scene.js';
 import { createNoteGemVisuals } from './instance/geometry/note-gem-visuals.js';
 import { createNoteGemPools } from './instance/geometry/note-gem-pools.js';
 import { createChordAccentVisuals } from './instance/geometry/chord-accent-visuals.js';
@@ -1443,129 +1444,26 @@ function createFactory() {
         // Reset per-song lane state
         fretLastActiveTime.fill(0);
 
-        wrap = document.createElement('div');
-        wrap.id = 'h3d-wrap-' + _instanceId;
-        wrap.className = 'h3d-wrap';
-        wrap.dataset.h3dInstance = String(_instanceId);
-        wrap.style.cssText = 'position:absolute;top:0;left:0;right:0;z-index:2;pointer-events:none;';
-        // Mark this instance as the primary tour target so the tour engine
-        // always spotlights a unique element (selector '.h3d-wrap[data-h3d-primary]')
-        // rather than the first of potentially many splitscreen wraps.
-        document.querySelectorAll('.h3d-wrap[data-h3d-primary]').forEach(
-            el => el.removeAttribute('data-h3d-primary'));
-        wrap.setAttribute('data-h3d-primary', '');
-        highwayCanvas.parentNode.insertBefore(wrap, highwayCanvas.nextSibling);
-
-        // Subscribe to highway:visibility (feedBack#246) so the
-        // .h3d-wrap overlay hides in sync with the feedBack canvas.
-        // The wrap is a sibling of #highway, so display:none on
-        // #highway leaves us painting full-screen otherwise.
-        // Guarded lazy bind: tolerate hosts that don't yet expose
-        // feedBack.on/off (older feedBack versions, headless
-        // tests).
-        if (window.feedBack
-            && typeof window.feedBack.on === 'function'
-            && typeof window.feedBack.off === 'function') {
-            _visibilityHandler = (e) => {
-                if (!wrap) return;
-                // Filter by canvas identity (splitscreen-safe).
-                // Each createHighway() instance emits its own
-                // visibility events on the shared feedBack bus —
-                // without this gate, one hidden panel would also
-                // hide every other panel's 3D overlay.
-                if (!e || !e.detail || e.detail.canvas !== highwayCanvas) return;
-                const v = e.detail.visible;
-                wrap.style.display = v === false ? 'none' : '';
-            };
-            try {
-                window.feedBack.on('highway:visibility', _visibilityHandler);
-            } catch (e) {
-                _visibilityHandler = null;
-            }
-            // Track canvas-replaced so the visibility handler's
-            // identity gate continues to match after core swaps the
-            // <canvas> element for a context-type change.
-            _canvasReplacedHandler = (e) => {
-                if (!e || !e.detail) return;
-                // Only update if the swap involves OUR canvas — in
-                // splitscreen each panel has its own canvas.
-                if (e.detail.oldCanvas !== highwayCanvas) return;
-                highwayCanvas = e.detail.newCanvas;
-                // Re-sync wrap visibility from the new canvas in
-                // case its initial displayed-state differs.
-                if (wrap) {
-                    const v = highwayCanvas && highwayCanvas.offsetParent !== null;
-                    wrap.style.display = v ? '' : 'none';
-                }
-            };
-            try {
-                window.feedBack.on('highway:canvas-replaced', _canvasReplacedHandler);
-            } catch (e) {
-                _canvasReplacedHandler = null;
-            }
-            // Sync once at bind time: the event is transition-only,
-            // so if the canvas was already hidden when we mounted
-            // (e.g. plugin loaded while splitscreen was active),
-            // we'd never receive an emit and would leave the wrap
-            // visible. Compute from the local highwayCanvas (not
-            // window.highway.isVisible) so splitscreen panels get
-            // their own per-instance answer instead of inheriting
-            // the main highway's state.
-            if (_visibilityHandler) {
-                try {
-                    const initialVisible = highwayCanvas
-                        && highwayCanvas.offsetParent !== null;
-                    wrap.style.display = initialVisible ? '' : 'none';
-                } catch (e) { /* ignore — initial sync is best-effort */ }
-            }
-        }
-
-        // powerPreference hints the platform to use the discrete /
-        // high-performance GPU and a higher power profile for this WebGL
-        // context. On laptops / iGPU+dGPU machines (Windows, macOS) it
-        // steers GPU selection to the dGPU; on single-dGPU desktops it
-        // requests the high-performance power profile. (It does not by
-        // itself force NVIDIA's utilisation-driven clock ramp on Linux.)
-        ren = new T.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', alpha: true });
-        _probe = new T.Vector3();
-        ren.setClearColor(0x101820, butterchurnModeActive() ? 0 : 1);
-        wrap.appendChild(ren.domElement);
-
-        // WebGL context-loss recovery (see the _ctxLost declaration). Bound
-        // on Three's own canvas — the context that actually resets on a GPU
-        // reset / alt-tab. preventDefault() keeps the context restorable
-        // instead of letting the loss escalate to a render-process crash;
-        // _ctxLost then makes draw() bail so no GL work runs on the dead
-        // context; on restore we reset the viewport and resume (Three
-        // re-uploads geometry/materials/textures lazily on the next render).
-        _onCtxLost = (e) => {
-            if (e && typeof e.preventDefault === 'function') e.preventDefault();
-            _ctxLost = true;
-            console.warn('[3D-Hwy] WebGL context lost — pausing render until it is restored.');
-        };
-        _onCtxRestored = () => {
-            _ctxLost = false;
-            console.warn('[3D-Hwy] WebGL context restored — resuming render.');
-            try { const s = canvasSize(highwayCanvas); if (s.w > 0 && s.h > 0) applySize(s.w, s.h); } catch (err) {}
-        };
-        ren.domElement.addEventListener('webglcontextlost', _onCtxLost, false);
-        ren.domElement.addEventListener('webglcontextrestored', _onCtxRestored, false);
-
-        lyricsCanvas = document.createElement('canvas');
-        lyricsCanvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:1;';
-        lyricsCtx = lyricsCanvas.getContext('2d');
-        wrap.appendChild(lyricsCanvas);
-
-        scene = new T.Scene();
-        scene.fog = new T.Fog(0x101820, FOG_START * 0.8, FOG_END * 1.2);
-
-        cam = new T.PerspectiveCamera(BASE_VFOV, 1, 0.01, FOG_END * 3);
-
-        ambLight = new T.AmbientLight(0xffffff, 0.85);
-        scene.add(ambLight);
-        dirLight = new T.DirectionalLight(0xffffff, 0.8);
-        dirLight.position.set(40 * K, 120 * K, 80 * K);
-        scene.add(dirLight);
+        // The wrap <div>, WebGL renderer, context-loss handlers, lyrics
+        // overlay canvas, and scene/camera/lights -- see
+        // instance/geometry/dom-and-scene.js. Not construction-time-only
+        // like the other initScene() clusters: the visibility/canvas-
+        // replaced listeners it creates outlive this call, so
+        // highwayCanvas/_ctxLost are threaded through as live getters/
+        // setters rather than plain deps values.
+        ({
+            wrap, ren, _probe, _onCtxLost, _onCtxRestored, lyricsCanvas, lyricsCtx,
+            scene, cam, ambLight, dirLight, _visibilityHandler, _canvasReplacedHandler,
+        } = createDomAndScene({
+            _instanceId,
+            getHighwayCanvas: () => highwayCanvas,
+            setHighwayCanvas: (c) => { highwayCanvas = c; },
+            setCtxLost: (v) => { _ctxLost = v; },
+            butterchurnModeActive, applySize,
+        }));
+        // _applyCinematic() reads ambLight/dirLight from THIS closure's
+        // `let`s -- must run after the destructure above, not inside the
+        // factory (see dom-and-scene.js's doc comment).
         _applyCinematic();
 
         fretG = new T.Group(); scene.add(fretG);
