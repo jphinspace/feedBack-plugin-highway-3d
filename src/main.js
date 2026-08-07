@@ -88,7 +88,7 @@ import { createCtx } from './instance/ctx.js';
 import { pool } from './core/pool.js';
 import { createDomAndScene } from './instance/geometry/dom-and-scene.js';
 import { createNoteGemVisuals } from './instance/geometry/note-gem-visuals.js';
-import { createNoteGemPools } from './instance/geometry/note-gem-pools.js';
+import { createBoardGhostFrames, createNoteGemPools } from './instance/geometry/note-gem-pools.js';
 import { createChordAccentVisuals } from './instance/geometry/chord-accent-visuals.js';
 import { createTechniqueInstancedMeshes } from './instance/geometry/technique-instanced-meshes.js';
 import { createSustainRailVisuals } from './instance/geometry/sustain-rail.js';
@@ -1497,36 +1497,8 @@ function createFactory() {
         _fwHitGlow.fill(0);
         _fwHitPrevTime = -Infinity;
 
-        // ── Board ghost: filled rim (ExtrudeGeometry w/ hole) in string colour ──
-        // Matches outline 1.1× vs core 1.0× like drawNote; centre stays empty.
-        // 3 slots per string (up to 3 simultaneous ghost previews, chart-
-        // format style): slot 0 is the "next on string" / chord / arp ghost
-        // (unchanged selection logic), slots 1/2 are independent
-        // "upcoming" lead-note previews. All slots share one geometry —
-        // it's identical (NW/NH/ND-based) regardless of string or slot,
-        // so one ExtrudeGeometry serves all nStr*3 meshes.
-        const _ghostFrameGeo = mkGhostFrameGeometry();
-        projMeshArr = activePalette.map((_, s) => [0, 1, 2].map(() => {
-            const mat = new T.MeshStandardMaterial({
-                color: activePalette[s],
-                emissive: activePalette[s],
-                emissiveIntensity: 0.002,
-                transparent: true,
-                opacity: 0.65,
-                roughness: 1,
-                depthWrite: false,
-                depthTest: false,
-            });
-            const m = new T.Mesh(_ghostFrameGeo, mat);
-            m.visible = false;
-            // Board projection ghost frame. depthTest:false above, so
-            // renderOrder alone decides stacking — keep it above the
-            // sus trails (12/13) but below note gems (20/21) so it
-            // stays visible on the fretboard without covering notes.
-            m.renderOrder = 14;
-            noteG.add(m);
-            return m;
-        }));
+        // Board projection ghost frames -- see instance/geometry/note-gem-pools.js.
+        ({ projMeshArr } = createBoardGhostFrames({ noteG, activePalette, mkGhostFrameGeometry }));
 
         // ── Pools ──────────────────────────────────────────────────────
         // Note/sustain/slide-ribbon pools -- see instance/geometry/note-gem-pools.js.
