@@ -80,6 +80,8 @@ src/
       chord-diagram-tracking.js  chord-diagram entrance/crossfade state machine (7 fields
                              returned each call, main.js still owns the bare `let`s)
       arp-and-slide-prepasses.js  arpeggio-persist-key + slide-target-set pre-passes
+      lookahead-math.js        5-fn lookahead-camera-mode pure math (lookaheadEndTime/
+                             BootstrapTime/ComputeFretBounds/TargetWorldX/SmoothCamStep)
     render/
       text-sprites.js        txtMat() + TXT_STYLES + per-instance createTxtCache()
       tech-materials.js      technique-marker sprite materials (PM-X/FH-X icon textures)
@@ -99,6 +101,14 @@ src/
                              build + updateStringHighlights()
       lookahead-prepasses.js   next-note/recent-event-by-string lookahead, sorted event-time
                              union, ghost-preview gap prepass, strGlow ramp + accent glow
+      hit-sparks.js            hit-spark (#3) particle system: construction + sparkBurst()/
+                             sparkUpdate()
+      bloom-composer.js        #4 bloom EffectComposer -- lazy async postprocessing import +
+                             per-frame resize check
+      note-camera-targets.js   steady-mode camera-distance/X-target resolver
+                             (applyNoteCamTargets, writes ctx.cam)
+      score-fx.js              Score FX (notedetect game-scoring layer) -- "+N" pops, milestone
+                             bursts, multiplier ring-pulses; drawNotedetectLabels too
     geometry/                 initScene() feature clusters -- construction-time only,
                               verified via whole-file bare-reassignment grep, no `ctx` needed
       note-gem-visuals.js      note/gem geometry + every gem/outline/sustain material
@@ -118,7 +128,7 @@ src/
       listeners.js              createNotedetectListeners -- hit/miss + Score FX event binding
 ```
 
-`src/main.js` is down to ~4,930 lines (from an original 12,388 -- 60% reduction): a boot preamble (imports, `initFretSpacing()`, `installGlobals()`, the `h3dBcApplySettings` / `h3dSetFretSpacing` window hooks) followed by `createFactory()` — the per-instance renderer, still mid-decomposition and carrying a documented `max-lines` exemption until it drops under 1,500 lines. Its internals are laid out as:
+`src/main.js` is down to ~4,476 lines (from an original 12,388 -- 64% reduction): a boot preamble (imports, `initFretSpacing()`, `installGlobals()`, the `h3dBcApplySettings` / `h3dSetFretSpacing` window hooks) followed by `createFactory()` — the per-instance renderer, still mid-decomposition and carrying a documented `max-lines` exemption until it drops under 1,500 lines. Its internals are laid out as:
 
 - Per-instance state (Three.js refs, pools, camera state, lifecycle flags)
 - `initScene()` — one-time WebGL setup: scene, camera, lights, materials, pools, the ~15
