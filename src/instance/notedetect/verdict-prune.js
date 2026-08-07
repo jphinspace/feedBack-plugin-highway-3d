@@ -1,23 +1,31 @@
-// Per-frame chord-verdict Map pruning -- moved verbatim out of update()
-// (Stage 7, post-3e). Not a chart-static memoization pass like
-// arp-and-slide-prepasses.js's caches (this runs every frame
-// unconditionally when a verdict provider is attached, not "only when an
-// input ref changed") -- a distinct concern, so it gets its own file
-// under notedetect/ alongside listeners.js rather than folding into that
-// file.
+// Per-frame notedetect state housekeeping -- moved verbatim out of
+// update() (Stage 7, post-3e). Two prune passes, both "trim/reset
+// per-frame notedetect bookkeeping," neither a chart-static memoization
+// pass like arp-and-slide-prepasses.js's caches (both run every frame
+// unconditionally, not "only when an input ref changed") -- a distinct
+// concern, so they get their own file under notedetect/ alongside
+// listeners.js rather than folding into that file.
 //
-// _chordVerdicts/_susVerdictLatch are passed in as plain deps, not live
-// getters: both are only ever reassigned/reset from main.js's teardown()
-// (a full reset that always precedes the next initScene() call, which is
-// where this factory itself gets (re)constructed), never mid-lifetime
-// while this module is live -- same reasoning as arp-and-slide-
-// prepasses.js's `_scrArpPersistKeys` plain-value dep.
+// _chordVerdicts/_susVerdictLatch/noteDetectHitMarks/noteDetectMissMarks
+// are passed in as plain deps, not live getters: all four are only ever
+// reassigned/reset from main.js's teardown() (a full reset that always
+// precedes the next initScene() call, which is where this factory itself
+// gets (re)constructed), never mid-lifetime while this module is live --
+// same reasoning as arp-and-slide-prepasses.js's `_scrArpPersistKeys`
+// plain-value dep.
 //
 // _chordVerdictsLastNow (the previous-frame `now`, used to detect a
-// backward seek) is read nowhere outside this block -- moved to be
-// private state of this factory (own-it-outright) rather than threaded
-// back out for main.js to hold.
-export function createVerdictPrune({ scoreFx, _chordVerdicts, _susVerdictLatch, _CV_KEY_TIME_MUL, _CV_KEY_TIME_SLOT }) {
+// backward seek) is read nowhere outside pruneChordVerdicts -- moved to
+// be private state of this factory (own-it-outright) rather than
+// threaded back out for main.js to hold. noteDetectFrameNowMs (the
+// per-frame performance.now() snapshot) IS read elsewhere (main.js's
+// `_noteFrame` population, scoreFx's own live getter) -- pruneNotedetectMarks
+// returns it for main.js to reassign onto its own bare `let`, same
+// pattern as fretWireHitFlash.applyFretWireHitFlash()'s return value.
+export function createVerdictPrune({
+    scoreFx, _chordVerdicts, _susVerdictLatch, _CV_KEY_TIME_MUL, _CV_KEY_TIME_SLOT,
+    noteDetectHitMarks, noteDetectMissMarks,
+}) {
     let _chordVerdictsLastNow = null;
 
     // Prune _chordVerdicts latches whose chord has fully scrolled past the
@@ -68,5 +76,28 @@ export function createVerdictPrune({ scoreFx, _chordVerdicts, _susVerdictLatch, 
         _chordVerdictsLastNow = now;
     }
 
-    return { pruneChordVerdicts };
+    // Prune expired notedetect hit/miss marks once per frame instead of
+    // once per drawNote call (issue #9 perf nit) -- drawNote then only
+    // does the bounded (s, f, t) match, no per-note performance.now() /
+    // filter() needed. No arr[0] gate: the dedupe path can refresh any
+    // entry's expiresAt, so gating on arr[0] would silently skip expired
+    // entries behind it. In-place prune (backwards splice loop) avoids
+    // reallocating the array objects noteRenderer/notedetect listeners
+    // hold the same reference to.
+    function pruneNotedetectMarks() {
+        const nowMs = performance.now();
+        if (noteDetectHitMarks.length) {
+            for (let i = noteDetectHitMarks.length - 1; i >= 0; i--) {
+                if (noteDetectHitMarks[i].expiresAt <= nowMs) noteDetectHitMarks.splice(i, 1);
+            }
+        }
+        if (noteDetectMissMarks.length) {
+            for (let i = noteDetectMissMarks.length - 1; i >= 0; i--) {
+                if (noteDetectMissMarks[i].expiresAt <= nowMs) noteDetectMissMarks.splice(i, 1);
+            }
+        }
+        return nowMs;
+    }
+
+    return { pruneChordVerdicts, pruneNotedetectMarks };
 }

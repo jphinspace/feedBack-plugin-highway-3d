@@ -1353,6 +1353,7 @@ function createFactory() {
         // instance/notedetect/verdict-prune.js.
         verdictPrune = createVerdictPrune({
             scoreFx, _chordVerdicts, _susVerdictLatch, _CV_KEY_TIME_MUL, _CV_KEY_TIME_SLOT,
+            noteDetectHitMarks, noteDetectMissMarks,
         });
 
         bloomComposer = createBloomComposer({
@@ -2231,26 +2232,9 @@ function createFactory() {
         // Clear per-frame queues in-place (avoid reallocating the array object).
         noteDetectLabels.length = 0;
 
-        // Prune expired notedetect marks once per frame instead of
-        // once per drawNote call (issue #9 perf nit). drawNote then
-        // only does the bounded (s, f, t) match — no per-note
-        // performance.now() / filter() needed. No arr[0] gate: the
-        // dedupe path can refresh any entry's expiresAt, so gating on
-        // arr[0] would silently skip expired entries behind it.
-        noteDetectFrameNowMs = performance.now();
-        // In-place prune — avoids allocating a new array every frame.
-        // Marks are tiny (0–5 entries typically), so a backwards splice
-        // loop is cheap and keeps the existing array object alive.
-        if (noteDetectHitMarks.length) {
-            for (let _pi = noteDetectHitMarks.length - 1; _pi >= 0; _pi--) {
-                if (noteDetectHitMarks[_pi].expiresAt <= noteDetectFrameNowMs) noteDetectHitMarks.splice(_pi, 1);
-            }
-        }
-        if (noteDetectMissMarks.length) {
-            for (let _pi = noteDetectMissMarks.length - 1; _pi >= 0; _pi--) {
-                if (noteDetectMissMarks[_pi].expiresAt <= noteDetectFrameNowMs) noteDetectMissMarks.splice(_pi, 1);
-            }
-        }
+        // Prune expired notedetect hit/miss marks -- see
+        // instance/notedetect/verdict-prune.js's pruneNotedetectMarks().
+        noteDetectFrameNowMs = verdictPrune.pruneNotedetectMarks();
         // feedBack#254 — capture core's per-note judgment provider for
         // this frame's drawNote() calls (held-sustain glow + lit gems).
         // bundle.getNoteState is ALWAYS present (the core stub returns
