@@ -24,6 +24,11 @@ import { hwyFirstRelevantFrettedTime } from '../../src/core/chart-util.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 const src = fs.readFileSync(SCREEN_JS, 'utf8');
+// Camera target resolution moved to instance/render/camera-target.js in
+// Stage 7 Track C; camUpdate and the camera-bootstrap call site stayed in
+// main.js.
+const CAMERA_TARGET_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'camera-target.js');
+const cameraTargetSrc = fs.readFileSync(CAMERA_TARGET_JS, 'utf8');
 
 function extractFn(source, name) {
     const start = source.indexOf('function ' + name);
@@ -37,12 +42,12 @@ function extractFn(source, name) {
     throw new Error(`unbalanced braces extracting ${name}`);
 }
 
-function sourceBetween(startText, endText) {
-    const start = src.indexOf(startText);
+function sourceBetween(startText, endText, text = src) {
+    const start = text.indexOf(startText);
     assert.ok(start >= 0, `missing source anchor: ${startText}`);
-    const end = src.indexOf(endText, start);
+    const end = text.indexOf(endText, start);
     assert.ok(end > start, `missing source end anchor: ${endText}`);
-    return src.slice(start, end);
+    return text.slice(start, end);
 }
 
 test('long intros bootstrap from the earliest future fretted note', () => {
@@ -168,10 +173,9 @@ test('steady and lookahead modes initialize immediately from future chart data',
 });
 
 test('silent-intro hold hands off only when live framing is ready', () => {
-    const target = sourceBetween(
-        '// ── Camera target',
-        '// ── Chord diagram:',
-    );
+    // The whole file IS the camera-target section now (Stage 7 Track C) --
+    // no need to slice between banner markers.
+    const target = cameraTargetSrc;
     assert.match(
         target,
         /cameraMode\s*===\s*'lookahead'\s*\?\s*lookaheadBoundsNow\s*!==\s*null\s*:\s*camDistGot/,
