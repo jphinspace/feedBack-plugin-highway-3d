@@ -89,6 +89,7 @@ import { createCtx } from './instance/ctx.js';
 import { pool } from './core/pool.js';
 import { createSustainRailVisuals } from './instance/geometry/sustain-rail.js';
 import { createLaneDividers, createFretColumnMarkerPool } from './instance/geometry/lane-and-labels.js';
+import { createTapChevronAndLabelPools } from './instance/geometry/tap-chevron-and-label-pools.js';
 import { createBeatAndSectionLabels } from './instance/render/beat-and-section-labels.js';
 import { finalizeInstancedMeshBatches } from './instance/render/finalize-instanced-meshes.js';
 import { createChordRenderer } from './instance/render/chords.js';
@@ -1904,26 +1905,11 @@ function createFactory() {
             m.renderOrder = -3;
             return m;
         });
-        // One shared material per technique-mesh type. The pool factory
-        // hands out fresh meshes that all reference the same material,
-        // so a dense HO/PO passage doesn't churn N MeshLambertMaterial
-        // allocations and N GPU material switches.
-        // Transparent + no depth write/test so the tap chevron draws in
-        // the transparent pass where drawNote assigns renderOrder 1000.
-        mTapChevron = new T.MeshLambertMaterial({
-            color: 0xd4d4d4,
-            emissive: 0xd4d4d4,
-            emissiveIntensity: 0.9,
-            transparent: true,
-            opacity: 0.85,
-            side: T.DoubleSide, forceSinglePass: true,
-            depthWrite: false,
-            depthTest: false,
-        });
-        pTapChevron = pool(noteG, () => new T.Mesh(gTapChevron, mTapChevron));
-        pLbl  = pool(lblG,  () => new T.Sprite(textSprites.txtMat('0', '#fff', false, 'technique')));
-        pBeat = pool(beatG, () => new T.Line(gBeat, mBeatQ));
-        pSec  = pool(lblG,  () => new T.Sprite(textSprites.txtMat('', '#0dd', true, 'section')));
+        // Tap-chevron material + label/beat/section pools -- see
+        // instance/geometry/tap-chevron-and-label-pools.js.
+        ({ mTapChevron, pTapChevron, pLbl, pBeat, pSec } = createTapChevronAndLabelPools({
+            noteG, lblG, beatG, textSprites, gTapChevron, gBeat, mBeatQ,
+        }));
 
         // Sustain rail (core + bloom) + technique-marker plane pool -- see
         // instance/geometry/sustain-rail.js.
