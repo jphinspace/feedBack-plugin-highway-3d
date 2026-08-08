@@ -1,14 +1,14 @@
 {
-    "id": "highway_3d",
-    "name": "3D Highway",
+    "id": "highway_3d_dev",
+    "name": "3D Highway (dev)",
     "version": "3.35.0",
     "type": "visualization",
-    "bundled": true,
+    "bundled": false,
     "script": "screen.js",
     "scriptType": "module",
     "minHost": "0.3.0",
     "styles": "assets/plugin.css",
-    "settings": { "html": "settings.html", "category": "graphics", "server_files": ["plugin_uploads/highway_3d/current.mp4", "plugin_uploads/highway_3d/current.webm"] },
+    "settings": { "html": "settings.html", "category": "graphics", "server_files": ["plugin_uploads/highway_3d_dev/current.mp4", "plugin_uploads/highway_3d_dev/current.webm"] },
     "routes": "routes.py",
     "tour": "tour.json"
 }

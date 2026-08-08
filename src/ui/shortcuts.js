@@ -8,19 +8,19 @@ import { _toggleAspectPanel } from './aspect-panel.js';
  */
 let _tunerShortcutRegistered = false;
 export function _registerTunerShortcut() {
-    if (_tunerShortcutRegistered) return;
-    if (typeof window.registerShortcut !== 'function') return;
-    _tunerShortcutRegistered = true;
-    try {
-        window.registerShortcut({
-            key: 'A',
-            description: '3D Highway: open/close wide-pane framing tuner (Shift+A)',
-            scope: 'player',
-            handler: () => {
-                _toggleAspectPanel();
-            },
-        });
-    } catch (e) {
-        _tunerShortcutRegistered = false;
-    }
+  if (_tunerShortcutRegistered) return;
+  if (typeof window.registerShortcut !== 'function') return;
+  _tunerShortcutRegistered = true;
+  try {
+    window.registerShortcut({
+      key: 'A',
+      description: '3D Highway: open/close wide-pane framing tuner (Shift+A)',
+      scope: 'player',
+      handler: () => {
+        _toggleAspectPanel();
+      },
+    });
+  } catch (e) {
+    _tunerShortcutRegistered = false;
+  }
 }

@@ -12,4 +12,6 @@ import { video } from './video.js';
  * state object, read by `update()`/`teardown()`. `T` (THREE) is available
  * by the time these run — `initScene()` runs inside `loadThree().then()`.
  */
-export const BACKGROUND_STYLES = { off, particles, silhouettes, lights, geometric, venue, image, video };
+export const BACKGROUND_STYLES = {
+  off, particles, silhouettes, lights, geometric, venue, image, video,
+};

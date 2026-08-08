@@ -1,5 +1,5 @@
 export const off = {
-    build() { return null; },
-    update() {},
-    teardown() {},
+  build() { return null; },
+  update() {},
+  teardown() {},
 };

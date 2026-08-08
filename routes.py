@@ -4,7 +4,7 @@ Registered by feedBack core via plugin.json's "routes" field — the
 loader at plugins/__init__.py:589–604 imports this module and calls
 setup(app, context). context["config_dir"] points at the feedBack
 data directory; we namespace user uploads under
-{config_dir}/plugin_uploads/highway_3d/.
+{config_dir}/plugin_uploads/highway_3d_dev/.
 
 This module owns the upload/serve/delete endpoints for the `video` bg
 style (issue #19 follow-up). Single deterministic slot — each upload
@@ -23,7 +23,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.datastructures import UploadFile
 
-PLUGIN_ID = "highway_3d"
+PLUGIN_ID = "highway_3d_dev"
 ALLOWED_VIDEO_EXTS = {"mp4", "webm"}
 ALLOWED_VIDEO_MIMES = {"video/mp4", "video/webm"}
 MAX_VIDEO_BYTES = 50 * 1024 * 1024  # 50 MB raw

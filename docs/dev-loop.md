@@ -9,6 +9,12 @@ here are visible on refresh without any build step.
 Core checkout used for this: `/Users/joe/Documents/git/feedBack` (adjust the
 paths below for a different location).
 
+This fork ships under a distinct plugin id (`highway_3d_dev`, display name
+"3D Highway (dev)") specifically so it can be symlinked in **alongside** the
+real bundled `highway_3d` plugin rather than replacing it — no move-aside/
+restore dance, and both show up as separate entries in the visualizer
+picker/plugin manager so you can A/B them directly.
+
 ## One-time setup
 
 Core bind-mounts `./plugins` into its Docker container, so a host symlink
@@ -18,18 +24,16 @@ server for this loop.
 ```bash
 cd /Users/joe/Documents/git/feedBack
 
-# 1. Move the real bundled copy aside and symlink the fork in its place.
+# 1. Symlink the fork in under its own id, next to the real bundled copy.
 #    safe_join() (lib/safepath.py) resolves the plugin root itself, so a
 #    symlinked plugin directory is contained correctly by the asset/src
 #    routes -- no server-side special-casing needed.
-mv plugins/highway_3d plugins/.highway_3d.orig
-ln -s /Users/joe/Documents/git/feedBack-plugin-highway-3d plugins/highway_3d
+ln -s /Users/joe/Documents/git/feedBack-plugin-highway-3d plugins/highway_3d_dev
 
-# 2. Never let core's git see this swap. Already added to
+# 2. Never let core's git see this symlink. Already added to
 #    .git/info/exclude (local-only, not committed) -- if it's missing:
 cat >> .git/info/exclude <<'EOF'
-plugins/highway_3d
-plugins/.highway_3d.orig
+plugins/highway_3d_dev
 EOF
 
 # 3. Python deps, isolated venv (core has no venv of its own committed).
@@ -41,12 +45,10 @@ npm install
 npx playwright install chromium
 ```
 
-To restore the original bundled copy (e.g. before switching to a real
-Docker/CI run):
+To remove the dev copy:
 
 ```bash
-rm plugins/highway_3d
-mv plugins/.highway_3d.orig plugins/highway_3d
+rm plugins/highway_3d_dev
 ```
 
 ## Running the server
@@ -57,16 +59,17 @@ PYTHONPATH="$(pwd)/lib:$(pwd)" PORT=8000 HOST=127.0.0.1 \
     .venv-highway3d-devloop/bin/python3 main.py
 ```
 
-Startup log should show:
+Startup log should show both plugins loaded, e.g.:
 ```
 Loaded routes for plugin 'highway_3d'
 Registered plugin 'highway_3d' (3D Highway)
+Loaded routes for plugin 'highway_3d_dev'
+Registered plugin 'highway_3d_dev' (3D Highway (dev))
 ```
-possibly preceded by a `User-installed copy of bundled plugin 'highway_3d' at
-.../plugins/.highway_3d.orig ignored; using bundled version at
-.../plugins/highway_3d.` warning — that's the expected precedence message
-(the symlink location + `bundled: true` in plugin.json wins over the
-renamed-aside original, which is treated as a shadowing user copy).
+No precedence/shadowing warning should appear — the two ids never collide,
+so both load independently. Select "3D Highway (dev)" in the visualizer
+picker (or `localStorage.setItem('vizSelection', 'highway_3d_dev')`) to
+exercise this fork specifically.
 
 `routes.py` gets imported as a Python module, so it drops a `__pycache__/`
 into this repo -- gitignored, harmless.
@@ -74,23 +77,23 @@ into this repo -- gitignored, harmless.
 ## Verifying the module graph is actually being served
 
 ```bash
-curl -s http://127.0.0.1:8000/api/plugins | python3 -m json.tool | grep -A3 '"id": "highway_3d"'
+curl -s http://127.0.0.1:8000/api/plugins | python3 -m json.tool | grep -A3 '"id": "highway_3d_dev"'
 # -> "script_type": "module", "min_host": "0.3.0", version matches plugin.json
 
-curl -s http://127.0.0.1:8000/api/plugins/highway_3d/screen.js
+curl -s http://127.0.0.1:8000/api/plugins/highway_3d_dev/screen.js
 # -> import './src/main.js';
 
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/api/plugins/highway_3d/src/main.js
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/api/plugins/highway_3d_dev/src/main.js
 # -> 200
 ```
 
 Live-edit loop (no hot reload -- edit, then refresh the browser tab):
 ```bash
-ETAG=$(curl -s -D - http://127.0.0.1:8000/api/plugins/highway_3d/src/main.js -o /dev/null \
+ETAG=$(curl -s -D - http://127.0.0.1:8000/api/plugins/highway_3d_dev/src/main.js -o /dev/null \
     | grep -i etag | tr -d '\r' | awk '{print $2}')
 echo '// touch' >> src/main.js
 curl -s -o /dev/null -w '%{http_code}\n' -H "If-None-Match: $ETAG" \
-    http://127.0.0.1:8000/api/plugins/highway_3d/src/main.js
+    http://127.0.0.1:8000/api/plugins/highway_3d_dev/src/main.js
 # -> 200 (was 304 before the edit) -- confirms the ETag is mtime/size-derived
 git checkout -- src/main.js   # undo the touch
 ```
@@ -101,7 +104,10 @@ Core's `tests/browser/highway-3d-lefty.spec.ts` boots the real renderer
 end-to-end (mocked song stream, no real audio/library needed) and is the
 best single automated check that a change here didn't break the boot path.
 `check-errors.spec.ts` and `plugin-globals-contract.spec.ts` are fast and
-catch console-error / global-surface regressions.
+catch console-error / global-surface regressions. These specs target the
+bundled `highway_3d` id by default — point `vizSelection` at
+`highway_3d_dev` (or temporarily edit the spec's init script) to run them
+against this fork's symlinked copy instead.
 
 ```bash
 cd /Users/joe/Documents/git/feedBack
@@ -116,10 +122,9 @@ listening on :8000, Playwright reuses it instead of touching Docker.
 its final "zero console errors" assertion in this local (non-Docker) setup
 with `audio.play() rejected: NotSupportedError: The element has no supported
 sources.` -- confirmed by running the identical spec against the pristine,
-un-split original plugin (swap the symlink back per "restore" above): same
-failure, same message. Headless Chromium here has no audio codec support for
-the mock song stream's synthetic source; every assertion *before* that line
-(module boots, becomes the active renderer, `bundle.lefty` reaches
+un-split original plugin. Headless Chromium here has no audio codec support
+for the mock song stream's synthetic source; every assertion *before* that
+line (module boots, becomes the active renderer, `bundle.lefty` reaches
 `highway.getLefty()` and the Settings checkbox) passes. Not a regression to
 chase during the split -- it fails identically before and after every stage.
 

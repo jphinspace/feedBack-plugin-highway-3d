@@ -53,11 +53,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-    RENDER_ORDER_LAYER_STACK,
-    RENDER_ORDER_LAYER_INDEX,
-    RENDER_ORDER_AT_Z_ZERO,
-    RENDER_ORDER_FAR_CLAMP,
-    renderOrderForLayerAtZ,
+  RENDER_ORDER_LAYER_STACK,
+  RENDER_ORDER_LAYER_INDEX,
+  RENDER_ORDER_AT_Z_ZERO,
+  RENDER_ORDER_FAR_CLAMP,
+  renderOrderForLayerAtZ,
 } from '../src/core/render-order.js';
 import { K, FRET_WIRE_IDLE_HEX, FRET_WIRE_ACTIVE_HEX } from '../src/core/constants.js';
 
@@ -66,13 +66,13 @@ const INSTANCE_DIR = path.join(fileURLToPath(new URL('.', import.meta.url)), '..
 
 /** Recursively collects every .js file under `dir`. */
 function collectJsFiles(dir) {
-    const out = [];
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) out.push(...collectJsFiles(full));
-        else if (entry.name.endsWith('.js')) out.push(full);
-    }
-    return out;
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...collectJsFiles(full));
+    else if (entry.name.endsWith('.js')) out.push(full);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,18 +88,18 @@ let _src;
  * which file its target currently lives in.
  */
 function src() {
-    if (!_src) {
-        const files = [MAIN_JS, ...collectJsFiles(INSTANCE_DIR)];
-        _src = files.map(f => fs.readFileSync(f, 'utf8')).join('\n');
-    }
-    return _src;
+  if (!_src) {
+    const files = [MAIN_JS, ...collectJsFiles(INSTANCE_DIR)];
+    _src = files.map((f) => fs.readFileSync(f, 'utf8')).join('\n');
+  }
+  return _src;
 }
 
 /** Returns the position of a named layer in the render-order stack. */
 function layerIndex(name) {
-    const idx = RENDER_ORDER_LAYER_INDEX[name];
-    assert.ok(idx !== undefined, `${name} must be present in RENDER_ORDER_LAYER_STACK`);
-    return idx;
+  const idx = RENDER_ORDER_LAYER_INDEX[name];
+  assert.ok(idx !== undefined, `${name} must be present in RENDER_ORDER_LAYER_STACK`);
+  return idx;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,39 +107,39 @@ function layerIndex(name) {
 // ---------------------------------------------------------------------------
 
 test('renderOrderForLayerAtZ computes depth bucket + layer fraction', () => {
-    // At z=0, depth bucket is RENDER_ORDER_AT_Z_ZERO exactly (no /K remainder).
-    const order = renderOrderForLayerAtZ(0, 'CHORD_FILL');
-    assert.strictEqual(RENDER_ORDER_LAYER_INDEX.CHORD_FILL, 0);
-    assert.strictEqual(order, RENDER_ORDER_AT_Z_ZERO + 0 / RENDER_ORDER_LAYER_STACK.length);
+  // At z=0, depth bucket is RENDER_ORDER_AT_Z_ZERO exactly (no /K remainder).
+  const order = renderOrderForLayerAtZ(0, 'CHORD_FILL');
+  assert.strictEqual(RENDER_ORDER_LAYER_INDEX.CHORD_FILL, 0);
+  assert.strictEqual(order, RENDER_ORDER_AT_Z_ZERO + 0 / RENDER_ORDER_LAYER_STACK.length);
 });
 
 test('renderOrderForLayerAtZ: the layer fraction is a strict tie-breaker, never a depth-bucket override', () => {
-    // A farther object (larger negative worldZ -> smaller depth bucket) must
-    // never outrank a nearer one merely by sitting on a later layer -- the
-    // integer depth bucket has to dominate the sub-unit layer fraction.
-    const nearLowLayer = renderOrderForLayerAtZ(0, 'CHORD_FILL');
-    const farHighLayer = renderOrderForLayerAtZ(-50 * K, 'CHORD_FRET_LABEL');
-    assert.ok(nearLowLayer > farHighLayer, 'a near object on the lowest layer must still outrank a far object on the highest layer');
+  // A farther object (larger negative worldZ -> smaller depth bucket) must
+  // never outrank a nearer one merely by sitting on a later layer -- the
+  // integer depth bucket has to dominate the sub-unit layer fraction.
+  const nearLowLayer = renderOrderForLayerAtZ(0, 'CHORD_FILL');
+  const farHighLayer = renderOrderForLayerAtZ(-50 * K, 'CHORD_FRET_LABEL');
+  assert.ok(nearLowLayer > farHighLayer, 'a near object on the lowest layer must still outrank a far object on the highest layer');
 });
 
 test('renderOrderForLayerAtZ clamps to RENDER_ORDER_FAR_CLAMP at extreme depth', () => {
-    const order = renderOrderForLayerAtZ(-1e9, 'CHORD_FILL');
-    assert.strictEqual(Math.floor(order), RENDER_ORDER_FAR_CLAMP);
+  const order = renderOrderForLayerAtZ(-1e9, 'CHORD_FILL');
+  assert.strictEqual(Math.floor(order), RENDER_ORDER_FAR_CLAMP);
 });
 
 test('renderOrderForLayerAtZ throws on an unknown layer name', () => {
-    assert.throws(() => renderOrderForLayerAtZ(0, 'NOT_A_REAL_LAYER'), /Unknown 3D highway depth layer/);
+  assert.throws(() => renderOrderForLayerAtZ(0, 'NOT_A_REAL_LAYER'), /Unknown 3D highway depth layer/);
 });
 
 test('chordFrameRenderOrder call site still uses renderOrderForLayerAtZ(z, CHORD_FRAME)', () => {
-    // The call site (inside the chord render loop) hasn't moved out of
-    // src/main.js yet -- still a text check.
-    assert.match(
-        src(),
-        /const\s+chordFrameRenderOrder\s*=\s*renderOrderForLayerAtZ\(\s*z\s*,\s*'CHORD_FRAME'\s*\)\s*;/,
-        'chordFrameRenderOrder must use renderOrderForLayerAtZ(z, CHORD_FRAME)',
-    );
-    assert.ok(layerIndex('CHORD_FRAME') < layerIndex('NOTE_OUTLINE'));
+  // The call site (inside the chord render loop) hasn't moved out of
+  // src/main.js yet -- still a text check.
+  assert.match(
+    src(),
+    /const\s+chordFrameRenderOrder\s*=\s*renderOrderForLayerAtZ\(\s*z\s*,\s*'CHORD_FRAME'\s*\)\s*;/,
+    'chordFrameRenderOrder must use renderOrderForLayerAtZ(z, CHORD_FRAME)',
+  );
+  assert.ok(layerIndex('CHORD_FRAME') < layerIndex('NOTE_OUTLINE'));
 });
 
 // ---------------------------------------------------------------------------
@@ -147,200 +147,200 @@ test('chordFrameRenderOrder call site still uses renderOrderForLayerAtZ(z, CHORD
 // ---------------------------------------------------------------------------
 
 test('lane quads use renderOrder 1', () => {
-    assert.match(
-        src(),
-        /lane\.renderOrder\s*=\s*1\s*;/,
-        'lane quads must use renderOrder = 1 (bottom-most visible layer)',
-    );
+  assert.match(
+    src(),
+    /lane\.renderOrder\s*=\s*1\s*;/,
+    'lane quads must use renderOrder = 1 (bottom-most visible layer)',
+  );
 });
 
 test('fret dividers use renderOrder 2', () => {
-    assert.match(
-        src(),
-        /div\.renderOrder\s*=\s*2\s*;/,
-        'fret dividers must use renderOrder = 2, above lane (1)',
-    );
+  assert.match(
+    src(),
+    /div\.renderOrder\s*=\s*2\s*;/,
+    'fret dividers must use renderOrder = 2, above lane (1)',
+  );
 });
 
 test('fret inlay dots use renderOrder 3, above lane (1) and dividers (2)', () => {
-    // The translucent lane would otherwise paint over and hide the inlay.
-    // The dots must draw after the lane/dividers but stay below the depth-layer stack.
-    assert.match(
-        src(),
-        /d\.renderOrder\s*=\s*3\s*;/,
-        'fret inlay dots must use renderOrder = 3 so the lane no longer hides them',
-    );
+  // The translucent lane would otherwise paint over and hide the inlay.
+  // The dots must draw after the lane/dividers but stay below the depth-layer stack.
+  assert.match(
+    src(),
+    /d\.renderOrder\s*=\s*3\s*;/,
+    'fret inlay dots must use renderOrder = 3 so the lane no longer hides them',
+  );
 });
 
 test('string-line glows use renderOrder 7, above sus-rails (4/5)', () => {
-    // The in-lane string glow lines sit at 7 — above sus-rail bloom (4) and
-    // core (5) so the glow is visible, but below chord fill (chordFrameRenderOrder-4,
-    // min=44) so chord interiors don't disappear behind glow overdraw.
-    assert.match(
-        src(),
-        /line\.renderOrder\s*=\s*7\s*;/,
-        'string glow lines must use renderOrder = 7',
-    );
+  // The in-lane string glow lines sit at 7 — above sus-rail bloom (4) and
+  // core (5) so the glow is visible, but below chord fill (chordFrameRenderOrder-4,
+  // min=44) so chord interiors don't disappear behind glow overdraw.
+  assert.match(
+    src(),
+    /line\.renderOrder\s*=\s*7\s*;/,
+    'string glow lines must use renderOrder = 7',
+  );
 });
 
 test('board-projection frame mesh uses renderOrder 14', () => {
-    // The fretboard projection plane sits above string glows (7) but below
-    // chord fill (min 44). Value 14 keeps it sandwiched cleanly.
-    // Anchor to the board-projection pool (projMeshArr = activePalette.map(...))
-    // so the assertion only passes when THAT block seeds renderOrder = 14 —
-    // not any unrelated renderOrder = 14 elsewhere in the source.
-    const boardProjRO = /projMeshArr\s*=\s*activePalette\.map\b[\s\S]{0,1200}?m\.renderOrder\s*=\s*14\s*;/;
-    assert.match(
-        src(),
-        boardProjRO,
-        'board-projection pool (projMeshArr) must seed meshes with renderOrder = 14',
-    );
-    const boardMatch = src().match(boardProjRO);
-    assert.ok(boardMatch, 'board projection mesh must be assigned renderOrder = 14');
+  // The fretboard projection plane sits above string glows (7) but below
+  // chord fill (min 44). Value 14 keeps it sandwiched cleanly.
+  // Anchor to the board-projection pool (projMeshArr = activePalette.map(...))
+  // so the assertion only passes when THAT block seeds renderOrder = 14 —
+  // not any unrelated renderOrder = 14 elsewhere in the source.
+  const boardProjRO = /projMeshArr\s*=\s*activePalette\.map\b[\s\S]{0,1200}?m\.renderOrder\s*=\s*14\s*;/;
+  assert.match(
+    src(),
+    boardProjRO,
+    'board-projection pool (projMeshArr) must seed meshes with renderOrder = 14',
+  );
+  const boardMatch = src().match(boardProjRO);
+  assert.ok(boardMatch, 'board projection mesh must be assigned renderOrder = 14');
 });
 
 test('string mesh in buildBoard uses the named board-string layer', () => {
-    // The physical string cylinders/planes rendered on the fretboard sit above
-    // the note-gem layers but below fret wires.
-    assert.match(
-        src(),
-        /mesh\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*0\s*,\s*'BOARD_STRING'\s*\)\s*;/,
-        'buildBoard string mesh must use BOARD_STRING',
-    );
-    assert.ok(layerIndex('BOARD_STRING') > layerIndex('TECHNIQUE_MARKER'));
-    assert.ok(layerIndex('BOARD_STRING') < layerIndex('BOARD_FRET_WIRE'));
+  // The physical string cylinders/planes rendered on the fretboard sit above
+  // the note-gem layers but below fret wires.
+  assert.match(
+    src(),
+    /mesh\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*0\s*,\s*'BOARD_STRING'\s*\)\s*;/,
+    'buildBoard string mesh must use BOARD_STRING',
+  );
+  assert.ok(layerIndex('BOARD_STRING') > layerIndex('TECHNIQUE_MARKER'));
+  assert.ok(layerIndex('BOARD_STRING') < layerIndex('BOARD_FRET_WIRE'));
 });
 
 test('static fret wires use bowed TubeGeometry + MeshStandardMaterial, named board-fret-wire layer, depthTest+depthWrite false, idle tier FRET_WIRE_IDLE_HEX', () => {
-    // Fret wires are a single shared, bowed TubeGeometry (backported from
-    // highway_babylon): a CatmullRom curve whose middle pushes away from the
-    // camera by FRET_BOW_DZ so the row of frets reads as wrapping a cylindrical
-    // neck. T.Line is avoided — WebGL ignores linewidth > 1px so a Line always
-    // renders as a hairline. The lit MeshStandardMaterial lets scene light glint
-    // across the rounded surface (gold in-anchor → brass). depthTest:false is
-    // required: the string BoxGeometry (MeshStandardMaterial, depthWrite:true)
-    // writes depth at Z = +STR_THICK/2, so fret wires near Z=0 would fail the
-    // depth test at string pixels despite the higher layer; depthWrite:false
-    // keeps the transparent fret from polluting depth for later overlays.
-    const s = src();
-    assert.match(
-        s,
-        /new\s+T\.TubeGeometry\(\s*tubeCurve\s*,\s*FRET_TUBE_SEG\s*,\s*FRET_TUBE_RADIUS\s*,\s*FRET_TUBE_RADIAL\s*,\s*false\s*,?\s*\)/,
-        'buildBoard fret wires must use a TubeGeometry built from tubeCurve + FRET_TUBE_* params',
-    );
-    assert.match(
-        s,
-        /new\s+T\.CatmullRomCurve3\(\s*tubePath\s*\)/,
-        'buildBoard fret tube must follow a CatmullRomCurve3 through the bowed path',
-    );
-    assert.match(
-        s,
-        /FRET_BOW_DZ\s*\*\s*zm/,
-        'fret tube path must bow in Z by FRET_BOW_DZ so the neck reads as curved',
-    );
-    assert.match(
-        s,
-        /new\s+T\.Mesh\(\s*ctx\.board\.fretTubeGeo\s*,\s*mat\s*\)/,
-        'buildBoard fret wires must reuse the shared fretTubeGeo (not T.Line)',
-    );
-    assert.match(
-        s,
-        /fw\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*0\s*,\s*'BOARD_FRET_WIRE'\s*\)\s*;/,
-        'buildBoard fret wire mesh must use BOARD_FRET_WIRE',
-    );
-    assert.match(
-        s,
-        /new\s+T\.MeshStandardMaterial\(/,
-        'fret wires must use MeshStandardMaterial so scene light shades the metal',
-    );
-    // The wire tiers moved to named constants (feedBack#969): idle is the
-    // dimmed 0x4A4A60 so the neck recedes and the anchor lane reads as the
-    // focus cue. Assert the material uses the constant AND pin the constant's
-    // value, so a retune is a deliberate two-line change here.
-    assert.match(
-        s,
-        /color\s*:\s*FRET_WIRE_IDLE_HEX/,
-        'fret wire material must take its default color from FRET_WIRE_IDLE_HEX',
-    );
-    assert.strictEqual(FRET_WIRE_IDLE_HEX, 0x4A4A60, 'FRET_WIRE_IDLE_HEX must stay the dimmed idle gray-violet 0x4A4A60');
-    assert.match(
-        s,
-        /color\s*:\s*FRET_WIRE_IDLE_HEX[\s\S]{0,400}?depthTest\s*:\s*false/,
-        'the fret wire material itself must set depthTest: false',
-    );
-    assert.match(
-        s,
-        /color\s*:\s*FRET_WIRE_IDLE_HEX[\s\S]{0,400}?depthWrite\s*:\s*false/,
-        'the fret wire material itself must set depthWrite: false (no z-buffer pollution)',
-    );
-    assert.match(
-        s,
-        /fretWireMats\s*\[\s*f\s*\]\s*=\s*mat\s*;/,
-        'buildBoard must store each wire material in fretWireMats[f]',
-    );
+  // Fret wires are a single shared, bowed TubeGeometry (backported from
+  // highway_babylon): a CatmullRom curve whose middle pushes away from the
+  // camera by FRET_BOW_DZ so the row of frets reads as wrapping a cylindrical
+  // neck. T.Line is avoided — WebGL ignores linewidth > 1px so a Line always
+  // renders as a hairline. The lit MeshStandardMaterial lets scene light glint
+  // across the rounded surface (gold in-anchor → brass). depthTest:false is
+  // required: the string BoxGeometry (MeshStandardMaterial, depthWrite:true)
+  // writes depth at Z = +STR_THICK/2, so fret wires near Z=0 would fail the
+  // depth test at string pixels despite the higher layer; depthWrite:false
+  // keeps the transparent fret from polluting depth for later overlays.
+  const s = src();
+  assert.match(
+    s,
+    /new\s+T\.TubeGeometry\(\s*tubeCurve\s*,\s*FRET_TUBE_SEG\s*,\s*FRET_TUBE_RADIUS\s*,\s*FRET_TUBE_RADIAL\s*,\s*false\s*,?\s*\)/,
+    'buildBoard fret wires must use a TubeGeometry built from tubeCurve + FRET_TUBE_* params',
+  );
+  assert.match(
+    s,
+    /new\s+T\.CatmullRomCurve3\(\s*tubePath\s*\)/,
+    'buildBoard fret tube must follow a CatmullRomCurve3 through the bowed path',
+  );
+  assert.match(
+    s,
+    /FRET_BOW_DZ\s*\*\s*zm/,
+    'fret tube path must bow in Z by FRET_BOW_DZ so the neck reads as curved',
+  );
+  assert.match(
+    s,
+    /new\s+T\.Mesh\(\s*ctx\.board\.fretTubeGeo\s*,\s*mat\s*\)/,
+    'buildBoard fret wires must reuse the shared fretTubeGeo (not T.Line)',
+  );
+  assert.match(
+    s,
+    /fw\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*0\s*,\s*'BOARD_FRET_WIRE'\s*\)\s*;/,
+    'buildBoard fret wire mesh must use BOARD_FRET_WIRE',
+  );
+  assert.match(
+    s,
+    /new\s+T\.MeshStandardMaterial\(/,
+    'fret wires must use MeshStandardMaterial so scene light shades the metal',
+  );
+  // The wire tiers moved to named constants (feedBack#969): idle is the
+  // dimmed 0x4A4A60 so the neck recedes and the anchor lane reads as the
+  // focus cue. Assert the material uses the constant AND pin the constant's
+  // value, so a retune is a deliberate two-line change here.
+  assert.match(
+    s,
+    /color\s*:\s*FRET_WIRE_IDLE_HEX/,
+    'fret wire material must take its default color from FRET_WIRE_IDLE_HEX',
+  );
+  assert.strictEqual(FRET_WIRE_IDLE_HEX, 0x4A4A60, 'FRET_WIRE_IDLE_HEX must stay the dimmed idle gray-violet 0x4A4A60');
+  assert.match(
+    s,
+    /color\s*:\s*FRET_WIRE_IDLE_HEX[\s\S]{0,400}?depthTest\s*:\s*false/,
+    'the fret wire material itself must set depthTest: false',
+  );
+  assert.match(
+    s,
+    /color\s*:\s*FRET_WIRE_IDLE_HEX[\s\S]{0,400}?depthWrite\s*:\s*false/,
+    'the fret wire material itself must set depthWrite: false (no z-buffer pollution)',
+  );
+  assert.match(
+    s,
+    /fretWireMats\s*\[\s*f\s*\]\s*=\s*mat\s*;/,
+    'buildBoard must store each wire material in fretWireMats[f]',
+  );
 });
 
 test('update() sets fret wire FRET_WIRE_ACTIVE_HEX (gold) for in-anchor frets, FRET_WIRE_IDLE_HEX otherwise', () => {
-    // Uses anchorLaneBoundsAt() — the same helper the dynamic lane uses —
-    // so fret wire highlight aligns exactly with the lane edges:
-    //   dMin = fret - 1,  dMax = fret + width - 1
-    // Example: { fret: 3, width: 4 } → dMin=2, dMax=6 → wires 2..6 gold.
-    const s = src();
-    assert.match(
-        s,
-        /fretWireMats\.length/,
-        'update() must guard the per-frame fret wire loop on fretWireMats.length',
-    );
-    assert.match(
-        s,
-        /anchorLaneBoundsAt\(\s*anchors\s*,\s*now\s*\)/,
-        'update() must use anchorLaneBoundsAt(anchors, now) to get fret wire range',
-    );
-    assert.match(
-        s,
-        /_m\.color\.setHex\(\s*FRET_WIRE_ACTIVE_HEX\s*\)/,
-        'update() must set FRET_WIRE_ACTIVE_HEX for in-anchor fret wires',
-    );
-    assert.strictEqual(FRET_WIRE_ACTIVE_HEX, 0xD8A636, 'FRET_WIRE_ACTIVE_HEX must stay the anchor-lane gold 0xD8A636');
-    assert.match(
-        s,
-        /_m\.color\.setHex\(\s*FRET_WIRE_IDLE_HEX\s*\)/,
-        'update() must set FRET_WIRE_IDLE_HEX for out-of-anchor fret wires',
-    );
-    assert.match(
-        s,
-        /_fwBounds\.dMin/,
-        'update() must use dMin from anchorLaneBoundsAt (= fret - 1)',
-    );
-    assert.match(
-        s,
-        /_fwBounds\.dMax/,
-        'update() must use dMax from anchorLaneBoundsAt (= fret + width - 1)',
-    );
+  // Uses anchorLaneBoundsAt() — the same helper the dynamic lane uses —
+  // so fret wire highlight aligns exactly with the lane edges:
+  //   dMin = fret - 1,  dMax = fret + width - 1
+  // Example: { fret: 3, width: 4 } → dMin=2, dMax=6 → wires 2..6 gold.
+  const s = src();
+  assert.match(
+    s,
+    /fretWireMats\.length/,
+    'update() must guard the per-frame fret wire loop on fretWireMats.length',
+  );
+  assert.match(
+    s,
+    /anchorLaneBoundsAt\(\s*anchors\s*,\s*now\s*\)/,
+    'update() must use anchorLaneBoundsAt(anchors, now) to get fret wire range',
+  );
+  assert.match(
+    s,
+    /_m\.color\.setHex\(\s*FRET_WIRE_ACTIVE_HEX\s*\)/,
+    'update() must set FRET_WIRE_ACTIVE_HEX for in-anchor fret wires',
+  );
+  assert.strictEqual(FRET_WIRE_ACTIVE_HEX, 0xD8A636, 'FRET_WIRE_ACTIVE_HEX must stay the anchor-lane gold 0xD8A636');
+  assert.match(
+    s,
+    /_m\.color\.setHex\(\s*FRET_WIRE_IDLE_HEX\s*\)/,
+    'update() must set FRET_WIRE_IDLE_HEX for out-of-anchor fret wires',
+  );
+  assert.match(
+    s,
+    /_fwBounds\.dMin/,
+    'update() must use dMin from anchorLaneBoundsAt (= fret - 1)',
+  );
+  assert.match(
+    s,
+    /_fwBounds\.dMax/,
+    'update() must use dMax from anchorLaneBoundsAt (= fret + width - 1)',
+  );
 });
 
 test('fret-column markers use Z-proportional renderOrder between chord frame and gem', () => {
-    // pFretColMarker labels use the named stack: one step above chord frame
-    // and one step below note gems at the same depth.
-    // This ensures chord frame borders never overdraw the label and the label
-    // never overdraws gems, at every Z position across the lookahead window.
-    assert.match(
-        src(),
-        /sp\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*z\s*,\s*'FRET_COLUMN'\s*\)\s*;/,
-        'pFretColMarker renderOrder must use renderOrderForLayerAtZ(z, FRET_COLUMN)',
-    );
-    assert.ok(layerIndex('FRET_COLUMN') > layerIndex('CHORD_FRAME'));
-    assert.ok(layerIndex('FRET_COLUMN') < layerIndex('NOTE_OUTLINE'));
+  // pFretColMarker labels use the named stack: one step above chord frame
+  // and one step below note gems at the same depth.
+  // This ensures chord frame borders never overdraw the label and the label
+  // never overdraws gems, at every Z position across the lookahead window.
+  assert.match(
+    src(),
+    /sp\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*z\s*,\s*'FRET_COLUMN'\s*\)\s*;/,
+    'pFretColMarker renderOrder must use renderOrderForLayerAtZ(z, FRET_COLUMN)',
+  );
+  assert.ok(layerIndex('FRET_COLUMN') > layerIndex('CHORD_FRAME'));
+  assert.ok(layerIndex('FRET_COLUMN') < layerIndex('NOTE_OUTLINE'));
 });
 
 test('technique labels and ghost-fret overlay use renderOrder 1000', () => {
-    // 1000 is well above the entire Z-proportional range and the
-    // string/cadence layer — labels must always be readable.
-    const matches = src().match(/m\.renderOrder\s*=\s*1000\s*;/g) || [];
-    assert.ok(
-        matches.length >= 2,
-        'at least two renderOrder = 1000 assignments must exist (technique labels + ghost fret)',
-    );
+  // 1000 is well above the entire Z-proportional range and the
+  // string/cadence layer — labels must always be readable.
+  const matches = src().match(/m\.renderOrder\s*=\s*1000\s*;/g) || [];
+  assert.ok(
+    matches.length >= 2,
+    'at least two renderOrder = 1000 assignments must exist (technique labels + ghost fret)',
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -348,28 +348,28 @@ test('technique labels and ghost-fret overlay use renderOrder 1000', () => {
 // ---------------------------------------------------------------------------
 
 test('note outline call site uses renderOrderForLayerAtZ(noteZ, NOTE_OUTLINE)', () => {
-    // Per-note gem renderOrder. noteZ is negative (ahead of hit line → negative
-    // Z in world space). At noteZ=0 (on the hit line), the note outline uses
-    // the near render-order base plus its layer index; far notes clamp to the
-    // far render-order base plus that same layer index.
-    // The ordered layer list keeps gems above chord frames everywhere.
-    assert.match(
-        src(),
-        /outline\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*noteZ\s*,\s*'NOTE_OUTLINE'\s*\)\s*;/,
-        'note outline must use renderOrderForLayerAtZ(noteZ, NOTE_OUTLINE)',
-    );
-    assert.strictEqual(layerIndex('CHORD_FILL'), 0);
+  // Per-note gem renderOrder. noteZ is negative (ahead of hit line → negative
+  // Z in world space). At noteZ=0 (on the hit line), the note outline uses
+  // the near render-order base plus its layer index; far notes clamp to the
+  // far render-order base plus that same layer index.
+  // The ordered layer list keeps gems above chord frames everywhere.
+  assert.match(
+    src(),
+    /outline\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*noteZ\s*,\s*'NOTE_OUTLINE'\s*\)\s*;/,
+    'note outline must use renderOrderForLayerAtZ(noteZ, NOTE_OUTLINE)',
+  );
+  assert.strictEqual(layerIndex('CHORD_FILL'), 0);
 });
 
 test('techniqueMarkerRenderOrder call site uses the named technique marker layer above gem core', () => {
-    // Technique markers (PM cross, bend arrow, H/P chevron, etc.) must overlay
-    // the gem itself.
-    assert.match(
-        src(),
-        /const\s+techniqueMarkerRenderOrder\s*=\s*renderOrderForLayerAtZ\(\s*noteZ\s*,\s*'TECHNIQUE_MARKER'\s*\)/,
-        'techniqueMarkerRenderOrder must use TECHNIQUE_MARKER',
-    );
-    assert.ok(layerIndex('TECHNIQUE_MARKER') > layerIndex('NOTE_CORE'));
+  // Technique markers (PM cross, bend arrow, H/P chevron, etc.) must overlay
+  // the gem itself.
+  assert.match(
+    src(),
+    /const\s+techniqueMarkerRenderOrder\s*=\s*renderOrderForLayerAtZ\(\s*noteZ\s*,\s*'TECHNIQUE_MARKER'\s*\)/,
+    'techniqueMarkerRenderOrder must use TECHNIQUE_MARKER',
+  );
+  assert.ok(layerIndex('TECHNIQUE_MARKER') > layerIndex('NOTE_CORE'));
 });
 
 // ---------------------------------------------------------------------------
@@ -377,49 +377,49 @@ test('techniqueMarkerRenderOrder call site uses the named technique marker layer
 // ---------------------------------------------------------------------------
 
 test('chord fill interior call site uses the named layer below chord frame', () => {
-    // The translucent chord-box fill sits below the frame edge so the edge
-    // always wins when both cover the same pixel.
-    assert.match(
-        src(),
-        /fill\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*z\s*,\s*'CHORD_FILL'\s*\)\s*;/,
-        'chord fill must use CHORD_FILL',
-    );
-    assert.ok(layerIndex('CHORD_FILL') < layerIndex('CHORD_FRAME'));
+  // The translucent chord-box fill sits below the frame edge so the edge
+  // always wins when both cover the same pixel.
+  assert.match(
+    src(),
+    /fill\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*z\s*,\s*'CHORD_FILL'\s*\)\s*;/,
+    'chord fill must use CHORD_FILL',
+  );
+  assert.ok(layerIndex('CHORD_FILL') < layerIndex('CHORD_FRAME'));
 });
 
 test('PM/FH X fill (pPMXFill / pFHXFill) call sites use their ordered layer', () => {
-    // The black background fill of the muted-note X symbol is above chord fill
-    // but below the X lines — same chord, so same chord-frame renderOrder base.
-    const matches = src().match(/xf\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*z\s*,\s*'CHORD_STRUM_FILL'\s*\)\s*;/g) || [];
-    assert.ok(
-        matches.length >= 2,
-        'both PM and FH X-fill meshes must use CHORD_STRUM_FILL (found ' + matches.length + ')',
-    );
-    assert.ok(layerIndex('CHORD_FILL') < layerIndex('CHORD_STRUM_FILL'));
-    assert.ok(layerIndex('CHORD_STRUM_FILL') < layerIndex('CHORD_STRUM_LINE'));
+  // The black background fill of the muted-note X symbol is above chord fill
+  // but below the X lines — same chord, so same chord-frame renderOrder base.
+  const matches = src().match(/xf\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*z\s*,\s*'CHORD_STRUM_FILL'\s*\)\s*;/g) || [];
+  assert.ok(
+    matches.length >= 2,
+    `both PM and FH X-fill meshes must use CHORD_STRUM_FILL (found ${matches.length})`,
+  );
+  assert.ok(layerIndex('CHORD_FILL') < layerIndex('CHORD_STRUM_FILL'));
+  assert.ok(layerIndex('CHORD_STRUM_FILL') < layerIndex('CHORD_STRUM_LINE'));
 });
 
 test('PM/FH X lines (pMuteXLines / pFHXLines) call sites use their ordered layer', () => {
-    // The coloured X stroke lines are above the black fill but below
-    // the chord frame border edge, so they don't escape the box.
-    const matches = src().match(/xl\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*z\s*,\s*'CHORD_STRUM_LINE'\s*\)\s*;/g) || [];
-    assert.ok(
-        matches.length >= 2,
-        'both PM and FH X-line meshes must use CHORD_STRUM_LINE (found ' + matches.length + ')',
-    );
-    assert.ok(layerIndex('CHORD_STRUM_LINE') < layerIndex('CHORD_FRAME'));
+  // The coloured X stroke lines are above the black fill but below
+  // the chord frame border edge, so they don't escape the box.
+  const matches = src().match(/xl\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*z\s*,\s*'CHORD_STRUM_LINE'\s*\)\s*;/g) || [];
+  assert.ok(
+    matches.length >= 2,
+    `both PM and FH X-line meshes must use CHORD_STRUM_LINE (found ${matches.length})`,
+  );
+  assert.ok(layerIndex('CHORD_STRUM_LINE') < layerIndex('CHORD_FRAME'));
 });
 
 test('chord frame glow call site uses the layer after chord frame', () => {
-    // Accent glow draws after the frame while still remaining below connectors
-    // and note symbols in the ordered layer list.
-    assert.match(
-        src(),
-        /b\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*z\s*,\s*'CHORD_EDGE_GLOW'\s*\)\s*;/,
-        'chord frame edge slabs must use CHORD_EDGE_GLOW',
-    );
-    assert.ok(layerIndex('CHORD_EDGE_GLOW') > layerIndex('CHORD_FRAME'));
-    assert.ok(layerIndex('CHORD_EDGE_GLOW') < layerIndex('CONNECTOR_LINE'));
+  // Accent glow draws after the frame while still remaining below connectors
+  // and note symbols in the ordered layer list.
+  assert.match(
+    src(),
+    /b\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*z\s*,\s*'CHORD_EDGE_GLOW'\s*\)\s*;/,
+    'chord frame edge slabs must use CHORD_EDGE_GLOW',
+  );
+  assert.ok(layerIndex('CHORD_EDGE_GLOW') > layerIndex('CHORD_FRAME'));
+  assert.ok(layerIndex('CHORD_EDGE_GLOW') < layerIndex('CONNECTOR_LINE'));
 });
 
 // ---------------------------------------------------------------------------
@@ -427,24 +427,24 @@ test('chord frame glow call site uses the layer after chord frame', () => {
 // ---------------------------------------------------------------------------
 
 test('sus-trail strip renderOrder formula keeps trails strictly below chord frames at same Z', () => {
-    // Sustain trails use the ordered layer immediately below chord frames at
-    // the same depth.
-    assert.match(
-        src(),
-        /const\s+trailRenderOrder\s*=\s*renderOrderForLayerAtZ\(\s*Math\.min\(\s*0\s*,\s*zCenter\s*\)\s*,\s*'SUSTAIN_TRAIL'\s*\)\s*;/,
-        'sus-trail strip renderOrder must use renderOrderForLayerAtZ(min zCenter, SUSTAIN_TRAIL)',
-    );
-    assert.ok(layerIndex('SUSTAIN_TRAIL') < layerIndex('CHORD_FRAME'));
+  // Sustain trails use the ordered layer immediately below chord frames at
+  // the same depth.
+  assert.match(
+    src(),
+    /const\s+trailRenderOrder\s*=\s*renderOrderForLayerAtZ\(\s*Math\.min\(\s*0\s*,\s*zCenter\s*\)\s*,\s*'SUSTAIN_TRAIL'\s*\)\s*;/,
+    'sus-trail strip renderOrder must use renderOrderForLayerAtZ(min zCenter, SUSTAIN_TRAIL)',
+  );
+  assert.ok(layerIndex('SUSTAIN_TRAIL') < layerIndex('CHORD_FRAME'));
 });
 
 test('sus-trail ribbon renderOrder formula mirrors strip formula using time-based depth', () => {
-    // Ribbons use _ribDt (time from now to ribbon midpoint) converted to the
-    // same Z scale as dZ() on the sustain-trail layer.
-    assert.match(
-        src(),
-        /const\s+ribbonRenderOrder\s*=\s*renderOrderForLayerAtZ\(\s*-\s*_ribDt\s*\*\s*TS\s*,\s*'SUSTAIN_TRAIL'\s*\)\s*;/,
-        'sus-trail ribbon renderOrder must use renderOrderForLayerAtZ on the sustain-trail layer',
-    );
+  // Ribbons use _ribDt (time from now to ribbon midpoint) converted to the
+  // same Z scale as dZ() on the sustain-trail layer.
+  assert.match(
+    src(),
+    /const\s+ribbonRenderOrder\s*=\s*renderOrderForLayerAtZ\(\s*-\s*_ribDt\s*\*\s*TS\s*,\s*'SUSTAIN_TRAIL'\s*\)\s*;/,
+    'sus-trail ribbon renderOrder must use renderOrderForLayerAtZ on the sustain-trail layer',
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -452,21 +452,21 @@ test('sus-trail ribbon renderOrder formula mirrors strip formula using time-base
 // ---------------------------------------------------------------------------
 
 test('note gem outline call site uses the named outline layer', () => {
-    assert.match(
-        src(),
-        /outline\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*noteZ\s*,\s*'NOTE_OUTLINE'\s*\)\s*;/,
-        'note gem outline must use NOTE_OUTLINE',
-    );
-    assert.ok(layerIndex('NOTE_OUTLINE') > layerIndex('FRET_COLUMN'));
+  assert.match(
+    src(),
+    /outline\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*noteZ\s*,\s*'NOTE_OUTLINE'\s*\)\s*;/,
+    'note gem outline must use NOTE_OUTLINE',
+  );
+  assert.ok(layerIndex('NOTE_OUTLINE') > layerIndex('FRET_COLUMN'));
 });
 
 test('note gem core call site uses the named layer above outline', () => {
-    assert.match(
-        src(),
-        /core\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*noteZ\s*,\s*'NOTE_CORE'\s*\)\s*;/,
-        'note gem core must use NOTE_CORE',
-    );
-    assert.ok(layerIndex('NOTE_CORE') > layerIndex('NOTE_OUTLINE'));
+  assert.match(
+    src(),
+    /core\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*noteZ\s*,\s*'NOTE_CORE'\s*\)\s*;/,
+    'note gem core must use NOTE_CORE',
+  );
+  assert.ok(layerIndex('NOTE_CORE') > layerIndex('NOTE_OUTLINE'));
 });
 
 // ---------------------------------------------------------------------------
@@ -475,41 +475,41 @@ test('note gem core call site uses the named layer above outline', () => {
 // ---------------------------------------------------------------------------
 
 test('chord frame layer is below note outline layer', () => {
-    // Chord frames must always render below note gems, even at maximum depth
-    // (far end of the lookahead).
-    assert.ok(layerIndex('CHORD_FRAME') < layerIndex('NOTE_OUTLINE'));
+  // Chord frames must always render below note gems, even at maximum depth
+  // (far end of the lookahead).
+  assert.ok(layerIndex('CHORD_FRAME') < layerIndex('NOTE_OUTLINE'));
 });
 
 test('fret labels are above note symbols in the named stack', () => {
-    assert.ok(layerIndex('NOTE_FRET_LABEL') > layerIndex('NOTE_CORE'), 'note fret labels must draw above gem core');
-    assert.ok(layerIndex('NOTE_FRET_LABEL') > layerIndex('TECHNIQUE_MARKER'), 'note fret labels must draw above technique markers');
-    assert.ok(layerIndex('ARP_NOTE_FRET_LABEL') > layerIndex('NOTE_FRET_LABEL'), 'arp labels retain a one-layer tie-breaker');
-    assert.ok(layerIndex('CHORD_FRET_LABEL') > layerIndex('NOTE_CORE'), 'chord-loop fret labels must draw above gem core at the same depth');
-    assert.ok(layerIndex('NOTE_FRET_LABEL') > layerIndex('BOARD_FRET_WIRE'), 'note fret labels must clear static fret wires');
-    assert.ok(layerIndex('CHORD_FRET_LABEL') > layerIndex('BOARD_FRET_WIRE'), 'chord fret labels must clear static fret wires');
+  assert.ok(layerIndex('NOTE_FRET_LABEL') > layerIndex('NOTE_CORE'), 'note fret labels must draw above gem core');
+  assert.ok(layerIndex('NOTE_FRET_LABEL') > layerIndex('TECHNIQUE_MARKER'), 'note fret labels must draw above technique markers');
+  assert.ok(layerIndex('ARP_NOTE_FRET_LABEL') > layerIndex('NOTE_FRET_LABEL'), 'arp labels retain a one-layer tie-breaker');
+  assert.ok(layerIndex('CHORD_FRET_LABEL') > layerIndex('NOTE_CORE'), 'chord-loop fret labels must draw above gem core at the same depth');
+  assert.ok(layerIndex('NOTE_FRET_LABEL') > layerIndex('BOARD_FRET_WIRE'), 'note fret labels must clear static fret wires');
+  assert.ok(layerIndex('CHORD_FRET_LABEL') > layerIndex('BOARD_FRET_WIRE'), 'chord fret labels must clear static fret wires');
 });
 
 test('string mesh layer is above note symbols and below labels', () => {
-    // Board strings are never occluded by flying gems, but labels still appear above strings.
-    const s = src();
-    assert.match(s, /mesh\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*0\s*,\s*'BOARD_STRING'\s*\)\s*;/, 'string mesh must use BOARD_STRING');
-    // Confirm 1000 also exists (labels above strings)
-    assert.match(s, /m\.renderOrder\s*=\s*1000\s*;/, 'technique label renderOrder 1000 must exist');
-    assert.ok(layerIndex('BOARD_STRING') > layerIndex('TECHNIQUE_MARKER'), 'string mesh layer must be above note symbols');
-    assert.ok(layerIndex('BOARD_STRING') < layerIndex('NOTE_FRET_LABEL'), 'string mesh layer must be below fret labels');
+  // Board strings are never occluded by flying gems, but labels still appear above strings.
+  const s = src();
+  assert.match(s, /mesh\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*0\s*,\s*'BOARD_STRING'\s*\)\s*;/, 'string mesh must use BOARD_STRING');
+  // Confirm 1000 also exists (labels above strings)
+  assert.match(s, /m\.renderOrder\s*=\s*1000\s*;/, 'technique label renderOrder 1000 must exist');
+  assert.ok(layerIndex('BOARD_STRING') > layerIndex('TECHNIQUE_MARKER'), 'string mesh layer must be above note symbols');
+  assert.ok(layerIndex('BOARD_STRING') < layerIndex('NOTE_FRET_LABEL'), 'string mesh layer must be below fret labels');
 });
 
 test('fret-column marker layer is above chord frame and below gem outline', () => {
-    assert.ok(layerIndex('FRET_COLUMN') > layerIndex('CHORD_FRAME'), 'fret-column marker layer must be above chord frame');
-    assert.ok(layerIndex('FRET_COLUMN') < layerIndex('NOTE_OUTLINE'), 'fret-column marker layer must be below gem outline');
-    assert.match(src(), /renderOrderForLayerAtZ\(\s*z\s*,\s*'FRET_COLUMN'\s*\)/);
+  assert.ok(layerIndex('FRET_COLUMN') > layerIndex('CHORD_FRAME'), 'fret-column marker layer must be above chord frame');
+  assert.ok(layerIndex('FRET_COLUMN') < layerIndex('NOTE_OUTLINE'), 'fret-column marker layer must be below gem outline');
+  assert.match(src(), /renderOrderForLayerAtZ\(\s*z\s*,\s*'FRET_COLUMN'\s*\)/);
 });
 
 test('static fret wire layer is above string mesh and note symbols', () => {
-    // Structural invariant: fret wires must always draw after (on top of) strings.
-    assert.ok(layerIndex('BOARD_FRET_WIRE') > layerIndex('BOARD_STRING'), 'fret wire must be above string mesh');
-    assert.ok(layerIndex('BOARD_FRET_WIRE') > layerIndex('TECHNIQUE_MARKER'), 'fret wire must be above note symbols');
-    assert.ok(RENDER_ORDER_AT_Z_ZERO + layerIndex('BOARD_FRET_WIRE') < 1000, 'fret wire must be below technique labels (1000)');
-    assert.match(src(), /fw\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*0\s*,\s*'BOARD_FRET_WIRE'\s*\)\s*;/, 'buildBoard fret wire must use BOARD_FRET_WIRE');
-    assert.match(src(), /mesh\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*0\s*,\s*'BOARD_STRING'\s*\)\s*;/, 'string mesh must use BOARD_STRING');
+  // Structural invariant: fret wires must always draw after (on top of) strings.
+  assert.ok(layerIndex('BOARD_FRET_WIRE') > layerIndex('BOARD_STRING'), 'fret wire must be above string mesh');
+  assert.ok(layerIndex('BOARD_FRET_WIRE') > layerIndex('TECHNIQUE_MARKER'), 'fret wire must be above note symbols');
+  assert.ok(RENDER_ORDER_AT_Z_ZERO + layerIndex('BOARD_FRET_WIRE') < 1000, 'fret wire must be below technique labels (1000)');
+  assert.match(src(), /fw\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*0\s*,\s*'BOARD_FRET_WIRE'\s*\)\s*;/, 'buildBoard fret wire must use BOARD_FRET_WIRE');
+  assert.match(src(), /mesh\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*0\s*,\s*'BOARD_STRING'\s*\)\s*;/, 'string mesh must use BOARD_STRING');
 });

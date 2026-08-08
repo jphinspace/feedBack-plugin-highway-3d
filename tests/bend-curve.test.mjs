@@ -18,30 +18,30 @@ import { bnvSampleAt } from '../src/instance/model/math.js';
 // ── bnvSampleAt (3D) ─────────────────────────────────────────────────────────
 
 test('bnvSampleAt linearly interpolates between points', () => {
-    const bnv = [{ t: 0, v: 0 }, { t: 1, v: 2 }];
-    assert.equal(bnvSampleAt(bnv, 0.5), 1);   // midpoint
-    assert.equal(bnvSampleAt(bnv, 0.25), 0.5);
+  const bnv = [{ t: 0, v: 0 }, { t: 1, v: 2 }];
+  assert.equal(bnvSampleAt(bnv, 0.5), 1); // midpoint
+  assert.equal(bnvSampleAt(bnv, 0.25), 0.5);
 });
 
 test('bnvSampleAt clamps to the endpoints', () => {
-    const bnv = [{ t: 0.2, v: 1 }, { t: 0.8, v: 3 }];
-    assert.equal(bnvSampleAt(bnv, 0), 1);     // before first
-    assert.equal(bnvSampleAt(bnv, 5), 3);     // after last
+  const bnv = [{ t: 0.2, v: 1 }, { t: 0.8, v: 3 }];
+  assert.equal(bnvSampleAt(bnv, 0), 1); // before first
+  assert.equal(bnvSampleAt(bnv, 5), 3); // after last
 });
 
 test('bnvSampleAt traces a round-trip curve up then back down', () => {
-    const bnv = [{ t: 0, v: 0 }, { t: 0.5, v: 2 }, { t: 1, v: 0 }];
-    assert.equal(bnvSampleAt(bnv, 0.25), 1);  // rising
-    assert.equal(bnvSampleAt(bnv, 0.5), 2);   // peak
-    assert.equal(bnvSampleAt(bnv, 0.75), 1);  // falling
+  const bnv = [{ t: 0, v: 0 }, { t: 0.5, v: 2 }, { t: 1, v: 0 }];
+  assert.equal(bnvSampleAt(bnv, 0.25), 1); // rising
+  assert.equal(bnvSampleAt(bnv, 0.5), 2); // peak
+  assert.equal(bnvSampleAt(bnv, 0.75), 1); // falling
 });
 
 test('bnvSampleAt returns 0 for an empty/invalid curve', () => {
-    assert.equal(bnvSampleAt([], 0.5), 0);
-    assert.equal(bnvSampleAt(null, 0.5), 0);
+  assert.equal(bnvSampleAt([], 0.5), 0);
+  assert.equal(bnvSampleAt(null, 0.5), 0);
 });
 
 test('bnvSampleAt tolerates a zero-width segment (duplicate t)', () => {
-    const bnv = [{ t: 0, v: 0 }, { t: 0.5, v: 1 }, { t: 0.5, v: 2 }, { t: 1, v: 2 }];
-    assert.equal(bnvSampleAt(bnv, 0.5), 1);   // first matching segment wins
+  const bnv = [{ t: 0, v: 0 }, { t: 0.5, v: 1 }, { t: 0.5, v: 2 }, { t: 1, v: 2 }];
+  assert.equal(bnvSampleAt(bnv, 0.5), 1); // first matching segment wins
 });

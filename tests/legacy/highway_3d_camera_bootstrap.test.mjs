@@ -38,188 +38,192 @@ const CAMERA_LIFECYCLE_JS = path.join(__dirname, '..', '..', 'src', 'instance', 
 const cameraLifecycleSrc = fs.readFileSync(CAMERA_LIFECYCLE_JS, 'utf8');
 
 function extractFn(source, name) {
-    const start = source.indexOf('function ' + name);
-    assert.ok(start >= 0, `function ${name} must exist`);
-    const open = source.indexOf('{', start);
-    let depth = 0;
-    for (let i = open; i < source.length; i++) {
-        if (source[i] === '{') depth++;
-        else if (source[i] === '}' && --depth === 0) return source.slice(start, i + 1);
-    }
-    throw new Error(`unbalanced braces extracting ${name}`);
+  const start = source.indexOf(`function ${name}`);
+  assert.ok(start >= 0, `function ${name} must exist`);
+  const open = source.indexOf('{', start);
+  let depth = 0;
+  for (let i = open; i < source.length; i++) {
+    if (source[i] === '{') depth++;
+    else if (source[i] === '}' && --depth === 0) return source.slice(start, i + 1);
+  }
+  throw new Error(`unbalanced braces extracting ${name}`);
 }
 
 test('long intros bootstrap from the earliest future fretted note', () => {
-    const notes = [
-        { t: 13.22, s: 2, f: 7 },
-        { t: 15.0, s: 1, f: 4 },
-    ];
-    const chords = [
-        { t: 14.0, notes: [{ s: 0, f: 3 }, { s: 1, f: 5 }] },
-    ];
-    assert.equal(hwyFirstRelevantFrettedTime(notes, chords, 0.4, 0.2, 6), 13.22);
+  const notes = [
+    { t: 13.22, s: 2, f: 7 },
+    { t: 15.0, s: 1, f: 4 },
+  ];
+  const chords = [
+    { t: 14.0, notes: [{ s: 0, f: 3 }, { s: 1, f: 5 }] },
+  ];
+  assert.equal(hwyFirstRelevantFrettedTime(notes, chords, 0.4, 0.2, 6), 13.22);
 });
 
 test('chord-only charts bootstrap from fretted chord members', () => {
-    const chords = [
-        { t: 4.0, notes: [{ s: 0, f: 0 }, { s: 1, f: 0 }] },
-        { t: 8.5, notes: [{ s: 0, f: 0 }, { s: 1, f: 9 }] },
-    ];
-    assert.equal(hwyFirstRelevantFrettedTime([], chords, 0, 0.2, 6), 8.5);
+  const chords = [
+    { t: 4.0, notes: [{ s: 0, f: 0 }, { s: 1, f: 0 }] },
+    { t: 8.5, notes: [{ s: 0, f: 0 }, { s: 1, f: 9 }] },
+  ];
+  assert.equal(hwyFirstRelevantFrettedTime([], chords, 0, 0.2, 6), 8.5);
 });
 
 test('empty and all-open charts keep the default camera', () => {
-    assert.equal(hwyFirstRelevantFrettedTime([], [], 0, 0.2, 6), null);
-    assert.equal(hwyFirstRelevantFrettedTime(
-        [{ t: 2, s: 0, f: 0 }],
-        [{ t: 3, notes: [{ s: 1, f: 0 }, { s: 2, f: 0 }] }],
-        0,
-        0.2,
-        6,
-    ), null);
+  assert.equal(hwyFirstRelevantFrettedTime([], [], 0, 0.2, 6), null);
+  assert.equal(hwyFirstRelevantFrettedTime(
+    [{ t: 2, s: 0, f: 0 }],
+    [{ t: 3, notes: [{ s: 1, f: 0 }, { s: 2, f: 0 }] }],
+    0,
+    0.2,
+    6,
+  ), null);
 });
 
 test('bootstrap ignores malformed strings but supports extended-range charts', () => {
-    const notes = [
-        { t: 1, s: -1, f: 4 },
-        { t: 2, s: 7, f: 5 },
-        { t: 3, s: 6, f: 8 },
-    ];
-    assert.equal(hwyFirstRelevantFrettedTime(notes, [], 0, 0.2, 6), null);
-    assert.equal(hwyFirstRelevantFrettedTime(notes, [], 0, 0.2, 7), 3);
+  const notes = [
+    { t: 1, s: -1, f: 4 },
+    { t: 2, s: 7, f: 5 },
+    { t: 3, s: 6, f: 8 },
+  ];
+  assert.equal(hwyFirstRelevantFrettedTime(notes, [], 0, 0.2, 6), null);
+  assert.equal(hwyFirstRelevantFrettedTime(notes, [], 0, 0.2, 7), 3);
 });
 
 test('active sustains bootstrap at now and fully expired events are skipped', () => {
-    const now = 10;
-    assert.equal(hwyFirstRelevantFrettedTime(
-        [{ t: 6, sus: 5, s: 2, f: 7 }],
-        [],
-        now,
-        0.2,
-        6,
-    ), now);
-    assert.equal(hwyFirstRelevantFrettedTime(
-        [{ t: 6, sus: 1, s: 2, f: 7 }, { t: 15, s: 2, f: 9 }],
-        [],
-        now,
-        0.2,
-        6,
-    ), 15);
+  const now = 10;
+  assert.equal(hwyFirstRelevantFrettedTime(
+    [{
+      t: 6, sus: 5, s: 2, f: 7,
+    }],
+    [],
+    now,
+    0.2,
+    6,
+  ), now);
+  assert.equal(hwyFirstRelevantFrettedTime(
+    [{
+      t: 6, sus: 1, s: 2, f: 7,
+    }, { t: 15, s: 2, f: 9 }],
+    [],
+    now,
+    0.2,
+    6,
+  ), 15);
 });
 
 test('recent onsets inside the behind-window bootstrap at now', () => {
-    assert.equal(hwyFirstRelevantFrettedTime(
-        [{ t: 9.9, s: 2, f: 7 }],
-        [],
-        10,
-        0.2,
-        6,
-    ), 10);
+  assert.equal(hwyFirstRelevantFrettedTime(
+    [{ t: 9.9, s: 2, f: 7 }],
+    [],
+    10,
+    0.2,
+    6,
+  ), 10);
 });
 
 test('bootstrap runs once when complete chart arrays arrive', () => {
-    // The whole file IS the camera-bootstrap section now (Stage 7 Track C).
-    const bootstrap = cameraBootstrapSrc;
-    assert.match(
-        bootstrap,
-        /if\s*\(\s*!ctx\.cam\._camSnapped\s*&&\s*!ctx\.cam\._camPreScanned\s*&&\s*notes\s*&&\s*chords\s*\)/,
-        'chart bootstrap must be gated to one pass after both arrays arrive',
-    );
-    assert.match(
-        bootstrap,
-        /hwyFirstRelevantFrettedTime\(\s*notes\s*,\s*chords\s*,\s*now\s*,\s*CAM_TGT_BEHIND\s*,\s*nStr\s*\)/,
-        'bootstrap must select the first relevant event using the active string count',
-    );
-    assert.match(
-        bootstrap,
-        /firstFrettedTime\s*===\s*null[\s\S]*?ctx\.cam\._camSnapped\s*=\s*true/,
-        'all-open/empty charts without lookahead bounds must permanently disable bootstrap work',
-    );
+  // The whole file IS the camera-bootstrap section now (Stage 7 Track C).
+  const bootstrap = cameraBootstrapSrc;
+  assert.match(
+    bootstrap,
+    /if\s*\(\s*!ctx\.cam\._camSnapped\s*&&\s*!ctx\.cam\._camPreScanned\s*&&\s*notes\s*&&\s*chords\s*\)/,
+    'chart bootstrap must be gated to one pass after both arrays arrive',
+  );
+  assert.match(
+    bootstrap,
+    /hwyFirstRelevantFrettedTime\(\s*notes\s*,\s*chords\s*,\s*now\s*,\s*CAM_TGT_BEHIND\s*,\s*nStr\s*\)/,
+    'bootstrap must select the first relevant event using the active string count',
+  );
+  assert.match(
+    bootstrap,
+    /firstFrettedTime\s*===\s*null[\s\S]*?ctx\.cam\._camSnapped\s*=\s*true/,
+    'all-open/empty charts without lookahead bounds must permanently disable bootstrap work',
+  );
 });
 
 test('steady and lookahead modes initialize immediately from future chart data', () => {
-    const bootstrap = cameraBootstrapSrc;
-    assert.match(
-        bootstrap,
-        /cameraMode\s*===\s*'lookahead'[\s\S]*?lookaheadBoundsNow\s*\|\|\s*firstFrettedTime\s*!==\s*null/,
-        'lookahead anchor bounds must bootstrap even on an all-open chart',
-    );
-    assert.match(
-        bootstrap,
-        /lookaheadBootstrapTime\(\s*now\s*,\s*firstFrettedTime\s*\)/,
-        'lookahead mode must project to the first window that reaches the phrase',
-    );
-    assert.match(
-        bootstrap,
-        /lookaheadBoundsNow\s*\?\s*now\s*:\s*lookaheadBootstrapTime/,
-        'already-live anchor/note bounds must win over a projected lookahead',
-    );
-    assert.match(
-        bootstrap,
-        /Math\.max\(\s*now\s*,\s*firstFrettedTime\s*-\s*camAhead\s*\)/,
-        'steady mode must sample when the first event enters its normal target window',
-    );
-    assert.match(
-        bootstrap,
-        /ctx\.cam\.curX\s*=\s*ctx\.cam\.tgtX\s*;[\s\S]*?ctx\.cam\.curDist\s*=\s*ctx\.cam\.tgtDist\s*;/,
-        'the initial base position must be applied before the note draw loop',
-    );
+  const bootstrap = cameraBootstrapSrc;
+  assert.match(
+    bootstrap,
+    /cameraMode\s*===\s*'lookahead'[\s\S]*?lookaheadBoundsNow\s*\|\|\s*firstFrettedTime\s*!==\s*null/,
+    'lookahead anchor bounds must bootstrap even on an all-open chart',
+  );
+  assert.match(
+    bootstrap,
+    /lookaheadBootstrapTime\(\s*now\s*,\s*firstFrettedTime\s*\)/,
+    'lookahead mode must project to the first window that reaches the phrase',
+  );
+  assert.match(
+    bootstrap,
+    /lookaheadBoundsNow\s*\?\s*now\s*:\s*lookaheadBootstrapTime/,
+    'already-live anchor/note bounds must win over a projected lookahead',
+  );
+  assert.match(
+    bootstrap,
+    /Math\.max\(\s*now\s*,\s*firstFrettedTime\s*-\s*camAhead\s*\)/,
+    'steady mode must sample when the first event enters its normal target window',
+  );
+  assert.match(
+    bootstrap,
+    /ctx\.cam\.curX\s*=\s*ctx\.cam\.tgtX\s*;[\s\S]*?ctx\.cam\.curDist\s*=\s*ctx\.cam\.tgtDist\s*;/,
+    'the initial base position must be applied before the note draw loop',
+  );
 });
 
 test('silent-intro hold hands off only when live framing is ready', () => {
-    // The whole file IS the camera-target section now (Stage 7 Track C) --
-    // no need to slice between banner markers.
-    const target = cameraTargetSrc;
-    assert.match(
-        target,
-        /cameraMode\s*===\s*'lookahead'\s*\?\s*lookaheadBoundsNow\s*!==\s*null\s*:\s*camDistGot/,
-        'lookahead and steady modes must use their own live-ready signal',
-    );
-    assert.match(
-        target,
-        /if\s*\(\s*bootstrapHoldActive\s*\)[\s\S]*?lockActive\s*=\s*ctx\.cam\.prevLockActive/,
-        'the bootstrap target must remain untouched while the live window is empty',
-    );
-    assert.match(
-        target,
-        /ctx\.cam\._camBootstrapMode\s*!==\s*cameraMode[\s\S]*?ctx\.cam\._camBootstrapHolding\s*=\s*false/,
-        'a live camera-mode change must safely release the old-mode hold',
-    );
+  // The whole file IS the camera-target section now (Stage 7 Track C) --
+  // no need to slice between banner markers.
+  const target = cameraTargetSrc;
+  assert.match(
+    target,
+    /cameraMode\s*===\s*'lookahead'\s*\?\s*lookaheadBoundsNow\s*!==\s*null\s*:\s*camDistGot/,
+    'lookahead and steady modes must use their own live-ready signal',
+  );
+  assert.match(
+    target,
+    /if\s*\(\s*bootstrapHoldActive\s*\)[\s\S]*?lockActive\s*=\s*ctx\.cam\.prevLockActive/,
+    'the bootstrap target must remain untouched while the live window is empty',
+  );
+  assert.match(
+    target,
+    /ctx\.cam\._camBootstrapMode\s*!==\s*cameraMode[\s\S]*?ctx\.cam\._camBootstrapHolding\s*=\s*false/,
+    'a live camera-mode change must safely release the old-mode hold',
+  );
 });
 
 test('song changes and teardown reset every bootstrap state field', () => {
-    // Song-change reset now lives in camera-bootstrap.js
-    // (detectSongChangeAndResetCamera); the teardown reset stayed in
-    // main.js -- one occurrence expected in each file.
-    const pattern = /ctx\.cam\._camSnapped\s*=\s*false\s*;\s*\r?\n\s*ctx\.cam\._camPreScanned\s*=\s*false\s*;\s*\r?\n\s*ctx\.cam\._camBootstrapHolding\s*=\s*false\s*;\s*\r?\n\s*ctx\.cam\._camBootstrapMode\s*=\s*null\s*;/g;
-    const bootstrapAssignments = cameraBootstrapSrc.match(pattern) || [];
-    const mainAssignments = src.match(pattern) || [];
-    assert.equal(
-        bootstrapAssignments.length,
-        1,
-        'the song-change path in camera-bootstrap.js must reset bootstrap state',
-    );
-    assert.equal(
-        mainAssignments.length,
-        1,
-        'the teardown path in main.js must reset bootstrap state',
-    );
+  // Song-change reset now lives in camera-bootstrap.js
+  // (detectSongChangeAndResetCamera); the teardown reset stayed in
+  // main.js -- one occurrence expected in each file.
+  const pattern = /ctx\.cam\._camSnapped\s*=\s*false\s*;\s*\r?\n\s*ctx\.cam\._camPreScanned\s*=\s*false\s*;\s*\r?\n\s*ctx\.cam\._camBootstrapHolding\s*=\s*false\s*;\s*\r?\n\s*ctx\.cam\._camBootstrapMode\s*=\s*null\s*;/g;
+  const bootstrapAssignments = cameraBootstrapSrc.match(pattern) || [];
+  const mainAssignments = src.match(pattern) || [];
+  assert.equal(
+    bootstrapAssignments.length,
+    1,
+    'the song-change path in camera-bootstrap.js must reset bootstrap state',
+  );
+  assert.equal(
+    mainAssignments.length,
+    1,
+    'the teardown path in main.js must reset bootstrap state',
+  );
 });
 
 test('Camera Director still layers after the bootstrapped auto-framing base', () => {
-    const bootstrap = cameraBootstrapSrc;
-    assert.doesNotMatch(
-        bootstrap,
-        /_freeCam|__h3dCamCtl/,
-        'bootstrap must only initialize base framing, never mutate Camera Director state',
-    );
+  const bootstrap = cameraBootstrapSrc;
+  assert.doesNotMatch(
+    bootstrap,
+    /_freeCam|__h3dCamCtl/,
+    'bootstrap must only initialize base framing, never mutate Camera Director state',
+  );
 
-    const camUpdate = extractFn(cameraLifecycleSrc, 'camUpdate');
-    const baseIndex = camUpdate.indexOf('ctx.cam.curX += (ctx.cam.tgtX - ctx.cam.curX) * lerp');
-    const directorIndex = camUpdate.indexOf('if (_freeCam && _freeCam.enabled)');
-    const positionIndex = camUpdate.indexOf('cam.position.set(_camX, _camY, _camZ)');
-    assert.ok(
-        baseIndex >= 0 && directorIndex > baseIndex && positionIndex > directorIndex,
-        'Camera Director transforms must remain layered after base framing and before camera placement',
-    );
+  const camUpdate = extractFn(cameraLifecycleSrc, 'camUpdate');
+  const baseIndex = camUpdate.indexOf('ctx.cam.curX += (ctx.cam.tgtX - ctx.cam.curX) * lerp');
+  const directorIndex = camUpdate.indexOf('if (_freeCam && _freeCam.enabled)');
+  const positionIndex = camUpdate.indexOf('cam.position.set(_camX, _camY, _camZ)');
+  assert.ok(
+    baseIndex >= 0 && directorIndex > baseIndex && positionIndex > directorIndex,
+    'Camera Director transforms must remain layered after base framing and before camera placement',
+  );
 });

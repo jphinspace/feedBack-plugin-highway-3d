@@ -24,47 +24,47 @@ const SINGLE_NOTES_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'ren
 const PREPASSES_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'model', 'arp-and-slide-prepasses.js');
 
 test('a slideTargetSet pre-pass builds the suppressed-gem set from notes', () => {
-    const src = fs.readFileSync(PREPASSES_JS, 'utf8');
-    assert.match(
-        src,
-        /const\s+checkSrc\s*=\s*\([^)]*\)\s*=>\s*\{[\s\S]*?stSet\.add\(/,
-        'pre-pass checkSrc must populate the slide-target set',
-    );
-    assert.match(
-        src,
-        /if\s*\(\s*stSet\.size\s*>\s*0\s*\)\s*slideTargetSet\s*=\s*stSet/,
-        'slideTargetSet must be assigned from the pre-pass result',
-    );
+  const src = fs.readFileSync(PREPASSES_JS, 'utf8');
+  assert.match(
+    src,
+    /const\s+checkSrc\s*=\s*\([^)]*\)\s*=>\s*\{[\s\S]*?stSet\.add\(/,
+    'pre-pass checkSrc must populate the slide-target set',
+  );
+  assert.match(
+    src,
+    /if\s*\(\s*stSet\.size\s*>\s*0\s*\)\s*slideTargetSet\s*=\s*stSet/,
+    'slideTargetSet must be assigned from the pre-pass result',
+  );
 });
 
 test('_isSlideTgt is derived from _slideTargetSet membership', () => {
-    const src = fs.readFileSync(SINGLE_NOTES_JS, 'utf8');
-    assert.match(
-        src,
-        /_isSlideTgt\s*=\s*!!\(\s*slideTargetSet\s*&&\s*slideTargetSet\.has\(/,
-        '_isSlideTgt must test slideTargetSet membership',
-    );
+  const src = fs.readFileSync(SINGLE_NOTES_JS, 'utf8');
+  assert.match(
+    src,
+    /_isSlideTgt\s*=\s*!!\(\s*slideTargetSet\s*&&\s*slideTargetSet\.has\(/,
+    '_isSlideTgt must test slideTargetSet membership',
+  );
 });
 
 test('_isSlideTgt is threaded into drawNote as the skipBody argument', () => {
-    // drawNote(n, now, openX, skipLabel, skipBody, ...) — _isSlideTgt sits in
-    // the 5th (skipBody) position so the gem body is suppressed.
-    const src = fs.readFileSync(SINGLE_NOTES_JS, 'utf8');
-    assert.match(
-        src,
-        /drawNote\(\s*n\s*,\s*now\s*,\s*singleOpenX\s*,\s*skipLabel\s*,\s*_isSlideTgt\s*,/,
-        '_isSlideTgt must be passed as drawNote\'s skipBody argument',
-    );
+  // drawNote(n, now, openX, skipLabel, skipBody, ...) — _isSlideTgt sits in
+  // the 5th (skipBody) position so the gem body is suppressed.
+  const src = fs.readFileSync(SINGLE_NOTES_JS, 'utf8');
+  assert.match(
+    src,
+    /drawNote\(\s*n\s*,\s*now\s*,\s*singleOpenX\s*,\s*skipLabel\s*,\s*_isSlideTgt\s*,/,
+    '_isSlideTgt must be passed as drawNote\'s skipBody argument',
+  );
 });
 
 test('the sustain trail renders for all notes, including skipBody slide targets', () => {
-    // The trail block must stay outside the !skipBody gem gate so suppressed
-    // slide-target gems still show their slide trail. drawNote() moved to
-    // note.js in Stage 7 Phase 3b -- the comment contract lives there now.
-    const src = fs.readFileSync(NOTE_JS, 'utf8');
-    assert.match(
-        src,
-        /Rendered for ALL notes with sustain, including skipBody=true/,
-        'the sustain-trail comment contract must remain, marking the trail as unconditional',
-    );
+  // The trail block must stay outside the !skipBody gem gate so suppressed
+  // slide-target gems still show their slide trail. drawNote() moved to
+  // note.js in Stage 7 Phase 3b -- the comment contract lives there now.
+  const src = fs.readFileSync(NOTE_JS, 'utf8');
+  assert.match(
+    src,
+    /Rendered for ALL notes with sustain, including skipBody=true/,
+    'the sustain-trail comment contract must remain, marking the trail as unconditional',
+  );
 });

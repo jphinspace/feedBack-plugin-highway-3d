@@ -49,13 +49,13 @@ export const NOTEDETECT_UNMATCHED_LATCH_AFTER = 0.55;
 /** Number of time slices sampled across the highway lane's approach window. */
 export const HIGHWAY_LANE_TIME_SLICES = 96;
 /** Odd lane columns; darker teal. */
-export const HIGHWAY_LANE_STRIPE_ODD_HEX  = 0x103B5C;
+export const HIGHWAY_LANE_STRIPE_ODD_HEX = 0x103B5C;
 /** Even lane columns; brighter blue. */
 export const HIGHWAY_LANE_STRIPE_EVEN_HEX = 0x08283C;
 /** Lane quad base opacity. */
 export const HIGHWAY_LANE_STRIPE_OP_BASE = 1.0;
 /** Lane quad opacity added per unit of highway intensity. */
-export const HIGHWAY_LANE_STRIPE_OP_INT  = 0;
+export const HIGHWAY_LANE_STRIPE_OP_INT = 0;
 /** Venue mode near-lane contrast boost. */
 export const VENUE_LANE_OP_BOOST = 1.1;
 /** Venue mode gem emissive multiplier. */
@@ -105,7 +105,8 @@ export const ACCENT_HALO_Z_INNER = 1.05;
 export const ACCENT_HALO_Z_MID = 1.12;
 export const ACCENT_HALO_Z_OUTER = 1.22;
 
-export const NW = 5 * K, NH = 3 * K, ND = 0.25 * K;
+export const NW = 5 * K; export const NH = 3 * K; export const
+  ND = 0.25 * K;
 /** Sustain-trail X offsets for a single fretted note (no chord-member spread). */
 export const SINGLE_SUS_OFFSETS = Object.freeze([0]);
 export const BEND_HALFSTEP_WORLD_Y = S_GAP * 0.8;
@@ -116,7 +117,8 @@ export const BEND_ENV_RISE_FRAC = 0.35;
 export const BEND_ENV_RELEASE_FRAC = 0.30;
 export const TREMOLO_BUMP_S = 0.06;
 export const N_RAD = 1.5 * K;
-export const SW = 2 * K, SH = 1.5 * K;
+export const SW = 2 * K; export const
+  SH = 1.5 * K;
 
 export const CAM_H_BASE = 190 * K;
 export const CAM_DIST_BASE = 240 * K;
@@ -135,40 +137,40 @@ export const HORPLUS_MIN_VFOV = 28;
 // distance between a NEAR (tight, nut position) and FAR (wide, whole-neck)
 // view, clamped at the endpoints outside this range.
 export const CAM_FRAME_DIST_NEAR = 93 * K;
-export const CAM_FRAME_DIST_FAR  = 141 * K;
+export const CAM_FRAME_DIST_FAR = 141 * K;
 export const CAM_FRAME_H_NEAR = 0.75;
-export const CAM_FRAME_H_FAR  = 1.00;
+export const CAM_FRAME_H_FAR = 1.00;
 export const CAM_FRAME_D_NEAR = 0.575;
-export const CAM_FRAME_D_FAR  = 0.60;
+export const CAM_FRAME_D_FAR = 0.60;
 
 // Fret-row fit guard: keeps the heat-colored fret-number row (drawn below
 // the board) from clipping the bottom edge by dollying the camera back.
 /** Minimum NDC Y for the fret-row anchor before the guard dollies back. */
-export const FRET_ROW_FIT_NDC_MIN   = -0.86;
+export const FRET_ROW_FIT_NDC_MIN = -0.86;
 /** Headroom past {@link FRET_ROW_FIT_NDC_MIN} before the dolly relaxes. */
-export const FRET_ROW_FIT_DEADBAND  = 0.06;
+export const FRET_ROW_FIT_DEADBAND = 0.06;
 /** Maximum dolly-back multiplier. */
 export const FRET_ROW_FIT_BOOST_MAX = 1.6;
 
 // Camera-X targeting: bounds for a smoothing dial (0 = twitchy, 1 = calm)
 // the runtime lerps between using the user's `cameraSmoothing` setting.
-export const CAM_TGT_BEHIND   = 0.2;
-export const CAM_TGT_AHEAD_T  = 2.0;
-export const CAM_TGT_AHEAD_C  = 0.7;
-export const CAM_TGT_TAU_T    = 0.35;
-export const CAM_TGT_TAU_C    = 0.9;
-export const CAM_TGT_HYST_T   = 0.25;
-export const CAM_TGT_HYST_C   = 5.0;
+export const CAM_TGT_BEHIND = 0.2;
+export const CAM_TGT_AHEAD_T = 2.0;
+export const CAM_TGT_AHEAD_C = 0.7;
+export const CAM_TGT_TAU_T = 0.35;
+export const CAM_TGT_TAU_C = 0.9;
+export const CAM_TGT_HYST_T = 0.25;
+export const CAM_TGT_HYST_C = 5.0;
 
 // Zoom (tgtDist) damping, driven by its own `zoomSmoothing` setting.
-export const CAM_DIST_HYST_T  = 0.5;
-export const CAM_DIST_HYST_C  = 5.0;
+export const CAM_DIST_HYST_T = 0.5;
+export const CAM_DIST_HYST_C = 5.0;
 
 // Vertical-tilt damping, driven by `tiltSmoothing`.
-export const CAM_TILT_BAND_T  = 0.05;
-export const CAM_TILT_BAND_C  = 0.25;
-export const CAM_TILT_STR_T   = 0.8;
-export const CAM_TILT_STR_C   = 0.2;
+export const CAM_TILT_BAND_T = 0.05;
+export const CAM_TILT_BAND_C = 0.25;
+export const CAM_TILT_STR_T = 0.8;
+export const CAM_TILT_STR_C = 0.2;
 
 // Lock-low zoom range: the cameraLockZoom slider (0..1) blends between these.
 export const CAM_LOCK_ZOOM_MIN = 0.55;
@@ -194,12 +196,12 @@ export const DDOTS = new Set([12, 24]);
 export const INLAY_LABEL_FRETS = [3, 5, 7, 9, 12, 15, 17, 19, 22, 24];
 /** Seconds a lane fret stays active after its last note. */
 export const FRET_COOLDOWN = 0.5;
-export const DIAG_LINGER_S    = 0.55;
-export const DIAG_ENTRANCE_S  = 0.20;
+export const DIAG_LINGER_S = 0.55;
+export const DIAG_ENTRANCE_S = 0.20;
 export const DIAG_CROSSFADE_S = 0.15;
-export const DIAG_SIZE_MIN    = 0.08;
-export const DIAG_SIZE_MAX    = 0.16;
-export const DIAG_CELL_MAX    = 34;
+export const DIAG_SIZE_MIN = 0.08;
+export const DIAG_SIZE_MAX = 0.16;
+export const DIAG_CELL_MAX = 34;
 /** Valid chord-diagram corner positions (top-only). */
 export const CHORD_DIAG_POSITION_IDS = ['tl', 'tr'];
 
@@ -214,9 +216,9 @@ export const ARPEGGIO_BOX_BLUE_DARK_HEX = 0x2D3190;
 /** Arpeggio rim accent and lane tint. */
 export const ARPEGGIO_RIM_BLUE_HEX = 0x454BB6;
 /** Post-hit chord-frame rim tint for a confirmed hit, matching the gem hit color. */
-export const CHORD_BOX_HIT_BRIGHT_HEX  = 0x22ff88;
+export const CHORD_BOX_HIT_BRIGHT_HEX = 0x22ff88;
 /** Post-hit chord-frame rim tint for a confirmed miss, matching the gem miss color. */
-export const CHORD_BOX_MISS_DARK_HEX   = 0xff0066;
+export const CHORD_BOX_MISS_DARK_HEX = 0xff0066;
 
 /** Fret-number label color for an approaching/active note. */
 export const FRET_LABEL_GOLD_HEX = '#D8A636';

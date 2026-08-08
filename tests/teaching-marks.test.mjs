@@ -19,24 +19,24 @@ import { teachingDegreeLabel, teachingFingerLabel } from '../src/instance/model/
 // ── teachingFingerLabel (fg) ─────────────────────────────────────────────────
 
 test('teachingFingerLabel maps 0->T, 1..4->digit, else \'\'', () => {
-    assert.equal(teachingFingerLabel(0), 'T');     // thumb
-    assert.equal(teachingFingerLabel(1), '1');
-    assert.equal(teachingFingerLabel(4), '4');     // pinky
-    assert.equal(teachingFingerLabel(-1), '');     // unset
-    assert.equal(teachingFingerLabel(5), '');      // out of range
-    assert.equal(teachingFingerLabel(1.5), '');    // non-integer
-    assert.equal(teachingFingerLabel(undefined), '');
-    assert.equal(teachingFingerLabel(null), '');
+  assert.equal(teachingFingerLabel(0), 'T'); // thumb
+  assert.equal(teachingFingerLabel(1), '1');
+  assert.equal(teachingFingerLabel(4), '4'); // pinky
+  assert.equal(teachingFingerLabel(-1), ''); // unset
+  assert.equal(teachingFingerLabel(5), ''); // out of range
+  assert.equal(teachingFingerLabel(1.5), ''); // non-integer
+  assert.equal(teachingFingerLabel(undefined), '');
+  assert.equal(teachingFingerLabel(null), '');
 });
 
 // ── teachingDegreeLabel (sd) ─────────────────────────────────────────────────
 
 test('teachingDegreeLabel shows 0..11, else \'\'', () => {
-    assert.equal(teachingDegreeLabel(0), '0');     // tonic
-    assert.equal(teachingDegreeLabel(7), '7');     // fifth
-    assert.equal(teachingDegreeLabel(11), '11');
-    assert.equal(teachingDegreeLabel(-1), '');     // unset
-    assert.equal(teachingDegreeLabel(12), '');     // out of range
-    assert.equal(teachingDegreeLabel(3.2), '');    // non-integer
-    assert.equal(teachingDegreeLabel(undefined), '');
+  assert.equal(teachingDegreeLabel(0), '0'); // tonic
+  assert.equal(teachingDegreeLabel(7), '7'); // fifth
+  assert.equal(teachingDegreeLabel(11), '11');
+  assert.equal(teachingDegreeLabel(-1), ''); // unset
+  assert.equal(teachingDegreeLabel(12), ''); // out of range
+  assert.equal(teachingDegreeLabel(3.2), ''); // non-integer
+  assert.equal(teachingDegreeLabel(undefined), '');
 });

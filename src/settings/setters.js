@@ -19,13 +19,13 @@ export const h3dBgSetPalette = (v) => writeGlobalSetting('palette', v);
 
 /** Background axis (clear + fog); independent of the highway axis. */
 export const h3dBgSetBgTheme = (v) => {
-    const s = String(v);
-    writeGlobalSetting('bgTheme', SCENE_THEME_IDS.includes(s) ? s : SETTING_DEFAULTS.bgTheme);
+  const s = String(v);
+  writeGlobalSetting('bgTheme', SCENE_THEME_IDS.includes(s) ? s : SETTING_DEFAULTS.bgTheme);
 };
 /** Highway axis (board + lane + laneDim); independent of the background axis. */
 export const h3dBgSetHwTheme = (v) => {
-    const s = String(v);
-    writeGlobalSetting('hwTheme', SCENE_THEME_IDS.includes(s) ? s : SETTING_DEFAULTS.hwTheme);
+  const s = String(v);
+  writeGlobalSetting('hwTheme', SCENE_THEME_IDS.includes(s) ? s : SETTING_DEFAULTS.hwTheme);
 };
 
 /**
@@ -35,21 +35,21 @@ export const h3dBgSetHwTheme = (v) => {
  * @param {Array<string|null|undefined>} hexArray - up to {@link MAX_RENDER_STRINGS} hex strings
  */
 export const h3dBgSetStringColors = (hexArray) => {
-    const arr = Array.isArray(hexArray) ? hexArray : [];
-    const norm = [];
-    for (let i = 0; i < MAX_RENDER_STRINGS; i++) {
-        const n = _h3dHexToInt(arr[i]);
-        norm[i] = (n != null) ? '#' + n.toString(16).padStart(6, '0') : null;
-    }
-    writeGlobalSetting('customColors', JSON.stringify(norm));
-    writeGlobalSetting('palette', 'custom');
+  const arr = Array.isArray(hexArray) ? hexArray : [];
+  const norm = [];
+  for (let i = 0; i < MAX_RENDER_STRINGS; i++) {
+    const n = _h3dHexToInt(arr[i]);
+    norm[i] = (n != null) ? `#${n.toString(16).padStart(6, '0')}` : null;
+  }
+  writeGlobalSetting('customColors', JSON.stringify(norm));
+  writeGlobalSetting('palette', 'custom');
 };
 
 export const h3dBgSetShowFretOnNote = (v) => writeGlobalSetting('showFretOnNote', !!v);
 /** @param {string} v - one of {@link FRET_NUMBER_GHOST_SCOPE_IDS} */
 export const h3dBgSetFretNumberGhostScope = (v) => {
-    const s = String(v);
-    writeGlobalSetting('fretNumberGhostScope', FRET_NUMBER_GHOST_SCOPE_IDS.includes(s) ? s : SETTING_DEFAULTS.fretNumberGhostScope);
+  const s = String(v);
+  writeGlobalSetting('fretNumberGhostScope', FRET_NUMBER_GHOST_SCOPE_IDS.includes(s) ? s : SETTING_DEFAULTS.fretNumberGhostScope);
 };
 export const h3dBgSetCameraSmoothing = (v) => writeGlobalSetting('cameraSmoothing', v);
 export const h3dBgSetZoomSmoothing = (v) => writeGlobalSetting('zoomSmoothing', v);
@@ -58,9 +58,9 @@ export const h3dBgSetCameraLockLow = (v) => writeGlobalSetting('cameraLockLow', 
 export const h3dBgSetCameraLockZoom = (v) => writeGlobalSetting('cameraLockZoom', v);
 /** Legacy `'classic'` maps to `'steady'`. */
 export const h3dBgSetCameraMode = (v) => {
-    let s = String(v);
-    if (s === 'classic') s = 'steady';
-    writeGlobalSetting('cameraMode', s);
+  let s = String(v);
+  if (s === 'classic') s = 'steady';
+  writeGlobalSetting('cameraMode', s);
 };
 export const h3dBgSetNutHeadstockVisible = (v) => writeGlobalSetting('nutHeadstockVisible', !!v);
 export const h3dBgSetTuningLabelsVisible = (v) => writeGlobalSetting('tuningLabelsVisible', !!v);
@@ -100,13 +100,13 @@ export const h3dBgSetSlideArrowChainPreviewVisible = (v) => writeGlobalSetting('
  * @param {{dataUrl?: string, name?: string}} [asset]
  */
 export const h3dBgSetCustomImage = (asset) => {
-    const a = asset || {};
-    writeGlobalSetting('customImageDataUrl', a.dataUrl || '');
-    writeGlobalSetting('customImageName', a.name || '');
+  const a = asset || {};
+  writeGlobalSetting('customImageDataUrl', a.dataUrl || '');
+  writeGlobalSetting('customImageName', a.name || '');
 };
 export const h3dBgClearCustomImage = () => {
-    writeGlobalSetting('customImageDataUrl', '');
-    writeGlobalSetting('customImageName', '');
+  writeGlobalSetting('customImageDataUrl', '');
+  writeGlobalSetting('customImageName', '');
 };
 
 /**
@@ -116,7 +116,7 @@ export const h3dBgClearCustomImage = () => {
  * @param {{name?: string}} [asset]
  */
 export const h3dBgSetCustomVideo = (asset) => {
-    writeGlobalSetting('customVideoName', (asset && asset.name) || '');
+  writeGlobalSetting('customVideoName', (asset && asset.name) || '');
 };
 export const h3dBgClearCustomVideo = () => writeGlobalSetting('customVideoName', '');
 
