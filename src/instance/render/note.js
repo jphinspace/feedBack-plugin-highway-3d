@@ -71,6 +71,10 @@ export function createNoteRenderer(deps) {
     noteVerdictState,
   } = deps;
 
+  // Renderer-owned cache: highway bundle notes are live host references and must remain
+  // read-only. Weak keys release automatically when a chart swaps its note objects.
+  const _bnvPeakCache = new WeakMap();
+
   function _meshMatForGhostFretDigit(spriteMat) {
     let mb = spriteMat.userData.h3dGhostFretMeshMat;
     if (!mb) {
@@ -991,18 +995,17 @@ export function createNoteRenderer(deps) {
       // Derive the peak from bn OR the bnv curve — bn SHOULD be the peak whenever bnv
       // exists; this is the robustness fallback for a note carrying an authoritative
       // curve with bn left at 0. bnv is chart-authored and doesn't change frame to
-      // frame, so the reduce() result is cached directly on the note object, keyed
-      // against the exact bnv reference it was computed from — safe even if some
-      // other plugin (e.g. a chart-retuner) mutates bn/bnv on notes it doesn't own,
-      // since a changed reference or a stale cache both just fall through to a
-      // fresh compute. n.bn itself is a cheap scalar read, so it's never cached.
+      // frame, so the reduce() result is cached in renderer-owned state, keyed against
+      // the note object and exact bnv reference. n.bn itself is a cheap scalar read,
+      // so it is never cached.
       let _bnvPeak = 0;
       if (Array.isArray(n.bnv) && n.bnv.length) {
-        if (n._bnvPeakCache && n._bnvPeakCache.bnv === n.bnv) {
-          _bnvPeak = n._bnvPeakCache.value;
+        const cachedBnvPeak = _bnvPeakCache.get(n);
+        if (cachedBnvPeak && cachedBnvPeak.bnv === n.bnv) {
+          _bnvPeak = cachedBnvPeak.value;
         } else {
           _bnvPeak = n.bnv.reduce((m, p) => Math.max(m, Number(p.v) || 0), 0);
-          n._bnvPeakCache = { bnv: n.bnv, value: _bnvPeak };
+          _bnvPeakCache.set(n, { bnv: n.bnv, value: _bnvPeak });
         }
       }
       const _bendPeak = Math.max(Number(n.bn) || 0, _bnvPeak);

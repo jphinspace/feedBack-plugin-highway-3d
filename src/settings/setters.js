@@ -111,7 +111,7 @@ export const h3dBgClearCustomImage = () => {
 
 /**
  * Sets the custom video asset for the `'video'` background style. Bytes
- * live on disk under `{config_dir}/plugin_uploads/highway_3d/`, served by
+ * live on disk under `{config_dir}/plugin_uploads/highway_3d_dev/`, served by
  * `routes.py`; only the filename is stored here.
  * @param {{name?: string}} [asset]
  */

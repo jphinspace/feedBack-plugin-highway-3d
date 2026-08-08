@@ -57,6 +57,15 @@ export function freeCamFor(canvas) {
  */
 export const settingsMemFallback = Object.create(null);
 
+/**
+ * Storage key for a global setting. Custom video is intentionally dev-only because its
+ * bytes live under this plugin's independent `plugin_uploads/highway_3d_dev/` slot; sharing
+ * the bundled plugin's filename pointer would make one plugin request the other's file.
+ */
+export function globalSettingStorageKey(key) {
+  return key === 'customVideoName' ? 'h3d_dev_bg_customVideoName' : `h3d_bg_${key}`;
+}
+
 /** Reads a setting for `panelKey`: per-panel override, else in-memory, else global, else default. */
 export function readSetting(panelKey, key) {
   let panelVal = null;
@@ -66,7 +75,7 @@ export function readSetting(panelKey, key) {
     if (key !== 'palette' && key !== 'customColors') {
       panelVal = localStorage.getItem(`h3d_bg_${panelKey}_${key}`);
     }
-    globalVal = localStorage.getItem(`h3d_bg_${key}`);
+    globalVal = localStorage.getItem(globalSettingStorageKey(key));
   } catch (_) { /* storage blocked — both stay null */ }
   if (panelVal !== null && panelVal !== undefined) return coerceSetting(key, panelVal);
   if (key in settingsMemFallback) return coerceSetting(key, settingsMemFallback[key]);
@@ -77,7 +86,7 @@ export function readSetting(panelKey, key) {
 /** Reads a setting's global value only, ignoring any per-panel override. */
 export function readGlobalSetting(key) {
   let globalVal = null;
-  try { globalVal = localStorage.getItem(`h3d_bg_${key}`); } catch (_) { /* storage blocked */ }
+  try { globalVal = localStorage.getItem(globalSettingStorageKey(key)); } catch (_) { /* storage blocked */ }
   if (key in settingsMemFallback) return coerceSetting(key, settingsMemFallback[key]);
   if (globalVal !== null && globalVal !== undefined) return coerceSetting(key, globalVal);
   return SETTING_DEFAULTS[key];
@@ -140,7 +149,7 @@ export function hasStoredSetting(panelKey, key) {
   } catch (_) {}
   if (key in settingsMemFallback) return true;
   try {
-    if (localStorage.getItem(`h3d_bg_${key}`) != null) return true;
+    if (localStorage.getItem(globalSettingStorageKey(key)) != null) return true;
   } catch (_) {}
   return false;
 }
@@ -149,7 +158,7 @@ export function hasStoredSetting(panelKey, key) {
 export function writeGlobalSetting(key, val) {
   const s = String(val);
   settingsMemFallback[key] = s;
-  try { localStorage.setItem(`h3d_bg_${key}`, s); } catch (_) { /* storage blocked */ }
+  try { localStorage.setItem(globalSettingStorageKey(key), s); } catch (_) { /* storage blocked */ }
   emitSettingChange(key);
 }
 

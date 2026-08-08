@@ -2,7 +2,7 @@
 # Regenerate this plugin's own stylesheet (assets/plugin.css) from its content
 # globs. Maintainer task — the generated CSS is committed, so end users / Docker
 # / desktop builds never run this. Run it whenever you add Tailwind classes to
-# screen.js / settings.html, and bump the plugin.json `version` so the injected
+# src/ / settings.html, and bump the plugin.json `version` so the injected
 # <link>'s ?v= cache-buster fetches the fresh file.
 #
 # Pin the same Tailwind 3.x core uses so output stays diff-stable across

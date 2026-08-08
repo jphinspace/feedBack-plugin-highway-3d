@@ -6,11 +6,12 @@ import { emitSettingChange } from '../settings/store.js';
 /**
  * Venue viz mode: a small-club stage backdrop (static plate + optional
  * crowd video layers + haze) that replaces the normal background style when
- * active. Reached only via `window.h3dVenueSceneSetActive`, never a
+ * active. Reached only via `window.h3dDevVenueSceneSetActive`, never a
  * user-selectable `h3d_bg_style` value — deliberately absent from
  * `BACKGROUND_STYLE_IDS` (see `settings/defaults.js`).
  *
- * The `h3dVenueSet*` setters below are bound onto `window` by `src/globals.js`.
+ * The setters below are bound onto the dev-only `window.h3dDevVenue*` namespace by
+ * `src/globals.js`.
  * `_venueSetSceneAssetsLoaded`/`_venueSetSceneLoadFailed`/`_venueSetSceneOverride`
  * exist so `background/styles/venue.js` (the renderer half of this feature)
  * can write this module's state — only the declaring module may reassign

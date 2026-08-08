@@ -13,6 +13,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { bnvSampleAt } from '../src/instance/model/math.js';
 
 // ── bnvSampleAt (3D) ─────────────────────────────────────────────────────────
@@ -44,4 +45,11 @@ test('bnvSampleAt returns 0 for an empty/invalid curve', () => {
 test('bnvSampleAt tolerates a zero-width segment (duplicate t)', () => {
   const bnv = [{ t: 0, v: 0 }, { t: 0.5, v: 1 }, { t: 0.5, v: 2 }, { t: 1, v: 2 }];
   assert.equal(bnvSampleAt(bnv, 0.5), 1); // first matching segment wins
+});
+
+test('bend peak caching stays off host-owned note objects', async () => {
+  const src = await readFile(new URL('../src/instance/render/note.js', import.meta.url), 'utf8');
+  assert.match(src, /const _bnvPeakCache = new WeakMap\(\)/);
+  assert.doesNotMatch(src, /n\._bnvPeakCache\s*=/);
+  assert.match(src, /_bnvPeakCache\.set\(n,/);
 });

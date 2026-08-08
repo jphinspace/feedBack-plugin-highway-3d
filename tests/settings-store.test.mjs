@@ -40,3 +40,22 @@ test('readGlobalSetting reads the global slot, ignoring per-panel overrides', as
     delete bgMemFallback.style; // in case an assertion above threw mid-test
   }
 });
+
+test('custom video filename uses the dev plugin storage slot', async () => {
+  const { globalSettingStorageKey, writeGlobalSetting, settingsMemFallback: bgMemFallback } = await import('../src/settings/store.js');
+  const writes = [];
+  const realLocalStorage = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem: () => null,
+    setItem: (key, value) => writes.push([key, value]),
+  };
+  try {
+    assert.equal(globalSettingStorageKey('customVideoName'), 'h3d_dev_bg_customVideoName');
+    assert.equal(globalSettingStorageKey('style'), 'h3d_bg_style');
+    writeGlobalSetting('customVideoName', 'current.mp4');
+    assert.deepEqual(writes, [['h3d_dev_bg_customVideoName', 'current.mp4']]);
+  } finally {
+    globalThis.localStorage = realLocalStorage;
+    delete bgMemFallback.customVideoName;
+  }
+});

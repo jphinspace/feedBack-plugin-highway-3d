@@ -27,7 +27,7 @@ import {
 } from './ui/aspect-panel.js';
 import { SETTING_DEFAULTS, LOAD_SETTINGS_SIMPLE_KEY_TO_FIELD, highwayAxisColors } from './settings/defaults.js';
 import {
-  emitSettingChange, hasStoredSetting, settingsMemFallback, settingsPanelKey, readSetting, subscribeToSettings, unsubscribeFromSettings,
+  emitSettingChange, globalSettingStorageKey, hasStoredSetting, settingsMemFallback, settingsPanelKey, readSetting, subscribeToSettings, unsubscribeFromSettings,
 } from './settings/store.js';
 import {
   _venueCrowdVideos, _venueEffectiveMotionMode, _venueSceneOverride, _venueSwapPlateIfNeeded,
@@ -103,14 +103,14 @@ installGlobals();
  * Defined at module scope so it's available before any highway mounts;
  * settings.html guards the call with `?.` for that case.
  */
-window.h3dBcApplySettings = function h3dBcApplySettings() {
+window.h3dDevBcApplySettings = function h3dDevBcApplySettings() {
   resetButterchurnSettingsCache(); // drop the cache so the next read reloads from localStorage
   loadButterchurnSettings();
   applyButterchurnSettingsToAll();
   try { updatePanelPreset(); } catch (e) {}
 };
 
-window.h3dSetFretSpacing = (mode) => {
+window.h3dDevSetFretSpacing = (mode) => {
   const m = mode === 'logarithmic' ? 'logarithmic' : 'uniform';
   try {
     if (localStorage.getItem('highway_3d.fretSpacing') === m) return;
@@ -1439,7 +1439,7 @@ function createFactory() {
     // Custom video filename: same global-slot, mem-first precedence as the image keys.
     const memVideoName = settingsMemFallback.customVideoName;
     try {
-      const gVideoName = (memVideoName !== undefined) ? memVideoName : localStorage.getItem('h3d_bg_customVideoName');
+      const gVideoName = (memVideoName !== undefined) ? memVideoName : localStorage.getItem(globalSettingStorageKey('customVideoName'));
       ctx.settings.bgCustomVideoName = (gVideoName != null) ? gVideoName : SETTING_DEFAULTS.customVideoName;
     } catch (_) {
       ctx.settings.bgCustomVideoName = (memVideoName !== undefined) ? memVideoName : SETTING_DEFAULTS.customVideoName;

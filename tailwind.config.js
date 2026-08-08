@@ -15,11 +15,10 @@ module.exports = {
   // doesn't double the preflight and fight core's styles.
   corePlugins: { preflight: false },
   content: [
-    // List only the files that carry Tailwind classes — screen.js (renderer
-    // + HUD markup) and settings.html. A broad ./*.{js,html} would also scan
-    // THIS config (its comments mention class-like strings such as
-    // text-[10px]) and emit them spuriously; tour.json is plain text.
+    // Scan the settings UI and the renderer's ES-module tree. Keep the root glob
+    // narrow so this config's own class-like comments are not treated as content.
     './screen.js',
+    './src/**/*.js',
     './settings.html',
   ],
   theme: {

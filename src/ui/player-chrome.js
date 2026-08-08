@@ -236,7 +236,7 @@ export function mountControl() {
   }
   styleSelectEl.addEventListener('change', () => {
     if (styleSelectEl.disabled) return;
-    try { window.h3dBgSetStyle(styleSelectEl.value); } catch (e) { console.error('[3D-Hwy] bg style set failed', e); }
+    try { window.h3dDevBgSetStyle(styleSelectEl.value); } catch (e) { console.error('[3D-Hwy] bg style set failed', e); }
   });
   box.appendChild(styleSelectEl);
   const optWrap = document.createElement('div');
@@ -245,7 +245,7 @@ export function mountControl() {
   reactiveBtn = makePill('Reactive', 'React to the audio');
   reactiveBtn.addEventListener('click', () => {
     if (reactiveBtn.disabled) return;
-    try { window.h3dBgSetReactive(!reactiveBtn._on); } catch (e) { console.error('[3D-Hwy] bg reactive set failed', e); }
+    try { window.h3dDevBgSetReactive(!reactiveBtn._on); } catch (e) { console.error('[3D-Hwy] bg reactive set failed', e); }
   });
   optWrap.appendChild(reactiveBtn);
   box.appendChild(optWrap);
@@ -263,7 +263,7 @@ export function mountControl() {
   // background style, so an 'input' listener would rebuild ~20x per drag.
   intensitySlider.addEventListener('change', () => {
     if (intensitySlider.disabled) return;
-    try { window.h3dBgSetIntensity(parseFloat(intensitySlider.value)); } catch (e) { console.error('[3D-Hwy] bg intensity set failed', e); }
+    try { window.h3dDevBgSetIntensity(parseFloat(intensitySlider.value)); } catch (e) { console.error('[3D-Hwy] bg intensity set failed', e); }
   });
   intensityWrapEl.appendChild(intensitySlider);
   box.appendChild(intensityWrapEl);

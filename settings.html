@@ -83,7 +83,7 @@
     <div class="mt-3">
         <label for="h3d-fret-spacing" class="text-xs font-medium text-gray-400 mb-1 block">Fret spacing</label>
         <select id="h3d-fret-spacing"
-            onchange="window.h3dSetFretSpacing && window.h3dSetFretSpacing(this.value)"
+            onchange="window.h3dDevSetFretSpacing && window.h3dDevSetFretSpacing(this.value)"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
             <option value="uniform">Uniform (equal width per fret)</option>
             <option value="logarithmic">Instrument (logarithmic — decreasing toward bridge)</option>
@@ -117,7 +117,7 @@
     <div class="mt-3">
         <label for="h3d-bg-style" class="text-xs font-medium text-gray-400 mb-1 block">Style</label>
         <select id="h3d-bg-style"
-            onchange="window.h3dBgSetStyle && window.h3dBgSetStyle(this.value)"
+            onchange="window.h3dDevBgSetStyle && window.h3dDevBgSetStyle(this.value)"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
             <option value="off">Off</option>
             <option value="particles" selected>Particles (drifting)</option>
@@ -140,7 +140,7 @@
         <!-- Options are populated from SCENE_THEMES (the single id+label source)
              in the hydration script below, so the two dropdowns can't drift. -->
         <select id="h3d-bg-theme"
-            onchange="window.h3dBgSetBgTheme && window.h3dBgSetBgTheme(this.value)"
+            onchange="window.h3dDevBgSetBgTheme && window.h3dDevBgSetBgTheme(this.value)"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
         </select>
         <p class="text-[10px] text-gray-500 mt-1">
@@ -152,7 +152,7 @@
         <!-- Options populated from SCENE_THEMES (see below), same source as the
              Background dropdown so the two stay in lockstep. -->
         <select id="h3d-hw-theme"
-            onchange="window.h3dBgSetHwTheme && window.h3dBgSetHwTheme(this.value)"
+            onchange="window.h3dDevBgSetHwTheme && window.h3dDevBgSetHwTheme(this.value)"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
         </select>
         <p class="text-[10px] text-gray-500 mt-1">
@@ -165,7 +165,7 @@
          on/off + slider controls now live here in the standard settings UI.
          The live preset browser (pick / favorite / ban / cycle) stays in-canvas.
          Persisted in the 'viz3d_settings' localStorage blob (shared with the
-         in-canvas preset controls); window.h3dBcApplySettings() pushes changes
+         in-canvas preset controls); window.h3dDevBcApplySettings() pushes changes
          to a mounted highway live. -->
     <div id="h3d-bc-section" class="mt-4">
         <h3 class="text-sm font-medium text-gray-400 mb-2">Butterchurn (visualizer)</h3>
@@ -219,7 +219,7 @@
         // Self-contained Butterchurn settings wiring. Reads/writes the same
         // 'viz3d_settings' blob the in-canvas preset controls use (read-modify-
         // write preserves cyclePool/hold and the favorites/bans lists), then
-        // calls window.h3dBcApplySettings() so a mounted highway applies the
+        // calls window.h3dDevBcApplySettings() so a mounted highway applies the
         // change live. Guarded so it no-ops if the section isn't present.
         (function () {
             const BC_LS = 'viz3d_settings';
@@ -229,7 +229,7 @@
                 const s = readBlob();
                 Object.assign(s, p);
                 try { localStorage.setItem(BC_LS, JSON.stringify(s)); } catch (e) {}
-                try { if (typeof window.h3dBcApplySettings === 'function') window.h3dBcApplySettings(); } catch (e) {}
+                try { if (typeof window.h3dDevBcApplySettings === 'function') window.h3dDevBcApplySettings(); } catch (e) {}
             }
             const s = Object.assign({}, BC_DEFAULTS, readBlob());
             const $ = (id) => document.getElementById(id);
@@ -270,7 +270,7 @@
         </label>
         <input type="range" id="h3d-bg-intensity" min="0" max="1" step="0.05" value="0.5"
             oninput="document.getElementById('h3d-bg-intensity-label').textContent = parseFloat(this.value).toFixed(2);"
-            onchange="window.h3dBgSetIntensity && window.h3dBgSetIntensity(this.value)"
+            onchange="window.h3dDevBgSetIntensity && window.h3dDevBgSetIntensity(this.value)"
             class="w-full accent-accent">
     </div>
 
@@ -278,7 +278,7 @@
     <div class="flex items-center gap-3 mt-3">
         <label class="flex items-center gap-2 text-sm text-gray-300">
             <input type="checkbox" id="h3d-bg-reactive" checked
-                   onchange="window.h3dBgSetReactive && window.h3dBgSetReactive(this.checked)"
+                   onchange="window.h3dDevBgSetReactive && window.h3dDevBgSetReactive(this.checked)"
                    class="accent-accent">
             React to audio
         </label>
@@ -309,7 +309,7 @@
 
     <!-- Custom video upload (#19 follow-up). Bytes live on disk via
          the plugin's routes.py upload route; localStorage holds only
-         the server-side filename (h3d_bg_customVideoName). Renders as
+         the server-side filename (h3d_dev_bg_customVideoName). Renders as
          the `video` bg style; the picker option above auto-enables
          once an asset is uploaded. -->
     <div class="mt-3">
@@ -347,7 +347,7 @@
     <div class="mt-3">
         <label for="h3d-camera-mode" class="text-xs font-medium text-gray-400 mb-1 block">Camera view</label>
         <select id="h3d-camera-mode"
-            onchange="window.h3dBgSetCameraMode && window.h3dBgSetCameraMode(this.value)"
+            onchange="window.h3dDevBgSetCameraMode && window.h3dDevBgSetCameraMode(this.value)"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
             <option value="lookahead">Wide ahead (default)</option>
             <option value="steady">Steady &amp; close-in</option>
@@ -367,25 +367,25 @@
         <div class="flex flex-col gap-3 mt-2">
             <label class="flex items-start gap-2 text-sm text-gray-300 cursor-pointer">
                 <input type="checkbox" id="h3d-nut-headstock-visible" checked class="mt-1 accent-accent"
-                    onchange="window.h3dBgSetNutHeadstockVisible && window.h3dBgSetNutHeadstockVisible(this.checked)">
+                    onchange="window.h3dDevBgSetNutHeadstockVisible && window.h3dDevBgSetNutHeadstockVisible(this.checked)">
                 <span>Show nut &amp; headstock</span>
             </label>
             <label class="flex items-start gap-2 text-sm text-gray-300 cursor-pointer">
                 <input type="checkbox" id="h3d-tuning-labels-visible" checked class="mt-1 accent-accent"
-                    onchange="window.h3dBgSetTuningLabelsVisible && window.h3dBgSetTuningLabelsVisible(this.checked)">
+                    onchange="window.h3dDevBgSetTuningLabelsVisible && window.h3dDevBgSetTuningLabelsVisible(this.checked)">
                 <span>Show open-string note name per string</span>
             </label>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1">
                 <div>
                     <label for="h3d-nut-color" class="text-xs font-medium text-gray-400 mb-1 block">Nut color</label>
                     <input type="color" id="h3d-nut-color" value="#f5f3f0"
-                        onchange="window.h3dBgSetNutColor && window.h3dBgSetNutColor(this.value)"
+                        onchange="window.h3dDevBgSetNutColor && window.h3dDevBgSetNutColor(this.value)"
                         class="h-9 w-full max-w-[12rem] cursor-pointer rounded border border-gray-800 bg-dark-700 p-0.5">
                 </div>
                 <div>
                     <label for="h3d-headstock-color" class="text-xs font-medium text-gray-400 mb-1 block">Headstock color</label>
                     <input type="color" id="h3d-headstock-color" value="#d4b48a"
-                        onchange="window.h3dBgSetHeadstockColor && window.h3dBgSetHeadstockColor(this.value)"
+                        onchange="window.h3dDevBgSetHeadstockColor && window.h3dDevBgSetHeadstockColor(this.value)"
                         class="h-9 w-full max-w-[12rem] cursor-pointer rounded border border-gray-800 bg-dark-700 p-0.5">
                 </div>
             </div>
@@ -409,7 +409,7 @@
                 </label>
                 <input type="range" id="h3d-camera-smoothing" min="0" max="1" step="0.05" value="0.5"
                     oninput="document.getElementById('h3d-camera-smoothing-label').textContent = parseFloat(this.value).toFixed(2);"
-                    onchange="window.h3dBgSetCameraSmoothing && window.h3dBgSetCameraSmoothing(this.value)"
+                    onchange="window.h3dDevBgSetCameraSmoothing && window.h3dDevBgSetCameraSmoothing(this.value)"
                     class="w-full accent-accent">
                 <p class="text-[10px] text-gray-500 mt-1">
                     How aggressively the camera chases your upcoming notes
@@ -436,7 +436,7 @@
                 </label>
                 <input type="range" id="h3d-zoom-smoothing" min="0" max="1" step="0.05" value="0.5"
                     oninput="document.getElementById('h3d-zoom-smoothing-label').textContent = parseFloat(this.value).toFixed(2);"
-                    onchange="window.h3dBgSetZoomSmoothing && window.h3dBgSetZoomSmoothing(this.value)"
+                    onchange="window.h3dDevBgSetZoomSmoothing && window.h3dDevBgSetZoomSmoothing(this.value)"
                     class="w-full accent-accent">
                 <p class="text-[10px] text-gray-500 mt-1">
                     Calmness of the camera pulling back for wide chords. Calm settings
@@ -455,7 +455,7 @@
                 </label>
                 <input type="range" id="h3d-tilt-smoothing" min="0" max="1" step="0.05" value="0.5"
                     oninput="document.getElementById('h3d-tilt-smoothing-label').textContent = parseFloat(this.value).toFixed(2);"
-                    onchange="window.h3dBgSetTiltSmoothing && window.h3dBgSetTiltSmoothing(this.value)"
+                    onchange="window.h3dDevBgSetTiltSmoothing && window.h3dDevBgSetTiltSmoothing(this.value)"
                     class="w-full accent-accent">
                 <p class="text-[10px] text-gray-500 mt-1">
                     How aggressively the camera re-frames vertically when the fretboard
@@ -469,7 +469,7 @@
 
             <div class="mt-4 flex items-start gap-2">
                 <input type="checkbox" id="h3d-camera-lock-low" class="mt-1 accent-accent"
-                    onchange="window.h3dBgSetCameraLockLow && window.h3dBgSetCameraLockLow(this.checked)">
+                    onchange="window.h3dDevBgSetCameraLockLow && window.h3dDevBgSetCameraLockLow(this.checked)">
                 <label for="h3d-camera-lock-low" class="text-xs text-gray-300 cursor-pointer">
                     <span class="font-medium">Lock camera at frets 1–12.</span>
                     <span class="block text-[10px] text-gray-500 mt-1">
@@ -489,7 +489,7 @@
                 </label>
                 <input type="range" id="h3d-camera-lock-zoom" min="0" max="1" step="0.05" value="0.5"
                     oninput="document.getElementById('h3d-camera-lock-zoom-label').textContent = parseFloat(this.value).toFixed(2);"
-                    onchange="window.h3dBgSetCameraLockZoom && window.h3dBgSetCameraLockZoom(this.value)"
+                    onchange="window.h3dDevBgSetCameraLockZoom && window.h3dDevBgSetCameraLockZoom(this.value)"
                     class="w-full accent-accent">
                 <p class="text-[10px] text-gray-500 mt-1">
                     Adjusts the camera distance while the lock is engaged. Drag toward
@@ -509,7 +509,7 @@
                 </label>
                 <input type="range" id="h3d-text-size" min="0" max="1" step="0.05" value="0.5"
                     oninput="document.getElementById('h3d-text-size-label').textContent = parseFloat(this.value).toFixed(2);"
-                    onchange="window.h3dBgSetTextSize && window.h3dBgSetTextSize(this.value)"
+                    onchange="window.h3dDevBgSetTextSize && window.h3dDevBgSetTextSize(this.value)"
                     class="w-full accent-accent">
                 <p class="text-[10px] text-gray-500 mt-1">
                     Scales every text sprite in the scene — chord names, fret
@@ -525,7 +525,7 @@
             <!-- FPS counter -->
             <div class="mt-4 flex items-start gap-2">
                 <input type="checkbox" id="h3d-fps-visible" class="mt-1 accent-accent"
-                    onchange="window.h3dBgSetFpsVisible && window.h3dBgSetFpsVisible(this.checked)">
+                    onchange="window.h3dDevBgSetFpsVisible && window.h3dDevBgSetFpsVisible(this.checked)">
                 <label for="h3d-fps-visible" class="text-xs text-gray-300 cursor-pointer">
                     <span class="font-medium">Show FPS counter.</span>
                     <span class="block text-[10px] text-gray-500 mt-1">
@@ -540,8 +540,8 @@
                     Vibrancy: <span id="h3d-vibrancy-label">0.85</span>
                 </label>
                 <input type="range" id="h3d-vibrancy" min="0" max="1" step="0.05" value="0.85"
-                    oninput="document.getElementById('h3d-vibrancy-label').textContent = parseFloat(this.value).toFixed(2); window.h3dBgSetVibrancy && window.h3dBgSetVibrancy(this.value)"
-                    onchange="window.h3dBgSetVibrancy && window.h3dBgSetVibrancy(this.value)"
+                    oninput="document.getElementById('h3d-vibrancy-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetVibrancy && window.h3dDevBgSetVibrancy(this.value)"
+                    onchange="window.h3dDevBgSetVibrancy && window.h3dDevBgSetVibrancy(this.value)"
                     class="w-full accent-accent">
                 <p class="text-[10px] text-gray-500 mt-1">
                     How vivid idle strings, note bodies, and sustains read against
@@ -561,8 +561,8 @@
                     Glow: <span id="h3d-glow-label">0.25</span>
                 </label>
                 <input type="range" id="h3d-glow" min="0" max="1" step="0.05" value="0.25"
-                    oninput="document.getElementById('h3d-glow-label').textContent = parseFloat(this.value).toFixed(2); window.h3dBgSetGlow && window.h3dBgSetGlow(this.value)"
-                    onchange="window.h3dBgSetGlow && window.h3dBgSetGlow(this.value)"
+                    oninput="document.getElementById('h3d-glow-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetGlow && window.h3dDevBgSetGlow(this.value)"
+                    onchange="window.h3dDevBgSetGlow && window.h3dDevBgSetGlow(this.value)"
                     class="w-full accent-accent">
                 <p class="text-[10px] text-gray-500 mt-1">
                     How much halo / bloom builds up around hit notes, sustain
@@ -583,8 +583,8 @@
                     Hit feedback intensity: <span id="h3d-hitfx-label">0.70</span>
                 </label>
                 <input type="range" id="h3d-hitfx" min="0" max="1" step="0.05" value="0.70"
-                    oninput="document.getElementById('h3d-hitfx-label').textContent = parseFloat(this.value).toFixed(2); window.h3dBgSetHitFx && window.h3dBgSetHitFx(this.value)"
-                    onchange="window.h3dBgSetHitFx && window.h3dBgSetHitFx(this.value)"
+                    oninput="document.getElementById('h3d-hitfx-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetHitFx && window.h3dDevBgSetHitFx(this.value)"
+                    onchange="window.h3dDevBgSetHitFx && window.h3dDevBgSetHitFx(this.value)"
                     class="w-full accent-accent">
                 <p class="text-[10px] text-gray-500 mt-1">
                     How much "juice" a nailed note gets — the strike-line flash and the
@@ -598,7 +598,7 @@
                     <span class="block text-[10px] text-gray-500 font-normal">The particle burst that pops off a note the instant it's detected as a hit. Turn off for a calmer highway — the strike-line flash and colour verdict stay.</span>
                 </label>
                 <input type="checkbox" id="h3d-sparks" checked
-                    onchange="window.h3dBgSetSparks && window.h3dBgSetSparks(this.checked)"
+                    onchange="window.h3dDevBgSetSparks && window.h3dDevBgSetSparks(this.checked)"
                     class="accent-accent mt-0.5">
             </div>
 
@@ -608,7 +608,7 @@
                     <span class="block text-[10px] text-gray-500 font-normal">Darker stage so the glowing notes pop against it. Turn off for the brighter, flatter look.</span>
                 </label>
                 <input type="checkbox" id="h3d-cinematic" checked
-                    onchange="window.h3dBgSetCinematic && window.h3dBgSetCinematic(this.checked)"
+                    onchange="window.h3dDevBgSetCinematic && window.h3dDevBgSetCinematic(this.checked)"
                     class="accent-accent mt-0.5">
             </div>
 
@@ -618,7 +618,7 @@
                     <span class="block text-[10px] text-gray-500 font-normal">A clean run quietly "heats up" — bigger sparks the longer you stay accurate. Eases back on a miss.</span>
                 </label>
                 <input type="checkbox" id="h3d-streakfx" checked
-                    onchange="window.h3dBgSetStreakFx && window.h3dBgSetStreakFx(this.checked)"
+                    onchange="window.h3dDevBgSetStreakFx && window.h3dDevBgSetStreakFx(this.checked)"
                     class="accent-accent mt-0.5">
             </div>
 
@@ -628,7 +628,7 @@
                     <span class="block text-[10px] text-gray-500 font-normal">Adds a shape mark to each hit/miss so the result doesn't rely on the green/red colour pair alone.</span>
                 </label>
                 <input type="checkbox" id="h3d-verdictmarks" checked
-                    onchange="window.h3dBgSetVerdictMarks && window.h3dBgSetVerdictMarks(this.checked)"
+                    onchange="window.h3dDevBgSetVerdictMarks && window.h3dDevBgSetVerdictMarks(this.checked)"
                     class="accent-accent mt-0.5">
             </div>
 
@@ -638,7 +638,7 @@
                     <span class="block text-[10px] text-gray-500 font-normal">Real light-bleed around the glowing notes and hit flash (higher fidelity). Turns itself off in split-screen. If your machine struggles, turn this off first.</span>
                 </label>
                 <input type="checkbox" id="h3d-bloom" checked
-                    onchange="window.h3dBgSetBloom && window.h3dBgSetBloom(this.checked)"
+                    onchange="window.h3dDevBgSetBloom && window.h3dDevBgSetBloom(this.checked)"
                     class="accent-accent mt-0.5">
             </div>
 
@@ -648,7 +648,7 @@
                     <span class="block text-[10px] text-gray-500 font-normal">Colours a hit by your timing — on-time green, a touch <span style="color:#35d6ff">early (cyan)</span> or <span style="color:#ffb84d">late (amber)</span> — so you can feel where you sit in the beat.</span>
                 </label>
                 <input type="checkbox" id="h3d-timingfx" checked
-                    onchange="window.h3dBgSetTimingFx && window.h3dBgSetTimingFx(this.checked)"
+                    onchange="window.h3dDevBgSetTimingFx && window.h3dDevBgSetTimingFx(this.checked)"
                     class="accent-accent mt-0.5">
             </div>
         </div>
@@ -694,7 +694,7 @@
     <div class="mt-4">
         <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
             <input type="checkbox" id="h3d-slide-arrow-approach-visible" checked
-                   onchange="window.h3dBgSetSlideArrowApproachVisible && window.h3dBgSetSlideArrowApproachVisible(this.checked)"
+                   onchange="window.h3dDevBgSetSlideArrowApproachVisible && window.h3dDevBgSetSlideArrowApproachVisible(this.checked)"
                    class="accent-accent">
             Show slide direction arrow on the note
         </label>
@@ -706,7 +706,7 @@
     <div class="mt-4">
         <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
             <input type="checkbox" id="h3d-slide-arrow-neck-visible" checked
-                   onchange="window.h3dBgSetSlideArrowNeckVisible && window.h3dBgSetSlideArrowNeckVisible(this.checked)"
+                   onchange="window.h3dDevBgSetSlideArrowNeckVisible && window.h3dDevBgSetSlideArrowNeckVisible(this.checked)"
                    class="accent-accent">
             Show slide direction arrow on the neck preview
         </label>
@@ -718,7 +718,7 @@
     <div class="mt-4">
         <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
             <input type="checkbox" id="h3d-slide-arrow-chain-preview-visible" checked
-                   onchange="window.h3dBgSetSlideArrowChainPreviewVisible && window.h3dBgSetSlideArrowChainPreviewVisible(this.checked)"
+                   onchange="window.h3dDevBgSetSlideArrowChainPreviewVisible && window.h3dDevBgSetSlideArrowChainPreviewVisible(this.checked)"
                    class="accent-accent">
             Show early arrow for slide-into-slide notes
         </label>
@@ -742,7 +742,7 @@
     <div class="flex items-center gap-3 mt-3">
         <label class="flex items-center gap-2 text-sm text-gray-300">
             <input type="checkbox" id="h3d-section-hud-visible"
-                   onchange="window.h3dBgSetSectionHudVisible && window.h3dBgSetSectionHudVisible(this.checked)"
+                   onchange="window.h3dDevBgSetSectionHudVisible && window.h3dDevBgSetSectionHudVisible(this.checked)"
                    class="accent-accent">
             Show "Up Next" section card
         </label>
@@ -752,7 +752,7 @@
     <div class="mt-3">
         <label for="h3d-section-hud-position" class="text-xs font-medium text-gray-400 mb-1 block">Position</label>
         <select id="h3d-section-hud-position"
-            onchange="window.h3dBgSetSectionHudPosition && window.h3dBgSetSectionHudPosition(this.value)"
+            onchange="window.h3dDevBgSetSectionHudPosition && window.h3dDevBgSetSectionHudPosition(this.value)"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
             <option value="tl">Top-left</option>
             <option value="tr" selected>Top-right</option>
@@ -767,8 +767,8 @@
             Size: <span id="h3d-section-hud-size-label">0.50</span>
         </label>
         <input type="range" id="h3d-section-hud-size" min="0" max="1" step="0.05" value="0.5"
-            oninput="document.getElementById('h3d-section-hud-size-label').textContent = parseFloat(this.value).toFixed(2); window.h3dBgSetSectionHudSize && window.h3dBgSetSectionHudSize(this.value)"
-            onchange="window.h3dBgSetSectionHudSize && window.h3dBgSetSectionHudSize(this.value)"
+            oninput="document.getElementById('h3d-section-hud-size-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetSectionHudSize && window.h3dDevBgSetSectionHudSize(this.value)"
+            onchange="window.h3dDevBgSetSectionHudSize && window.h3dDevBgSetSectionHudSize(this.value)"
             class="w-full accent-accent">
         <div class="flex justify-between text-[10px] text-gray-500 mt-1"><span>Small</span><span>Large</span></div>
     </div>
@@ -782,7 +782,7 @@
             <div class="mt-2">
                 <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
                     <input type="checkbox" id="h3d-section-labels-on-highway"
-                           onchange="window.h3dBgSetSectionLabelsOnHighway && window.h3dBgSetSectionLabelsOnHighway(this.checked)"
+                           onchange="window.h3dDevBgSetSectionLabelsOnHighway && window.h3dDevBgSetSectionLabelsOnHighway(this.checked)"
                            class="accent-accent">
                     Show section labels on the highway
                 </label>
@@ -809,7 +809,7 @@
     <div class="flex items-center gap-3 mt-3">
         <label class="flex items-center gap-2 text-sm text-gray-300">
             <input type="checkbox" id="h3d-tone-hud-visible"
-                   onchange="window.h3dBgSetToneHudVisible && window.h3dBgSetToneHudVisible(this.checked)"
+                   onchange="window.h3dDevBgSetToneHudVisible && window.h3dDevBgSetToneHudVisible(this.checked)"
                    class="accent-accent">
             Show tone change card
         </label>
@@ -819,7 +819,7 @@
     <div class="mt-3">
         <label for="h3d-tone-hud-position" class="text-xs font-medium text-gray-400 mb-1 block">Position</label>
         <select id="h3d-tone-hud-position"
-            onchange="window.h3dBgSetToneHudPosition && window.h3dBgSetToneHudPosition(this.value)"
+            onchange="window.h3dDevBgSetToneHudPosition && window.h3dDevBgSetToneHudPosition(this.value)"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
             <option value="tl" selected>Top-left</option>
             <option value="tr">Top-right</option>
@@ -834,8 +834,8 @@
             Size: <span id="h3d-tone-hud-size-label">0.50</span>
         </label>
         <input type="range" id="h3d-tone-hud-size" min="0" max="1" step="0.05" value="0.5"
-            oninput="document.getElementById('h3d-tone-hud-size-label').textContent = parseFloat(this.value).toFixed(2); window.h3dBgSetToneHudSize && window.h3dBgSetToneHudSize(this.value)"
-            onchange="window.h3dBgSetToneHudSize && window.h3dBgSetToneHudSize(this.value)"
+            oninput="document.getElementById('h3d-tone-hud-size-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetToneHudSize && window.h3dDevBgSetToneHudSize(this.value)"
+            onchange="window.h3dDevBgSetToneHudSize && window.h3dDevBgSetToneHudSize(this.value)"
             class="w-full accent-accent">
         <div class="flex justify-between text-[10px] text-gray-500 mt-1"><span>Small</span><span>Large</span></div>
     </div>
@@ -851,7 +851,7 @@
     <div class="flex items-center gap-3 mt-1 mb-4">
         <label class="flex items-center gap-2 text-sm text-gray-300">
             <input type="checkbox" id="h3d-chord-diagram-visible" checked
-                   onchange="window.h3dBgSetChordDiagramVisible && window.h3dBgSetChordDiagramVisible(this.checked)"
+                   onchange="window.h3dDevBgSetChordDiagramVisible && window.h3dDevBgSetChordDiagramVisible(this.checked)"
                    class="accent-accent">
             Show chord diagram
         </label>
@@ -863,8 +863,8 @@
             Size: <span id="h3d-chord-diagram-size-label">0.50</span>
         </label>
         <input type="range" id="h3d-chord-diagram-size" min="0" max="1" step="0.05" value="0.5"
-            oninput="document.getElementById('h3d-chord-diagram-size-label').textContent = parseFloat(this.value).toFixed(2); window.h3dBgSetChordDiagramSize && window.h3dBgSetChordDiagramSize(this.value)"
-            onchange="window.h3dBgSetChordDiagramSize && window.h3dBgSetChordDiagramSize(this.value)"
+            oninput="document.getElementById('h3d-chord-diagram-size-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetChordDiagramSize && window.h3dDevBgSetChordDiagramSize(this.value)"
+            onchange="window.h3dDevBgSetChordDiagramSize && window.h3dDevBgSetChordDiagramSize(this.value)"
             class="w-full accent-accent">
         <div class="flex justify-between text-[10px] text-gray-500 mt-1"><span>Small</span><span>Large</span></div>
     </div>
@@ -873,7 +873,7 @@
     <div class="mt-3">
         <label for="h3d-chord-diagram-position" class="text-xs font-medium text-gray-400 mb-1 block">Position</label>
         <select id="h3d-chord-diagram-position"
-            onchange="window.h3dBgSetChordDiagramPosition && window.h3dBgSetChordDiagramPosition(this.value)"
+            onchange="window.h3dDevBgSetChordDiagramPosition && window.h3dDevBgSetChordDiagramPosition(this.value)"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
             <option value="tl" selected>Top-left</option>
             <option value="tr">Top-right</option>
@@ -886,7 +886,7 @@
             Fret-column marker cadence (measures)
         </label>
         <input type="number" id="h3d-fret-column-marker-cadence" min="0" max="16" step="1" value="1"
-            onchange="window.h3dBgSetFretColumnMarkerCadence && window.h3dBgSetFretColumnMarkerCadence(this.value)"
+            onchange="window.h3dDevBgSetFretColumnMarkerCadence && window.h3dDevBgSetFretColumnMarkerCadence(this.value)"
             class="w-24 bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
         <p class="text-[10px] text-gray-500 mt-1">
             How often a row of fret-number reference markers slides down
@@ -905,7 +905,7 @@
     <div class="mt-4">
         <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
             <input type="checkbox" id="h3d-projection-visible"
-                   onchange="window.h3dBgSetProjectionVisible && window.h3dBgSetProjectionVisible(this.checked)"
+                   onchange="window.h3dDevBgSetProjectionVisible && window.h3dDevBgSetProjectionVisible(this.checked)"
                    class="accent-accent">
             Show note preview on the fretboard
         </label>
@@ -923,7 +923,7 @@
     <div class="mt-4">
         <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
             <input type="checkbox" id="h3d-inlay-labels-visible"
-                   onchange="window.h3dBgSetInlayLabelsVisible && window.h3dBgSetInlayLabelsVisible(!this.checked)"
+                   onchange="window.h3dDevBgSetInlayLabelsVisible && window.h3dDevBgSetInlayLabelsVisible(!this.checked)"
                    class="accent-accent">
             Hide static fret-inlay number labels
         </label>
@@ -939,7 +939,7 @@
     <div class="mt-4">
         <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
             <input type="checkbox" id="h3d-fret-dividers-visible" checked
-                   onchange="window.h3dBgSetFretDividersVisible && window.h3dBgSetFretDividersVisible(this.checked)"
+                   onchange="window.h3dDevBgSetFretDividersVisible && window.h3dDevBgSetFretDividersVisible(this.checked)"
                    class="accent-accent">
             Show fret boundary divider lines
         </label>
@@ -1032,6 +1032,7 @@
             // candidate name before testing.
             const VIDEO_FILENAME_RE = /^current\.(mp4|webm)$/;
             const VIDEO_UPLOAD_URL = '/api/plugins/highway_3d_dev/files';
+            const VIDEO_STORAGE_KEY = 'h3d_dev_bg_customVideoName';
 
             function coerceStyle(v) { return VALID_STYLES.has(v) ? v : DEFAULTS.style; }
             function coerceBgTheme(v) { return VALID_BG_THEMES.has(v) ? v : DEFAULTS.bgTheme; }
@@ -1153,7 +1154,7 @@
                 storedSlideArrowChainPreviewVisible = localStorage.getItem('h3d_bg_slideArrowChainPreviewVisible');
                 storedCustomImageDataUrl = localStorage.getItem('h3d_bg_customImageDataUrl');
                 storedCustomImageName = localStorage.getItem('h3d_bg_customImageName');
-                storedCustomVideoName = localStorage.getItem('h3d_bg_customVideoName');
+                storedCustomVideoName = localStorage.getItem(VIDEO_STORAGE_KEY);
             } catch (_) { /* storage blocked */ }
 
             const style = coerceStyle(storedStyle);
@@ -1320,14 +1321,14 @@
             }
             if (fon) {
                 fon.addEventListener('change', function () {
-                    if (window.h3dBgSetShowFretOnNote) window.h3dBgSetShowFretOnNote(this.checked);
+                    if (window.h3dDevBgSetShowFretOnNote) window.h3dDevBgSetShowFretOnNote(this.checked);
                     syncH3dFretGhostScopeUi();
                 });
             }
             document.querySelectorAll('input[name="h3d-fret-ghost-scope"]').forEach(function (r) {
                 r.addEventListener('change', function () {
-                    if (this.checked && window.h3dBgSetFretNumberGhostScope)
-                        window.h3dBgSetFretNumberGhostScope(this.value);
+                    if (this.checked && window.h3dDevBgSetFretNumberGhostScope)
+                        window.h3dDevBgSetFretNumberGhostScope(this.value);
                 });
             });
             if (csli) csli.value = String(cameraSmoothing);
@@ -1507,7 +1508,7 @@
             //
             // NOTE: settings.html normally runs BEFORE screen.js loads
             // (app.js injects settings first, then appends the plugin
-            // script), so window.h3dBgSetStyle is usually undefined at
+            // script), so window.h3dDevBgSetStyle is usually undefined at
             // this point. Write the corrected value directly to
             // localStorage so that when screen.js does load it reads the
             // already-fixed value rather than the stale 'video'/'image'.
@@ -1515,7 +1516,7 @@
                 if ((style === 'image' && !hasAsset) || (style === 'video' && !hasVideo)) {
                     sel.value = DEFAULTS.style;
                     try { localStorage.setItem('h3d_bg_style', DEFAULTS.style); } catch (_) { /* storage blocked */ }
-                    if (window.h3dBgSetStyle) window.h3dBgSetStyle(DEFAULTS.style);
+                    if (window.h3dDevBgSetStyle) window.h3dDevBgSetStyle(DEFAULTS.style);
                 } else {
                     sel.value = style;
                 }
@@ -1597,8 +1598,8 @@
                                 fileInput.value = '';
                                 return;
                             }
-                            if (window.h3dBgSetCustomImage) {
-                                window.h3dBgSetCustomImage({ dataUrl: dataUrl, name: file.name });
+                            if (window.h3dDevBgSetCustomImage) {
+                                window.h3dDevBgSetCustomImage({ dataUrl: dataUrl, name: file.name });
                             }
                             // The setter swallows localStorage write
                             // failures (sets in-memory fallback so the
@@ -1628,7 +1629,7 @@
             if (clearBtn) {
                 clearBtn.addEventListener('click', function () {
                     clearError();
-                    if (window.h3dBgClearCustomImage) window.h3dBgClearCustomImage();
+                    if (window.h3dDevBgClearCustomImage) window.h3dDevBgClearCustomImage();
                     refreshImageOptionState(false, '');
                     if (fileInput) fileInput.value = '';
                     // If the picker was on `image`, fall back to a
@@ -1636,7 +1637,7 @@
                     // (now-disabled) option selected.
                     if (sel && sel.value === 'image') {
                         sel.value = DEFAULTS.style;
-                        if (window.h3dBgSetStyle) window.h3dBgSetStyle(DEFAULTS.style);
+                        if (window.h3dDevBgSetStyle) window.h3dDevBgSetStyle(DEFAULTS.style);
                     }
                 });
             }
@@ -1722,8 +1723,8 @@
                             if (!VIDEO_FILENAME_RE.test(name)) {
                                 throw new Error('Server returned an unexpected filename.');
                             }
-                            if (window.h3dBgSetCustomVideo) {
-                                window.h3dBgSetCustomVideo({ name: name });
+                            if (window.h3dDevBgSetCustomVideo) {
+                                window.h3dDevBgSetCustomVideo({ name: name });
                             }
                             refreshVideoOptionState(true, name);
                             videoFileInput.value = '';
@@ -1739,7 +1740,7 @@
                             // because the renderer reads from the
                             // mem-fallback ahead of localStorage.
                             let persisted = false;
-                            try { persisted = localStorage.getItem('h3d_bg_customVideoName') === name; } catch (_) { /* storage blocked */ }
+                            try { persisted = localStorage.getItem(VIDEO_STORAGE_KEY) === name; } catch (_) { /* storage blocked */ }
                             if (!persisted) {
                                 showVideoError('Video applied for this session, but the filename pointer could not be saved (storage may be full or blocked). It will be lost on refresh.');
                             }
@@ -1790,12 +1791,12 @@
                             // key so the renderer doesn't lose the reference to
                             // a file that still exists on disk and the user can
                             // retry the clear later.
-                            if (window.h3dBgClearCustomVideo) window.h3dBgClearCustomVideo();
+                            if (window.h3dDevBgClearCustomVideo) window.h3dDevBgClearCustomVideo();
                             refreshVideoOptionState(false, '');
                             if (videoFileInput) videoFileInput.value = '';
                             if (sel && sel.value === 'video') {
                                 sel.value = DEFAULTS.style;
-                                if (window.h3dBgSetStyle) window.h3dBgSetStyle(DEFAULTS.style);
+                                if (window.h3dDevBgSetStyle) window.h3dDevBgSetStyle(DEFAULTS.style);
                             }
                         })
                         .catch(function (err) {

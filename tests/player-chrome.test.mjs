@@ -171,9 +171,9 @@ async function load({ store: initialStore } = {}) {
         if (i >= 0) l.splice(i, 1);
       },
     },
-    h3dBgSetStyle: (v) => { writes.push(['style', v]); settingsMemFallback.style = String(v); emitSettingChange('style'); },
-    h3dBgSetReactive: (v) => { writes.push(['reactive', v]); settingsMemFallback.reactive = String(v); emitSettingChange('reactive'); },
-    h3dBgSetIntensity: (v) => { writes.push(['intensity', v]); settingsMemFallback.intensity = String(v); emitSettingChange('intensity'); },
+    h3dDevBgSetStyle: (v) => { writes.push(['style', v]); settingsMemFallback.style = String(v); emitSettingChange('style'); },
+    h3dDevBgSetReactive: (v) => { writes.push(['reactive', v]); settingsMemFallback.reactive = String(v); emitSettingChange('reactive'); },
+    h3dDevBgSetIntensity: (v) => { writes.push(['intensity', v]); settingsMemFallback.intensity = String(v); emitSettingChange('intensity'); },
   };
   globalThis.window = win;
   globalThis.document = {
