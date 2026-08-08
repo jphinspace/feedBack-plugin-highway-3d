@@ -13,10 +13,8 @@
  *   swapped out from under a live instance by the canvas-replaced handler.
  */
 export function createNotedetectListeners(deps) {
-  let {
-    noteDetectHitMarks, noteDetectMissMarks,
-  } = deps;
   const {
+    noteDetectHitMarks, noteDetectMissMarks,
     _fxElemSeen,
     NOTEDETECT_TIME_EPS, NOTEDETECT_TTL_MS,
     _fxHandle, _fxResolvePalette,
@@ -66,8 +64,8 @@ export function createNotedetectListeners(deps) {
     arr.push({ ...mark, expiresAt: now + NOTEDETECT_TTL_MS });
     return arr;
   };
-  const noteDetectOnHit = (e) => { noteDetectHitMarks = noteDetectPushMark(noteDetectHitMarks, e.detail); };
-  const noteDetectOnMiss = (e) => { noteDetectMissMarks = noteDetectPushMark(noteDetectMissMarks, e.detail); };
+  const noteDetectOnHit = (e) => { noteDetectPushMark(noteDetectHitMarks, e.detail); };
+  const noteDetectOnMiss = (e) => { noteDetectPushMark(noteDetectMissMarks, e.detail); };
   window.addEventListener('notedetect:hit', noteDetectOnHit);
   window.addEventListener('notedetect:miss', noteDetectOnMiss);
   let noteDetectOnBusHit = null;
@@ -75,8 +73,8 @@ export function createNotedetectListeners(deps) {
   if (window.feedBack
             && typeof window.feedBack.on === 'function'
             && typeof window.feedBack.off === 'function') {
-    noteDetectOnBusHit = (e) => { noteDetectHitMarks = noteDetectPushMark(noteDetectHitMarks, e.detail); };
-    noteDetectOnBusMiss = (e) => { noteDetectMissMarks = noteDetectPushMark(noteDetectMissMarks, e.detail); };
+    noteDetectOnBusHit = (e) => { noteDetectPushMark(noteDetectHitMarks, e.detail); };
+    noteDetectOnBusMiss = (e) => { noteDetectPushMark(noteDetectMissMarks, e.detail); };
     window.feedBack.on('note:hit', noteDetectOnBusHit);
     window.feedBack.on('note:miss', noteDetectOnBusMiss);
   }

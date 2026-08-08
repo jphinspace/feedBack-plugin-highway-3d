@@ -1,7 +1,6 @@
 import {
   AHEAD, GHOST_HOLD_AFTER_ONSET, K, NW,
 } from '../../core/constants.js';
-import { fretX } from '../../core/fret-geometry.js';
 import { _noteKey, anchorLaneBoundsAt, lowerBoundT } from '../../core/chart-util.js';
 
 /**
@@ -35,6 +34,7 @@ export function createSingleNoteRenderer(deps) {
   const {
     noteRenderer, arpeggioLaneRail, validString, xFret, xFretMid, sY,
     drawArpBrackets, ctx, _ghostPrevBuf, _noteStreamBracketStrings, _frameLabeledKeys,
+    openNoteLaneBoxW, accumulateCamWeight,
   } = deps;
 
   function drawSingleNotes(
@@ -64,25 +64,6 @@ export function createSingleNoteRenderer(deps) {
     // churn in dense arpeggio passages; the value Sets lose their Map reference on clear().
     _noteStreamBracketStrings.clear();
     lastFretForString.fill(undefined, 0, nStr);
-
-    // Open-string note width: same outer span as the chord frame (anchor + padX, or a
-    // default 4-fret window when the chart has no anchor at t).
-    const padChordOpenX = NW * 0.4;
-    const openNoteLaneBoxW = (chartTime) => {
-      const chAncB = anchorLaneBoundsAt(anchors, chartTime);
-      if (chAncB) {
-        const xl = fretX(chAncB.dMin);
-        const xr = fretX(chAncB.dMax);
-        if (xr > xl) return (xr - xl) + padChordOpenX * 2;
-      }
-      const spanF = 4;
-      const fMinCh = 1;
-      const fMaxCh = fMinCh + spanF - 1;
-      const xl = fretX(fMinCh - 1);
-      const xr = fretX(Math.max(fMaxCh, fMinCh + 2));
-      if (xr > xl) return (xr - xl) + padChordOpenX * 2;
-      return 40 * K;
-    };
 
     if (notes) {
       // Start 30s before now — conservative enough to include any arpeggio persist
@@ -115,7 +96,7 @@ export function createSingleNoteRenderer(deps) {
           const ab = anchorLaneBoundsAt(anchors, n.t);
           if (ab) singleOpenX = (xFret(ab.dMin) + xFret(ab.dMax)) / 2;
         }
-        const singleOpenLaneW = n.f === 0 ? openNoteLaneBoxW(n.t) : undefined;
+        const singleOpenLaneW = n.f === 0 ? openNoteLaneBoxW(anchors, n.t) : undefined;
         const arGhostCid = arpeggioLaneRail.arpeggioChordIdForNoteWithInferCache(
           n,
           bundle.handShapes,
@@ -194,11 +175,7 @@ export function createSingleNoteRenderer(deps) {
             // 0.2s-old note's weight to ~0.56, calm mode (camTau=0.9s) to ~0.80; weight
             // is still 1 at onset either way.
             const w = Math.exp(-Math.abs(n.t - now) / camTau);
-            accum.camWX += xFretMid(n.f) * w;
-            accum.camWSum += w;
-            if (n.f < accum.camDistMin) accum.camDistMin = n.f;
-            if (n.f > accum.camDistMax) accum.camDistMax = n.f;
-            accum.camDistGot = true;
+            accumulateCamWeight(accum, xFretMid, n.f, w);
           }
         }
       }

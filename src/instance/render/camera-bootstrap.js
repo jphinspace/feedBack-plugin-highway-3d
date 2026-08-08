@@ -12,7 +12,7 @@ import { hwyFirstRelevantFrettedTime } from '../../core/chart-util.js';
  */
 export function createCameraBootstrap({
   ctx, xFretMid, camBaseDistU, camLowFretPullbackU, lookaheadBootstrapTime, lookaheadComputeFretBounds,
-  lookaheadTargetWorldX, _applyNoteCamTargets, validString, filterValidNotes,
+  lookaheadTargetWorldX, _applyNoteCamTargets, validString, filterValidNotes, accumulateCamWeight,
 }) {
   function detectSongChangeAndResetCamera(bundle) {
     // Arrangement switches / splitscreen song changes don't call renderer.destroy/init,
@@ -117,10 +117,11 @@ export function createCameraBootstrap({
         const bootstrapNow = Math.max(now, firstFrettedTime - camAhead);
         const bootstrapT0 = bootstrapNow - CAM_TGT_BEHIND;
         const bootstrapT1 = bootstrapNow + camAhead;
-        let preWX = 0; let
-          preWSum = 0;
-        let preDistMin = 99; let preDistMax = 0; let
-          preDistGot = false;
+        // Same shape as update()'s per-frame _chordAccum (see accumulateCamWeight) — a
+        // one-off local accumulator here since this pre-scan runs once per song, not per frame.
+        const pre = {
+          camWX: 0, camWSum: 0, camDistMin: 99, camDistMax: 0, camDistGot: false,
+        };
 
         for (const n of notes) {
           if (n.t + (n.sus || 0) < bootstrapT0) continue;
@@ -131,11 +132,7 @@ export function createCameraBootstrap({
                         && n.t + (n.sus || 0) >= bootstrapNow;
           if (nInWin || nSusNow) {
             const w = Math.exp(-Math.abs(n.t - bootstrapNow) / camTau);
-            preWX += xFretMid(n.f) * w;
-            preWSum += w;
-            if (n.f < preDistMin) preDistMin = n.f;
-            if (n.f > preDistMax) preDistMax = n.f;
-            preDistGot = true;
+            accumulateCamWeight(pre, xFretMid, n.f, w);
           }
         }
         for (const ch of chords) {
@@ -155,22 +152,18 @@ export function createCameraBootstrap({
             const cnOk = chOnsetInWin
                             || (chSusNow && ch.t + (cn.sus || 0) >= bootstrapNow);
             if (cn.f > 0 && cnOk) {
-              preWX += xFretMid(cn.f) * chW;
-              preWSum += chW;
-              if (cn.f < preDistMin) preDistMin = cn.f;
-              if (cn.f > preDistMax) preDistMax = cn.f;
-              preDistGot = true;
+              accumulateCamWeight(pre, xFretMid, cn.f, chW);
             }
           }
         }
 
-        if (preWSum > 0) {
+        if (pre.camWSum > 0) {
           ctx.cam.prevLockActive = _applyNoteCamTargets(
-            preWX,
-            preWSum,
-            preDistMin,
-            preDistMax,
-            preDistGot,
+            pre.camWX,
+            pre.camWSum,
+            pre.camDistMin,
+            pre.camDistMax,
+            pre.camDistGot,
             camHystF,
             camDistHystF, /* skipDistHyst= */
             true,
@@ -180,7 +173,7 @@ export function createCameraBootstrap({
         }
         // Finish defensively in case a malformed event produced no target.
         ctx.cam._camSnapped = true;
-        ctx.cam._camBootstrapHolding = preWSum > 0 && bootstrapNow > now;
+        ctx.cam._camBootstrapHolding = pre.camWSum > 0 && bootstrapNow > now;
         ctx.cam._camBootstrapMode = ctx.cam._camBootstrapHolding ? cameraMode : null;
       }
     }

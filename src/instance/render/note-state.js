@@ -1,6 +1,5 @@
-import { VENUE_GEM_EMISSIVE_MUL } from '../../core/constants.js';
 import { lowerBoundT } from '../../core/chart-util.js';
-import { _venueSceneOverride } from '../../background/venue.js';
+import { venueGemEmissiveMul } from '../../background/venue.js';
 
 /**
  * Per-string sustain/anticipation/fretHeat/glow state. `buildFrameState()`
@@ -106,7 +105,7 @@ export function createFrameState({
     const MAX_GLOW = 3.5 * glowMul;
     const IDLE_OP = _vibrancyIdleOp;
     const g = glowMul;
-    const venueGemMul = _venueSceneOverride ? VENUE_GEM_EMISSIVE_MUL : 1;
+    const venueGemMul = venueGemEmissiveMul();
 
     for (let s = 0; s < nStr; s++) {
       const mesh = ctx.board.stringLines[s];

@@ -1,4 +1,6 @@
-import { K, VENUE_HAZE_STEADY } from '../core/constants.js';
+import {
+  K, VENUE_HAZE_STEADY, VENUE_LANE_OP_BOOST, VENUE_GEM_EMISSIVE_MUL,
+} from '../core/constants.js';
 import { emitSettingChange } from '../settings/store.js';
 
 /**
@@ -43,6 +45,16 @@ export const _venueTextureCache = new Map();
 export const _venueCrowdVideos = [null, null];
 export let _venueCrowdMix = 0;
 export let _venueCrowdRev = 0;
+
+/** Highway-lane opacity multiplier under venue mode's near-lane contrast boost; 1 (no-op) otherwise. Single source for the `_venueSceneOverride ? VENUE_LANE_OP_BOOST : 1` ternary so every render module applying it stays in sync if the formula ever changes. */
+export function venueLaneOpBoost() {
+  return _venueSceneOverride ? VENUE_LANE_OP_BOOST : 1;
+}
+
+/** Gem emissive multiplier under venue mode; 1 (no-op) otherwise. Same single-source rationale as {@link venueLaneOpBoost}. */
+export function venueGemEmissiveMul() {
+  return _venueSceneOverride ? VENUE_GEM_EMISSIVE_MUL : 1;
+}
 
 export function venueMoodCoeffs(state) {
   const s = String(state || 'idle').toLowerCase();

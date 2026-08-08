@@ -22,14 +22,22 @@ import {
 } from './background/venue.js';
 
 /**
- * The only file that writes `window.*`. Every renderer module exports
- * plain functions/values; this is the sole place they bind onto the
- * global object the host and settings.html call against. Every name is
- * spelled out longhand (not looped over `Object.entries`) so this stays
- * one auditable, greppable list of the plugin's entire external `window.*` surface.
+ * The only file that writes the plugin's *public* `window.*` contract.
+ * Every renderer module exports plain functions/values; this is the sole
+ * place they bind onto the global object the host and settings.html call
+ * against. Every name is spelled out longhand (not looped over
+ * `Object.entries`) so this stays one auditable, greppable list of the
+ * plugin's entire external `window.*` surface.
  *
  * Not called at this module's own top level — `main.js` calls
  * `installGlobals()` once, alongside `initFretSpacing()`.
+ *
+ * Deliberately NOT listed here: `window.__h3dAspectTune`/`__h3dAspectPanes`/
+ * `__h3dAspectPanelOpen`/`__h3dAspectReadout` (`ui/aspect-panel.js`) and
+ * `window.__feedBackAudioTap` (`audio/analyser.js`) — private, double-
+ * underscore-prefixed cross-module-instance/cross-plugin coordination
+ * slots, not part of this public contract. See CLAUDE.md's globals.js
+ * rule for why they can't be one-time `installGlobals()` bindings.
  */
 export function installGlobals() {
   window.h3dBgSetStyle = h3dBgSetStyle;

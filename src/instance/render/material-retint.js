@@ -1,12 +1,11 @@
 import { T } from '../../core/three.js';
 import {
   ACCENT_HALO_OP_FAR, ACCENT_HALO_OP_MID, ACCENT_HALO_OP_NEAR, ACCENT_RIM_BASE_EMISSIVE, NH,
-  VENUE_GEM_EMISSIVE_MUL,
 } from '../../core/constants.js';
 import {
   DEFAULT_GEM_GRADIENTS, PALETTES, _customPalette, _darkenInt, _lightenInt,
 } from '../../core/palette.js';
-import { _venueSceneOverride } from '../../background/venue.js';
+import { venueGemEmissiveMul } from '../../background/venue.js';
 
 /**
  * Live palette/vibrancy/glow material-retint passes. All four walk the
@@ -244,7 +243,7 @@ export function createMaterialRetint({
     const mHitBright = getMHitBright(); const
       mHitSusOutline = getMHitSusOutline();
     const vg = noteVerdictState.sawAlpha ? noteVerdictState.maxAlpha : 1;
-    const venueGemMul = _venueSceneOverride ? VENUE_GEM_EMISSIVE_MUL : 1;
+    const venueGemMul = venueGemEmissiveMul();
     for (let s = 0; s < mHitBright.length; s++) {
       if (mHitBright[s]) mHitBright[s].emissiveIntensity = 4.0 * ctx.settings.glowMul * vg * venueGemMul;
     }

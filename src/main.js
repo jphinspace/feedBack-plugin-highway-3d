@@ -83,9 +83,10 @@ import { createMaterialRetint } from './instance/render/material-retint.js';
 import { createVerdictPrune } from './instance/notedetect/verdict-prune.js';
 import { createCameraLifecycle } from './instance/render/camera-lifecycle.js';
 import {
-  camBaseDistU, camLowFretPullbackU, createHelpers, setLabelMap,
+  camBaseDistU, camLowFretPullbackU, createHelpers, setLabelMap, openNoteLaneBoxW,
+  accumulateCamWeight,
 } from './instance/helpers.js';
-import { canvasSize, darkenHex } from './instance/model/math.js';
+import { canvasSize } from './instance/model/math.js';
 import { fastForwardIndex, isDesktopAudioHost } from './butterchurn/engine.js';
 import { applyButterchurnSettingsToAll, loadButterchurnSettings, resetButterchurnSettingsCache } from './butterchurn/prefs.js';
 import { updatePanelPreset } from './butterchurn/panel.js';
@@ -1165,6 +1166,8 @@ function createFactory() {
       _chordVerdicts,
       _noteStreamBracketStrings: _scrNoteStreamBracketStrings,
       _ghostPrevBuf: _scrGhostPrevBuf,
+      openNoteLaneBoxW,
+      accumulateCamWeight,
     });
 
     singleNoteRenderer = createSingleNoteRenderer({
@@ -1179,6 +1182,8 @@ function createFactory() {
       _ghostPrevBuf: _scrGhostPrevBuf,
       _noteStreamBracketStrings: _scrNoteStreamBracketStrings,
       _frameLabeledKeys,
+      openNoteLaneBoxW,
+      accumulateCamWeight,
     });
 
     highwayLane = createHighwayLane({
@@ -1235,6 +1240,7 @@ function createFactory() {
       _applyNoteCamTargets: noteCameraTargets.applyNoteCamTargets,
       validString,
       filterValidNotes,
+      accumulateCamWeight,
     });
 
     arpAndSlidePrepasses = createArpAndSlidePrepasses({ chordInference, arpeggioLaneRail, _scrArpPersistKeys });
@@ -1696,7 +1702,7 @@ function createFactory() {
         _prewarmTex(techMaterials.triMat(true, hex));
         _prewarmTex(techMaterials.triMat(false, hex));
         for (let st = 1; st <= 4; st++) _prewarmTex(techMaterials.bendChevronMat(st, hex));
-        const arrowHex = darkenHex(hex, 0.55);
+        const arrowHex = _darkenInt(hex, 0.55);
         _prewarmTex(techMaterials.slideArrowMat(true, arrowHex));
         _prewarmTex(techMaterials.slideArrowMat(false, arrowHex));
       }

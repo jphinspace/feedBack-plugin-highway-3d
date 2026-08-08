@@ -2,6 +2,7 @@ import {
   AHEAD, K, NFRETS, NH, NW, S_BASE, S_GAP,
 } from '../core/constants.js';
 import { dZ, fretMid, fretX } from '../core/fret-geometry.js';
+import { anchorLaneBoundsAt } from '../core/chart-util.js';
 import { S_COL } from '../core/palette.js';
 
 /**
@@ -21,6 +22,50 @@ import { S_COL } from '../core/palette.js';
 export const camBaseDistU = (span) => 65 + Math.max(span, 4) * 3;
 /** @param {number} minFret - lowest fretted note in the camera window (or 1 for the locked branch) */
 export const camLowFretPullbackU = (minFret) => Math.max(0, 5 - minFret) * 4;
+
+/**
+ * Weighted camera-centroid accumulation: folds one fretted note/chord-note
+ * into a running `{ camWX, camWSum, camDistMin, camDistMax, camDistGot }`
+ * accumulator (`w` is the caller's own `Math.exp(-|t - now| / camTau)`
+ * time-decay weight). Shared by `chords.js`, `single-notes.js`, and
+ * `camera-bootstrap.js`'s pre-scan — all three fold chart events into this
+ * same shape (either `update()`'s per-frame `_chordAccum` or
+ * `camera-bootstrap.js`'s own local pre-scan accumulator) so a camera-
+ * framing tune only has to change one formula.
+ */
+export function accumulateCamWeight(acc, xFretMid, f, w) {
+  acc.camWX += xFretMid(f) * w;
+  acc.camWSum += w;
+  if (f < acc.camDistMin) acc.camDistMin = f;
+  if (f > acc.camDistMax) acc.camDistMax = f;
+  acc.camDistGot = true;
+}
+
+/**
+ * Open-string note/chord lane width at `chartTime`: the outer span of the
+ * chart anchor active at that time (padded), or a default 4-fret window
+ * when there's no anchor. Shared by `chords.js` and `single-notes.js` — both
+ * draw open-string notes/chords at this same width so the lane box lines up
+ * whether the open note is standalone or part of a chord. Direction-agnostic
+ * (a width, not a position), so this intentionally uses raw `fretX`, not the
+ * lefty-mirrored `xFret` from {@link createHelpers}.
+ */
+export function openNoteLaneBoxW(anchors, chartTime) {
+  const padChordOpenX = NW * 0.4;
+  const chAncB = anchorLaneBoundsAt(anchors, chartTime);
+  if (chAncB) {
+    const xl = fretX(chAncB.dMin);
+    const xr = fretX(chAncB.dMax);
+    if (xr > xl) return (xr - xl) + padChordOpenX * 2;
+  }
+  const spanF = 4;
+  const fMinCh = 1;
+  const fMaxCh = fMinCh + spanF - 1;
+  const xl = fretX(fMinCh - 1);
+  const xr = fretX(Math.max(fMaxCh, fMinCh + 2));
+  if (xr > xl) return (xr - xl) + padChordOpenX * 2;
+  return 40 * K;
+}
 
 /** Deduped `sprite.material.map` swap — skips the GPU upload/`needsUpdate` when a recycled pooled sprite already shows the same texture. */
 export function setLabelMap(sprite, srcMat) {

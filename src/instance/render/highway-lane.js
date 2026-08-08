@@ -1,10 +1,10 @@
 import {
   AHEAD, BEHIND, HIGHWAY_LANE_STRIPE_OP_BASE, HIGHWAY_LANE_STRIPE_OP_INT,
-  HIGHWAY_LANE_TIME_SLICES, K, NFRETS, NH, S_BASE, TS, VENUE_LANE_OP_BOOST,
+  HIGHWAY_LANE_TIME_SLICES, K, NFRETS, NH, S_BASE, TS,
 } from '../../core/constants.js';
 import { dZ } from '../../core/fret-geometry.js';
 import { getChartAnchorAt, laneBoundsFromAnchor } from '../../core/chart-util.js';
-import { _venueSceneOverride } from '../../background/venue.js';
+import { venueLaneOpBoost } from '../../background/venue.js';
 
 /**
  * The dynamic highway lane (the highlighted strip under active frets) +
@@ -136,7 +136,7 @@ export function createHighwayLane({
         }
         {
           const laneOp = (HIGHWAY_LANE_STRIPE_OP_BASE + highwayIntensity * HIGHWAY_LANE_STRIPE_OP_INT)
-                        * (_venueSceneOverride ? VENUE_LANE_OP_BOOST : 1);
+                        * venueLaneOpBoost();
           // 2 shared materials (odd/even); opacity travels via the
           // material so set it once per frame, not per mesh.
           mLaneOdd.opacity = laneOp;
@@ -258,7 +258,7 @@ export function createHighwayLane({
         const laneLen = TS * AHEAD;
         const zLane = -laneLen / 2;
         const laneOp = (HIGHWAY_LANE_STRIPE_OP_BASE + highwayIntensity * HIGHWAY_LANE_STRIPE_OP_INT)
-                    * (_venueSceneOverride ? VENUE_LANE_OP_BOOST : 1);
+                    * venueLaneOpBoost();
         mLaneOdd.opacity = laneOp;
         mLaneEven.opacity = laneOp;
         const fLow = dMin + 1;

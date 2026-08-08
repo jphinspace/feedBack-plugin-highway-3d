@@ -14,8 +14,9 @@ import {
 } from '../../core/render-order.js';
 import { SLIDE_RIBBON_SAMPLES } from '../../core/slide-ribbon.js';
 import { anchorLaneBoundsAt } from '../../core/chart-util.js';
+import { _darkenInt } from '../../core/palette.js';
 import {
-  bnvSampleAt, darkenHex, noteHasVibrato, teachingDegreeLabel, teachingFingerLabel,
+  bnvSampleAt, noteHasVibrato, teachingDegreeLabel, teachingFingerLabel,
   tremoloOffsetWorldX, vibratoSemisAtTime,
 } from '../model/math.js';
 
@@ -271,6 +272,36 @@ export function createNoteRenderer(deps) {
     lb.rotation.set(0, 0, projRim);
   }
 
+  /**
+   * Draws (or skips) the gold fret-number sprite above a note, gated on the
+   * shared `_fretLabelAllowed`/`_frameLabeledKeys` frame-dedup keys. Shared
+   * by `drawNote`'s two fret-number call sites — the standalone/arpeggio
+   * note path and the `skipBody` synthetic-chord-note path (which skips the
+   * `!skipBody` block entirely and so needs its own gate) — since both draw
+   * the identical sprite, just reached through different outer conditions.
+   * `gate` is the caller's own extra condition (the fromChord/arpBounds
+   * rule for the standalone path; always-true for the synthetic path, whose
+   * outer `if` already encodes its condition).
+   */
+  function drawFretNumberLabel(fretNum, noteTime, gate, x, labelY, noteZ, dt, isArpNote, frame) {
+    if (!gate) return;
+    const { _textSizeMul, _fretLabelAllowed } = frame;
+    const key = Math.round(noteTime * 25) * 100 + fretNum;
+    if (!_fretLabelAllowed.has(key) || _frameLabeledKeys.has(key)) return;
+    _frameLabeledKeys.add(key);
+    const lbl = pNoteFretLabel.get();
+    const mat = textSprites.txtMat(fretNum, FRET_LABEL_GOLD_HEX, false, 'noteFret');
+    _setLabelMap(lbl, mat);
+    lbl.position.set(x, labelY, noteZ);
+    lbl.renderOrder = renderOrderForLayerAtZ(
+      noteZ,
+      isArpNote ? 'ARP_NOTE_FRET_LABEL' : 'NOTE_FRET_LABEL',
+    );
+    const flS = 7.0 * K * (1 + 0.4 * Math.max(0, dt) / AHEAD) * _textSizeMul * fretLabelScaleForFret(fretNum);
+    lbl.scale.set(flS, flS, 1);
+    lbl.material.opacity = dt >= 0 ? Math.min(1.0, (AHEAD - dt) / 0.35) : 0;
+  }
+
   // skipLabel: don't draw per-note connector label (repeated fret)
   // skipBody:  don't draw the 3D note mesh (repeat chord — still shows projection)
   // showDropLine: draw a white vertical drop line from note to below board (arpeggio / synth chord notes)
@@ -284,7 +315,6 @@ export function createNoteRenderer(deps) {
       showFretOnNote, fretNumberGhostScope, glowMul, _hitFx, _sparks, _verdictMarks,
       _streakFx, _streakHeat, projectionVisible, slideArrowApproachVisible,
       slideArrowNeckVisible, slideArrowChainPreviewVisible, _vibrancyProjOp, _timingFx,
-      _fretLabelAllowed,
     } = frame;
     const { s } = n;
     // Belt + suspenders: callers already gate via validString(), but drawNote is also
@@ -905,7 +935,7 @@ export function createNoteRenderer(deps) {
       if (slideDirN !== 0) {
         const neckAlpha = Math.max(0, Math.min(1, 1 - dt / GHOST_UPCOMING_WIN));
         if (neckAlpha > 0.001) {
-          const arrowHexN = darkenHex(activePalette[s], 0.55);
+          const arrowHexN = _darkenInt(activePalette[s], 0.55);
           const arrowSmN = techMaterials.slideArrowMat(slideDirN > 0, arrowHexN);
           const arrowN = pTechPlane.get();
           arrowN.material = _spriteMat2MeshMat(arrowN, arrowSmN);
@@ -944,7 +974,7 @@ export function createNoteRenderer(deps) {
       if (slideArrowApproachVisible && slideSt && validString(s)) {
         const slideDir = Math.sign(fretMid(slideSt.endFret) - fretMid(n.f)) * (_leftyCached ? -1 : 1);
         if (slideDir !== 0) {
-          const arrowHex = darkenHex(activePalette[s], 0.55);
+          const arrowHex = _darkenInt(activePalette[s], 0.55);
           const arrowSm = techMaterials.slideArrowMat(slideDir > 0, arrowHex);
           const arrow = pTechPlane.get();
           arrow.material = _spriteMat2MeshMat(arrow, arrowSm);
@@ -1076,28 +1106,17 @@ export function createNoteRenderer(deps) {
         // _buildFretLabelSet) so the lookup matches exactly even with ±20ms time
         // drift. Frame-dedup prevents multiple strings at the same onset/fret from
         // stacking duplicate labels.
-        const _flFrameKey = Math.round(n.t * 25) * 100 + n.f;
-        const _showNum = (!fromChord || arpBounds !== null)
-                    && _fretLabelAllowed.has(_flFrameKey)
-                    && !_frameLabeledKeys.has(_flFrameKey);
-        if (_showNum) {
-          _frameLabeledKeys.add(_flFrameKey);
-          const fretLabel = pNoteFretLabel.get();
-          const cachedMat = textSprites.txtMat(n.f, FRET_LABEL_GOLD_HEX, false, 'noteFret');
-          _setLabelMap(fretLabel, cachedMat);
-          fretLabel.position.set(x, labelY, noteZ);
-          fretLabel.renderOrder = renderOrderForLayerAtZ(
-            noteZ,
-            _isArpNote
-              ? 'ARP_NOTE_FRET_LABEL'
-              : 'NOTE_FRET_LABEL',
-          );
-          // Same scale ramp as fret column markers: 2x base at max lookahead,
-          // converging to 1x at hit line, matching row labels.
-          const flS = 7.0 * K * (1 + 0.4 * Math.max(0, dt) / AHEAD) * _textSizeMul * fretLabelScaleForFret(n.f);
-          fretLabel.scale.set(flS, flS, 1);
-          fretLabel.material.opacity = alpha;
-        }
+        drawFretNumberLabel(
+          n.f,
+          n.t,
+          !fromChord || arpBounds !== null,
+          x,
+          labelY,
+          noteZ,
+          dt,
+          _isArpNote,
+          frame,
+        );
 
         // Teaching marks (display only, never grading): fret-hand finger (fg) renders
         // by default to the right of the fret label (hideable via the finger-hints
@@ -1133,28 +1152,8 @@ export function createNoteRenderer(deps) {
     // measure-based + frame-dedup rules so a corresponding standalone arpeggio note that
     // already showed a label this frame isn't duplicated.
     if (skipBody && fromChord && !skipLabel && n.f > 0 && dt >= 0) {
-      const _fl2FrameKey = Math.round(n.t * 25) * 100 + n.f;
-      if (_fretLabelAllowed.has(_fl2FrameKey)
-                && !_frameLabeledKeys.has(_fl2FrameKey)) {
-        _frameLabeledKeys.add(_fl2FrameKey);
-        const _minStrY2 = Math.min(sY(0), sY(nStr - 1));
-        const _labelY2 = _minStrY2 - S_GAP * 0.8;
-        const _alpha2 = Math.min(1.0, (AHEAD - dt) / 0.35);
-        const _isArp2 = arpBounds !== null;
-        const fl2 = pNoteFretLabel.get();
-        const cm2 = textSprites.txtMat(n.f, FRET_LABEL_GOLD_HEX, false, 'noteFret');
-        _setLabelMap(fl2, cm2);
-        fl2.position.set(x, _labelY2, noteZ);
-        fl2.renderOrder = renderOrderForLayerAtZ(
-          noteZ,
-          _isArp2
-            ? 'ARP_NOTE_FRET_LABEL'
-            : 'NOTE_FRET_LABEL',
-        );
-        const _flS2 = 7.0 * K * (1 + 0.4 * dt / AHEAD) * _textSizeMul * fretLabelScaleForFret(n.f);
-        fl2.scale.set(_flS2, _flS2, 1);
-        fl2.material.opacity = _alpha2;
-      }
+      const _labelY2 = Math.min(sY(0), sY(nStr - 1)) - S_GAP * 0.8;
+      drawFretNumberLabel(n.f, n.t, true, x, _labelY2, noteZ, dt, arpBounds !== null, frame);
     }
 
     // ── Drop line for chord / arpeggio notes ──────────────────────────

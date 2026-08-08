@@ -6,7 +6,7 @@ import {
   FRET_LABEL_GOLD_HEX, K, MAX_RENDER_STRINGS, NEXT_ON_STRING_T_EPS, NH, NOTEDETECT_GEM_VERDICT_WINDOW,
   NOTEDETECT_UNMATCHED_LATCH_AFTER, NW, S_GAP,
 } from '../../core/constants.js';
-import { dZ, fretLabelScaleForFret, fretX } from '../../core/fret-geometry.js';
+import { dZ, fretLabelScaleForFret } from '../../core/fret-geometry.js';
 import { renderOrderForLayerAtZ, hwyPostHitTailFadeMul } from '../../core/render-order.js';
 import { chordHarmonyLabels } from '../model/chord-inference.js';
 
@@ -53,7 +53,8 @@ export function createChordRenderer(deps) {
     validString, filterValidNotes, lowerBoundT, anchorLaneBoundsAt, getChartAnchorAt,
     _firstEventTimeGreaterThan, xFret, xFretMid, sY, _setLabelMap,
     drawArpBrackets, ctx, _encodeChordVerdictKey,
-    _chordVerdicts, _noteStreamBracketStrings, _ghostPrevBuf,
+    _chordVerdicts, _noteStreamBracketStrings, _ghostPrevBuf, openNoteLaneBoxW,
+    accumulateCamWeight,
   } = deps;
 
   /** Reused for chord-note drawNote calls so `{ ...cn, t: ch.t }` doesn't allocate a new object per chord note per frame. */
@@ -69,25 +70,6 @@ export function createChordRenderer(deps) {
       _textSizeMul, nStr, _drawTeachingMarks, noteDetectGetState, noteDetectHasProvider,
       camT0, camT1, camTau, cameraMode, _leanSus,
     } = frame;
-    // Open-string note width: same outer span as chord frame (anchor + padX, or default
-    // 4-fret window when the chart has no anchor at t). Rebuilt as a local each call since
-    // drawChords already receives anchors fresh — no staleness risk vs. injecting it.
-    const padChordOpenX = NW * 0.4;
-    const openNoteLaneBoxW = (chartTime) => {
-      const chAncB = anchorLaneBoundsAt(anchors, chartTime);
-      if (chAncB) {
-        const xl = fretX(chAncB.dMin);
-        const xr = fretX(chAncB.dMax);
-        if (xr > xl) return (xr - xl) + padChordOpenX * 2;
-      }
-      const spanF = 4;
-      const fMinCh = 1;
-      const fMaxCh = fMinCh + spanF - 1;
-      const xl = fretX(fMinCh - 1);
-      const xr = fretX(Math.max(fMaxCh, fMinCh + 2));
-      if (xr > xl) return (xr - xl) + padChordOpenX * 2;
-      return 40 * K;
-    };
     if (chords) {
       // Single-pass shape-run tracking: compute runSig inline once per chord and reuse
       // it for both first-in-run detection and isRepeat below, instead of a separate
@@ -234,7 +216,7 @@ export function createChordRenderer(deps) {
             chordFrameXL = xFret(fMinCh - 1);
             chordFrameXR = xFret(Math.max(fMaxCh, fMinCh + 2));
           } else {
-            const wNut = openNoteLaneBoxW(ch.t);
+            const wNut = openNoteLaneBoxW(anchors, ch.t);
             chordFrameXL = chordCX - wNut * 0.5;
             chordFrameXR = chordCX + wNut * 0.5;
           }
@@ -256,7 +238,7 @@ export function createChordRenderer(deps) {
 
         const laneWForOpenStrings = (chordOpenBoxW != null && chordOpenBoxW > 1e-8)
           ? chordOpenBoxW
-          : openNoteLaneBoxW(ch.t);
+          : openNoteLaneBoxW(anchors, ch.t);
 
         const hsHintFrame = chordInference.chordHandShapeArpeggioHint(ch, bundle.handShapes, bundle.chordTemplates);
         const hsTimeWinFrame = hsHintFrame.hs
@@ -493,11 +475,7 @@ export function createChordRenderer(deps) {
             if (!(cameraMode === 'lookahead')) {
               const cnSustainOk = chOnsetInWin || (chSusActive && ch.t + (cn.sus || 0) >= now);
               if (cn.f > 0 && cnSustainOk) {
-                accum.camWX += xFretMid(cn.f) * chW;
-                accum.camWSum += chW;
-                if (cn.f < accum.camDistMin) accum.camDistMin = cn.f;
-                if (cn.f > accum.camDistMax) accum.camDistMax = cn.f;
-                accum.camDistGot = true;
+                accumulateCamWeight(accum, xFretMid, cn.f, chW);
               }
             }
           }

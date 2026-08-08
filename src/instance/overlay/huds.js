@@ -1,3 +1,5 @@
+import { cornerBoxPosition } from './corner-box.js';
+
 /**
  * Section + tone HUD cards drawn on the 2D overlay canvas. Created once per
  * renderer instance (mirrors `createLyricsCache()`/`createChordDiagramCache()`)
@@ -139,12 +141,9 @@ export function createHudsCache() {
     const boxH = Math.round(numLines * lineH + PAD_Y * 2);
 
     const E = Math.round(baseH * 0.25);
-    const TOP_Y = Math.round(Math.max(E + canvasH * 0.06, lyricsBottom + E));
-    let bx; let
-      by;
-    if (position === 'tr') { bx = canvasW - boxW - E; by = TOP_Y + stackOffset; } else if (position === 'bl') { bx = E; by = canvasH - boxH - E - stackOffset; } else if (position === 'br') { bx = canvasW - boxW - E; by = canvasH - boxH - E - stackOffset; } else { bx = E; by = TOP_Y + stackOffset; }
-    bx = Math.max(0, Math.min(canvasW - boxW, bx));
-    by = Math.max(0, Math.min(canvasH - boxH, by));
+    const { bx, by } = cornerBoxPosition({
+      canvasW, canvasH, boxW, boxH, position, lyricsBottom, stackOffset, E,
+    });
     // Suppress overlap with the wrapped lyrics banner regardless of corner — bottom-corner
     // cards on short panels can still reach up into it once boxH exceeds the space below.
     if (lyricsBottom > 0 && by < lyricsBottom) return 0;
@@ -300,12 +299,9 @@ export function createHudsCache() {
     const boxH = Math.round(numLines * lineH + PAD_Y * 2);
 
     const E = Math.round(baseH * 0.25);
-    const TOP_Y = Math.round(Math.max(E + canvasH * 0.06, lyricsBottom + E));
-    let bx; let
-      by;
-    if (position === 'tr') { bx = canvasW - boxW - E; by = TOP_Y + stackOffset; } else if (position === 'bl') { bx = E; by = canvasH - boxH - E - stackOffset; } else if (position === 'br') { bx = canvasW - boxW - E; by = canvasH - boxH - E - stackOffset; } else { bx = E; by = TOP_Y + stackOffset; } // 'tl' default
-    bx = Math.max(0, Math.min(canvasW - boxW, bx));
-    by = Math.max(0, Math.min(canvasH - boxH, by));
+    const { bx, by } = cornerBoxPosition({
+      canvasW, canvasH, boxW, boxH, position, lyricsBottom, stackOffset, E,
+    });
     if (lyricsBottom > 0 && by < lyricsBottom) return 0;
 
     ctx.save();

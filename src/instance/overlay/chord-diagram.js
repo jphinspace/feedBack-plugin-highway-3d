@@ -1,6 +1,7 @@
 import {
   DIAG_CELL_MAX, DIAG_SIZE_MAX, DIAG_SIZE_MIN,
 } from '../../core/constants.js';
+import { cornerBoxPosition } from './corner-box.js';
 
 /**
  * OffscreenCanvas render-cache wrapper around {@link drawChordDiagram}.
@@ -171,14 +172,10 @@ export function drawChordDiagram(ctx, opts) {
   // drawLyrics), so TOP_Y steps down past all lyric rows regardless of
   // how many wrap lines the current panel width produces.
   const E = PAD;
-  const TOP_Y = Math.round(Math.max(E + canvasH * 0.06, lyricsBottom + E));
-  let bx; let
-    by;
-  if (position === 'tr') { bx = canvasW - boxW - E; by = TOP_Y + stackOffset; } else if (position === 'bl') { bx = E; by = canvasH - boxH - E - stackOffset; } else if (position === 'br') { bx = canvasW - boxW - E; by = canvasH - boxH - E - stackOffset; } else { bx = E; by = TOP_Y + stackOffset; }
-
-  // Clamp so the box never bleeds off-canvas on narrow panels or wide string counts.
-  bx = Math.max(0, Math.min(canvasW - boxW, bx));
-  by = Math.max(0, Math.min(canvasH - boxH, by));
+  // Clamped so the box never bleeds off-canvas on narrow panels or wide string counts.
+  const { bx, by } = cornerBoxPosition({
+    canvasW, canvasH, boxW, boxH, position, lyricsBottom, stackOffset, E,
+  });
 
   // Guard: the canvasH–boxH clamp above can push `by` above lyricsBottom when
   // wrapped lyrics consume nearly the full panel height.  This applies to ALL

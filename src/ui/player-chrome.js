@@ -33,17 +33,36 @@ export const STYLE_LABELS = {
  * to both-enabled (the safe direction). `venue` isn't in
  * `BACKGROUND_STYLE_IDS` (reached only via the viz-picker), but while
  * active it's the effective style, so both knobs are false for it too.
+ *
+ * `bakesPalette`/`intensityLive` are consumed by `instance/settings-listener.js`
+ * (not this file) to decide whether a live setting change needs a full
+ * `rebuildBackground()` or can update in place — kept on this same row so a
+ * new style only has one table to edit (per "Adding a style" in CLAUDE.md).
+ * An id missing `bakesPalette` defaults to `true` (rebuild) and missing
+ * `intensityLive` defaults to `false` (bake-at-build) — both the safe
+ * direction: better to redundantly rebuild an unfamiliar style than to
+ * silently leave stale baked colors/geometry on screen.
  */
 export const STYLE_SETTING_USES = {
-  off: { intensity: false, reactive: false, why: 'No background to adjust' },
-  particles: { intensity: true, reactive: true },
-  silhouettes: { intensity: true, reactive: true },
-  lights: { intensity: true, reactive: true },
-  geometric: { intensity: true, reactive: true },
-  image: { intensity: true, reactive: false, why: 'This background does not react to audio' },
-  video: { intensity: false, reactive: false, why: 'The video plays as-is - nothing to adjust here' },
-  butterchurn: { intensity: false, reactive: false, why: 'Butterchurn reacts to audio itself - tune it in Settings > 3D Highway, or its Visualizer panel' },
-  venue: { intensity: false, reactive: false, why: 'Venue visualization is active - pick a background from the visualization picker' },
+  off: {
+    intensity: false, reactive: false, bakesPalette: false, why: 'No background to adjust',
+  },
+  particles: { intensity: true, reactive: true, bakesPalette: false },
+  silhouettes: { intensity: true, reactive: true, bakesPalette: false },
+  lights: { intensity: true, reactive: true, bakesPalette: true },
+  geometric: { intensity: true, reactive: true, bakesPalette: false },
+  image: {
+    intensity: true, intensityLive: true, reactive: false, bakesPalette: false, why: 'This background does not react to audio',
+  },
+  video: {
+    intensity: false, reactive: false, bakesPalette: false, why: 'The video plays as-is - nothing to adjust here',
+  },
+  butterchurn: {
+    intensity: false, reactive: false, bakesPalette: false, why: 'Butterchurn reacts to audio itself - tune it in Settings > 3D Highway, or its Visualizer panel',
+  },
+  venue: {
+    intensity: false, reactive: false, bakesPalette: false, why: 'Venue visualization is active - pick a background from the visualization picker',
+  },
 };
 export let controlRefCount = 0; export let controlEl = null; export let styleSelectEl = null; export let reactiveBtn = null; export let
   intensitySlider = null;

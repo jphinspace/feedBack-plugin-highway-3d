@@ -127,12 +127,12 @@ let bandsLastReadT = -Infinity;
 /** Mutated in place each read (never reallocated) so per-frame reads cost zero allocations. */
 const bandsCache = { bass: 0, mid: 0, treble: 0 };
 
-/** Reads normalized bass/mid/treble energy (0..1), cached for {@link BANDS_CACHE_MS} so splitscreen panels share one read per frame. */
+/** Reads normalized bass/mid/treble energy (0..1), cached for {@link BANDS_CACHE_MS} so splitscreen panels share one read per frame. The cache-freshness check runs before resolving the analyser tap, so a cache hit (the common case across N splitscreen panels reading within the same 5ms window) costs zero tap-resolution work, not just zero `getByteFrequencyData()` calls. */
 export function readAudioBands() {
-  const a = getAudioAnalyser();
-  if (!a) return ZERO_AUDIO_BANDS;
   const t = performance.now();
   if (t - bandsLastReadT < BANDS_CACHE_MS) return bandsCache;
+  const a = getAudioAnalyser();
+  if (!a) return ZERO_AUDIO_BANDS;
   bandsLastReadT = t;
   a.analyser.getByteFrequencyData(a.freq);
   let bass = 0; let mid = 0; let

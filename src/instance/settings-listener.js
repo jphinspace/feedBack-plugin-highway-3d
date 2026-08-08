@@ -1,4 +1,5 @@
 import { _venueSwapPlateIfNeeded } from '../background/venue.js';
+import { STYLE_SETTING_USES } from '../ui/player-chrome.js';
 
 /**
  * The live settings-bus subscriber. Outlives the `initScene()` call that
@@ -94,11 +95,14 @@ export function createSettingsListener({
     }
     if (changedKey === 'palette') {
       // Three effects: retint shared materials, rebuild the fretboard meshes
-      // (palette-baked at build time), and rebuild the lights bg style if active
-      // (it also bakes palette colors into its sprites at build time).
+      // (palette-baked at build time), and rebuild the active bg style if it
+      // also bakes palette colors at build time (STYLE_SETTING_USES.bakesPalette,
+      // ui/player-chrome.js — missing/unknown styles default to true, the safe
+      // direction, so a forgotten row doesn't leave stale baked colors on screen).
       loadSettings();
       if (getFretG()) buildBoard();
-      if (ctx.settings.bgStyleId === 'lights') rebuildBackground();
+      const stylePalette = STYLE_SETTING_USES[effectiveBackgroundStyleId()];
+      if (!stylePalette || stylePalette.bakesPalette) rebuildBackground();
       return;
     }
     if (changedKey === 'bgTheme' || changedKey === 'hwTheme') {
@@ -124,11 +128,17 @@ export function createSettingsListener({
     }
     if (changedKey === 'intensity') {
       loadSettings();
-      // Image style reads intensity per-frame, so a live mutation suffices; the
-      // procedural styles bake intensity into mesh count/opacity/size at build time.
-      const bgState = getBgState();
-      if (ctx.settings.bgStyleId === 'image' && bgState) {
-        bgState.intensity = ctx.settings.bgIntensity;
+      // Which styles use intensity at all, and whether they read it live vs. bake
+      // it into mesh count/opacity/size at build time, both come from
+      // STYLE_SETTING_USES (ui/player-chrome.js) — an id missing here defaults to
+      // { intensity: true } (the safe direction, matching player-chrome.js's own
+      // fallback), so an unfamiliar style still gets a rebuild rather than a
+      // silently-ignored change.
+      const uses = STYLE_SETTING_USES[effectiveBackgroundStyleId()] || { intensity: true };
+      if (!uses.intensity) return;
+      if (uses.intensityLive) {
+        const bgState = getBgState();
+        if (bgState) bgState.intensity = ctx.settings.bgIntensity;
         return;
       }
       rebuildBackground();

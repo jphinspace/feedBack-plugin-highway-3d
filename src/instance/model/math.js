@@ -53,15 +53,6 @@ export function disposeGroupTree(obj) {
   obj.parent?.remove(obj);
 }
 
-/** Darkens a 0xRRGGBB color by `factor` (0..1), for the slide-arrow marker (full string color is too bright next to the gem). */
-export function darkenHex(hex, factor) {
-  const h = (hex >>> 0) & 0xffffff;
-  const r = Math.round(((h >> 16) & 0xff) * factor);
-  const g = Math.round(((h >> 8) & 0xff) * factor);
-  const b = Math.round((h & 0xff) * factor);
-  return (r << 16) | (g << 8) | b;
-}
-
 export function noteHasVibrato(n) {
   return !!(n && (n.vb || n.vibrato));
 }

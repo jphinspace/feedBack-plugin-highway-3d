@@ -49,20 +49,28 @@ test('connector line uses the named connector layer', () => {
   );
 });
 
-test('primary fret label renders above gem core and technique markers', () => {
+test('fret-number label renders above gem core and technique markers', () => {
+  // drawFretNumberLabel() is the single shared implementation behind both the
+  // standalone/arpeggio note call site and the skipBody synthetic-chord-note
+  // call site (Stage 7 dedup) — one pinned assertion now covers both.
   assert.match(
     src(),
-    /fretLabel\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*noteZ\s*,[\s\S]*?_isArpNote[\s\S]*?\?\s*'ARP_NOTE_FRET_LABEL'[\s\S]*?:\s*'NOTE_FRET_LABEL'[\s\S]*?\)\s*;/,
+    /lbl\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*noteZ\s*,[\s\S]*?isArpNote[\s\S]*?\?\s*'ARP_NOTE_FRET_LABEL'[\s\S]*?:\s*'NOTE_FRET_LABEL'[\s\S]*?\)\s*;/,
     'pNoteFretLabel renderOrder must use the fret-label layer names',
   );
 });
 
-test('synthetic chord fret label uses the same label layer as primary labels', () => {
+test('both fret-number call sites route through the shared drawFretNumberLabel', () => {
+  const s = src();
   assert.match(
-    src(),
-    /fl2\.renderOrder\s*=\s*renderOrderForLayerAtZ\(\s*noteZ\s*,[\s\S]*?_isArp2[\s\S]*?\?\s*'ARP_NOTE_FRET_LABEL'[\s\S]*?:\s*'NOTE_FRET_LABEL'[\s\S]*?\)\s*;/,
-    'fl2 renderOrder must use the same fret-label layer names',
+    s,
+    /function drawFretNumberLabel\(/,
+    'the shared fret-number-label helper must exist',
   );
+  const callSites = s.match(/drawFretNumberLabel\(/g) || [];
+  // One function declaration + two call sites (standalone/arpeggio path, synthetic
+  // skipBody-chord-note path) = 3 occurrences of the identifier.
+  assert.equal(callSites.length, 3, 'expected the declaration plus exactly two call sites');
 });
 
 test('drop line uses the named connector layer below gems', () => {
@@ -88,8 +96,7 @@ test('chord frame and note outline use named depth-layer helper calls', () => {
 
 test('no fixed low renderOrder assignments remain for affected label paths', () => {
   const s = src();
-  assert.doesNotMatch(s, /fretLabel\.renderOrder\s*=\s*(?:16|23)\s*;/);
-  assert.doesNotMatch(s, /fl2\.renderOrder\s*=\s*(?:16|23)\s*;/);
+  assert.doesNotMatch(s, /lbl\.renderOrder\s*=\s*(?:16|23)\s*;/);
   assert.doesNotMatch(s, /lbl\.renderOrder\s*=\s*21\s*;/);
   assert.doesNotMatch(s, /line\.renderOrder\s*=\s*_isArpNote\s*\?\s*22\s*:\s*15\s*;/);
   assert.doesNotMatch(s, /dl\.renderOrder\s*=\s*22\s*;/);
