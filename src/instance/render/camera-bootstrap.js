@@ -4,37 +4,24 @@ import {
 } from '../../core/constants.js';
 import { hwyFirstRelevantFrettedTime } from '../../core/chart-util.js';
 
-// Song-change detection + first-chart-data camera bootstrap -- moved
-// verbatim out of update() (Stage 7 Track C), as two functions always
-// called in sequence (bootstrap fires precisely BECAUSE song-change may
-// have just reset the snap flags it checks).
-//
-// Both write almost exclusively into ctx.cam (a stable shared dep, same
-// object camera-target.js already writes through) -- no frame/accum tier
-// needed. detectSongChangeAndResetCamera additionally resets 5 clock/
-// measure-cache scalars that are ALSO written by other still-resident
-// update() code (the measure-start cache rebuild, smoothNow()) -- verified
-// via whole-file bare-reassignment grep. Since the reset here is always
-// the same literal values (not computed), the function returns a
-// `songChanged` boolean and main.js applies those literal resets itself,
-// keeping the read-modify-write scalars out of the function signature
-// entirely (simpler than threading 5 values in and out for a fixed reset).
+/**
+ * Song-change detection + first-chart-data camera bootstrap: two functions
+ * always called in sequence (bootstrap fires precisely because song-change
+ * may have just reset the snap flags it checks). Both write almost
+ * exclusively into `ctx.cam`.
+ */
 export function createCameraBootstrap({
     ctx, xFretMid, camBaseDistU, camLowFretPullbackU, lookaheadBootstrapTime, lookaheadComputeFretBounds,
     lookaheadTargetWorldX, _applyNoteCamTargets, validString, filterValidNotes,
 }) {
     function detectSongChangeAndResetCamera(bundle) {
-        // reconnect() (used for arrangement switches and splitscreen song
-        // changes) does not call renderer.destroy/init, so ctx.cam._camSnapped and
-        // ctx.cam._camPreScanned would persist into the new song and the snap pre-pass
-        // would never fire again.  Detect the change by comparing the current
-        // song+arrangement identity against the last-seen key, and reset the
-        // camera snap state (and the camera position itself) whenever it flips.
+        // Arrangement switches / splitscreen song changes don't call renderer.destroy/init,
+        // so ctx.cam._camSnapped/_camPreScanned would otherwise persist into the new song and
+        // the snap pre-pass would never fire again. Detect the change by comparing the
+        // current song+arrangement identity against the last-seen key.
         const si = bundle.songInfo;
-        // bundle.songInfo has no filename field (the WS song_info message
-        // never includes it).  Use window.feedBack.currentSong.filename
-        // — set by highway.js from the WS URL — combined with the
-        // arrangement index as a reliable per-song-arrangement key.
+        // bundle.songInfo has no filename field, so combine window.feedBack.currentSong.filename
+        // (set by highway.js from the WS URL) with the arrangement index as the key.
         const currentSong = window.feedBack && window.feedBack.currentSong;
         const key = currentSong ? currentSong.filename + '\0' + (si ? (si.arrangement_index ?? '') : '') : null;
         if (key !== null && key !== ctx.cam._songKey) {
@@ -61,11 +48,10 @@ export function createCameraBootstrap({
         notes, chords, anchors, now, nStr, cameraMode, lookaheadBoundsNow,
         camAhead, camTau, camHystF, camDistHystF, cameraLockLow, cameraLockZoom,
     ) {
-        // Initialize against the first relevant fretted phrase as soon as
-        // the complete chart arrays arrive. For a future phrase, sample the
-        // same window state that live framing will have when the phrase
-        // first becomes relevant, then hold it through the silent intro.
-        // This is O(N) once per song/arrangement and a permanent no-op after.
+        // Initializes against the first relevant fretted phrase as soon as the complete chart
+        // arrays arrive: for a future phrase, samples the same window state live framing will
+        // have when the phrase first becomes relevant, then holds it through the silent intro.
+        // O(N) once per song/arrangement, a permanent no-op after.
         if (!ctx.cam._camSnapped && !ctx.cam._camPreScanned && notes && chords) {
             ctx.cam._camPreScanned = true;
             const firstFrettedTime = hwyFirstRelevantFrettedTime(
@@ -73,9 +59,8 @@ export function createCameraBootstrap({
 
             if (cameraMode === 'lookahead'
                 && (lookaheadBoundsNow || firstFrettedTime !== null)) {
-                // Anchors can make the live lookahead valid before the first
-                // fretted event does. Prefer that already-current framing;
-                // only project forward when the live window is truly empty.
+                // Anchors can make the live lookahead valid before the first fretted event
+                // does — prefer that already-current framing, only project forward when empty.
                 const bootstrapNow = lookaheadBoundsNow
                     ? now
                     : lookaheadBootstrapTime(now, firstFrettedTime);
@@ -111,15 +96,12 @@ export function createCameraBootstrap({
                     ctx.cam._camBootstrapHolding = bootstrapNow > now && !lookaheadBoundsNow;
                     ctx.cam._camBootstrapMode = ctx.cam._camBootstrapHolding ? cameraMode : null;
                 } else {
-                    // Defensive fallback for malformed chart timing. The
-                    // helper found a fretted event, so this should be
-                    // unreachable; keeping the default is safer than a
-                    // delayed mid-song snap.
+                    // Defensive fallback for malformed chart timing — the helper found a
+                    // fretted event, so this should be unreachable.
                     ctx.cam._camSnapped = true;
                 }
             } else if (firstFrettedTime === null) {
-                // Empty and all-open charts without lookahead anchor bounds
-                // have no horizontal fret target.
+                // Empty and all-open charts without lookahead anchor bounds have no horizontal fret target.
                 ctx.cam._camSnapped = true;
             } else {
                 const bootstrapNow = Math.max(now, firstFrettedTime - camAhead);
@@ -177,9 +159,7 @@ export function createCameraBootstrap({
                     ctx.cam.curX = ctx.cam.tgtX;
                     ctx.cam.curDist = ctx.cam.tgtDist;
                 }
-                // The relevant-event helper and this accumulator share
-                // validity/window rules; still finish defensively if a
-                // malformed event could not produce a target.
+                // Finish defensively in case a malformed event produced no target.
                 ctx.cam._camSnapped = true;
                 ctx.cam._camBootstrapHolding = preWSum > 0 && bootstrapNow > now;
                 ctx.cam._camBootstrapMode = ctx.cam._camBootstrapHolding ? cameraMode : null;

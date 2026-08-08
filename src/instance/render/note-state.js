@@ -2,29 +2,25 @@ import { VENUE_GEM_EMISSIVE_MUL } from '../../core/constants.js';
 import { lowerBoundT } from '../../core/chart-util.js';
 import { _venueSceneOverride } from '../../background/venue.js';
 
-// Per-string sustain/anticipation/fretHeat/glow state -- moved verbatim out
-// of update()'s "── Frame state ──" section (Stage 7 Track C). `noteState`
-// wraps persistent scratch arrays (deps, same objects every call, matching
-// chords.js's persistent-Map precedent) -- the returned object is not new
-// per-call state, just a stable-shaped view over them.
-//
-// noteState is NOT fully populated here: several still-resident update()
-// sections (next-note-by-string lookahead, recent-past event per string,
-// ghost preview gap prepass) continue writing into noteState.strGlow /
-// .accentFillBoost AFTER this call returns, before updateStringHighlights()
-// finally consumes it -- safe because they all hold the same object/array
-// references, verified via whole-file grep on every noteState.* write site.
-//
-// updateStringHighlights() is bundled in the same file (always the last
-// consumer of noteState each frame) but called separately, later in
-// update(), after those other sections have finished writing into it.
+/**
+ * Per-string sustain/anticipation/fretHeat/glow state. `buildFrameState()`
+ * wraps persistent scratch arrays (deps, same objects every call) — the
+ * returned `noteState` is a stable-shaped view over them, not new per-call
+ * state. It is not fully populated by this call alone: other still-resident
+ * `update()` sections (next-note-by-string lookahead, recent-past event per
+ * string, ghost preview gap prepass) continue writing into
+ * `noteState.strGlow`/`.accentFillBoost` after this returns, before
+ * {@link updateStringHighlights} finally consumes it — safe since they all
+ * hold the same object/array references. `updateStringHighlights()` is
+ * always the last consumer each frame, called separately once those other
+ * sections have finished writing.
+ */
 export function createFrameState({
     validString, filterValidNotes, ctx, mGlow, mAccentCore,
     _scrStringSustain, _scrStringAnticipation, _scrFretHeat, _scrStrGlow, _scrAccentFillBoost,
 }) {
     function buildFrameState(notes, chords, now, nStr) {
-        // Reuse hoisted scratch arrays — reset only the live [0..nStr) /
-        // [0..NFRETS] range instead of allocating new arrays every frame.
+        // Reuse hoisted scratch arrays — reset only the live range instead of allocating fresh.
         _scrStringSustain.fill(false, 0, nStr);
         _scrStringAnticipation.fill(0, 0, nStr);
         _scrFretHeat.fill(0);           // always NFRETS+1, cheap flat fill
@@ -39,10 +35,8 @@ export function createFrameState({
             accentFillBoost:  _scrAccentFillBoost,
         };
 
-        // Compute sustain / anticipation / fret heat / per-string glow.
-        // Use lowerBoundT to skip notes far in the past (>30s sustain is
-        // unrealistic); break once notes are >2s ahead (nothing beyond
-        // contributes to fretHeat/anticipation/strGlow).
+        // lowerBoundT skips notes far in the past (>30s sustain is unrealistic); breaks once
+        // notes are >2s ahead (nothing beyond contributes to fretHeat/anticipation/strGlow).
         if (notes) {
             const _fsLo = lowerBoundT(notes, now - 30);
             for (let _ni = _fsLo; _ni < notes.length; _ni++) {
@@ -67,7 +61,6 @@ export function createFrameState({
             }
         }
         if (chords) {
-            // Skip chords further than 30s in the past (covers any sustained chord).
             const _cfsLo = lowerBoundT(chords, now - 30);
             for (let _cni = _cfsLo; _cni < chords.length; _cni++) {
                 const ch = chords[_cni];
@@ -102,22 +95,15 @@ export function createFrameState({
         return noteState;
     }
 
-    // Glow slider scales both the idle floor and anticipation peak, so
-    // glowMul=0 fully silences the per-string emissive pulse. Vibrancy
-    // controls the idle opacity floor — anticipation still rides on top
-    // regardless of vibrancy so play-feedback through the opacity channel
-    // survives even at glowMul=0.
-    //
-    // Folded with the post-noteState mGlow / mAccentCore writes (was a
-    // separate `for (s = 0; s < nStr)` loop in update()), so the per-string
-    // scratch arrays stay hot in L1 across all material writes for a given
-    // string.
-    //
-    // glowMul/_vibrancyIdleOp are settings-driven and change over the
-    // instance's life (reassigned by loadSettings()/_applyVibrancy()) --
-    // explicit per-call parameters, not construction-time deps, so a
-    // settings tweak mid-song is picked up immediately rather than frozen
-    // at whatever value was current when initScene() built this factory.
+    /**
+     * The glow slider scales both the idle floor and anticipation peak, so
+     * `glowMul=0` fully silences the per-string emissive pulse. Vibrancy
+     * controls the idle opacity floor; anticipation still rides on top
+     * regardless, so play-feedback through the opacity channel survives
+     * even at `glowMul=0`. `glowMul`/`_vibrancyIdleOp` are explicit
+     * per-call parameters (not construction-time deps) since they're
+     * settings-driven and can change mid-song.
+     */
     function updateStringHighlights(noteState, nStr, glowMul, _vibrancyIdleOp) {
         const BASE_GLOW = 0.02 * glowMul;
         const MAX_GLOW  = 3.5  * glowMul;
@@ -136,10 +122,7 @@ export function createFrameState({
                 mesh.material.opacity = IDLE_OP + intensity * (1 - IDLE_OP);
                 mesh.scale.set(1, 1 + intensity * 0.3, 1 + intensity * 0.3);
             }
-            // Hit-note emissive — same write pattern as the standalone
-            // loop that previously lived at update()'s post-call site.
-            // The glow slider scales it here since this assignment
-            // stomps anything _applyGlow() set statically.
+            // Glow slider scales this too, since this assignment stomps anything _applyGlow() set statically.
             const bg = noteState.strGlow[s] * g;
             if (mGlow[s]) mGlow[s].emissiveIntensity = bg * venueGemMul;
             if (mAccentCore[s]) {
