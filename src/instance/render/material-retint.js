@@ -8,33 +8,18 @@ import {
 } from '../../core/palette.js';
 import { _venueSceneOverride } from '../../background/venue.js';
 
-// Live palette/vibrancy/glow material-retint passes -- moved verbatim out
-// of main.js (Stage 7, post-3e). All four walk the same construction-time
-// material-array set (mStr/mGlow/mSus/mRimFlash/mStrHitOutline/
-// mAccentOutline/mAccentCore/mAccentHaloNear/Mid/Far/projMeshArr/
-// gNoteGrad/mWhiteOutline/mMissOutline/mHitBright/mSusOutline/
-// mHitSusOutline/mTapChevron/mBarre), which is exactly why they're
-// bundled into one file/one factory rather than split further -- every
-// one of these deps is shared across at least two of the four functions.
-//
-// EVERY material array is a LIVE GETTER, not a plain dep -- this factory
-// must be constructed BEFORE createNoteGemVisuals() runs (main.js passes
-// this module's recolorGemGradients function to createNoteGemVisuals as
-// its own `_recolorGemGradients` dep, exactly like the pre-move code
-// passed the bare closure function -- createNoteGemVisuals calls it once
-// during construction, see that file's own doc comment for why a stale
-// snapshot there is intentional/harmless). At that point in initScene(),
-// NONE of these material arrays have been assigned yet (they're all
-// outputs of that same createNoteGemVisuals() destructure or a later
-// one) -- a plain deps snapshot would capture `undefined` forever. Same
-// hazard class as note.js's `_fretLabelAllowed` trap documented in
-// CLAUDE.md.
-//
-// _paletteColorTmp (a lazily-created scratch T.Color) was used nowhere
-// else in main.js -- moved to be private state of this module
-// (own-it-outright); its `= null` reset in teardown() is no longer
-// needed since the whole module is reconstructed fresh on the next
-// initScene() call anyway (same as hit-sparks.js's private arrays).
+/**
+ * Live palette/vibrancy/glow material-retint passes. All four walk the
+ * same construction-time material-array set, which is why they're
+ * bundled into one factory rather than split further.
+ *
+ * Every material array is a live getter, not a plain dep: this factory
+ * must be constructed *before* `createNoteGemVisuals()` runs (its
+ * `recolorGemGradients` is passed in as that factory's own
+ * `_recolorGemGradients` construction dep, called once during
+ * construction). At that point none of these material arrays exist yet —
+ * a plain deps snapshot would capture `undefined` forever.
+ */
 export function createMaterialRetint({
     ctx, noteVerdictState,
     getMStr, getMGlow, getMSus, getMRimFlash, getMStrHitOutline, getMAccentOutline, getMAccentCore,
@@ -44,20 +29,14 @@ export function createMaterialRetint({
 }) {
     let _paletteColorTmp = null;
 
-    // Live-swap palette by mutating existing materials in place.
-    // Three.js colors propagate to all sharing meshes on the next
-    // render — no rebuild, no GC. The mGlow material was authored
-    // with .color = white and the per-string color in .emissive
-    // only; we preserve that here so the glow look stays consistent
-    // before/after a palette swap rather than tinting the diffuse
-    // white. Lane lines and drop lines that read
-    // activePalette[s] per frame pick up automatically. Per-string
-    // fretboard materials built inside buildBoard() are independent
-    // and aren't reachable from here — buildBoard re-runs from the
-    // palette listener to regenerate them with the new colors.
-    //
-    // projMeshArr holds filled rim meshes (ExtrudeGeometry frame); centre
-    // is open. Palette + vibrancy mutate each mesh's material like mStr.
+    /**
+     * Live-swaps the palette by mutating existing materials in place —
+     * Three.js colors propagate to sharing meshes on the next render, no
+     * rebuild. `mGlow` keeps `.color = white` with the string color only
+     * in `.emissive`, preserving the glow look across a palette swap.
+     * Per-string fretboard materials built in `buildBoard()` aren't
+     * reachable from here — the palette listener re-runs `buildBoard()` separately.
+     */
     function applyPaletteToMaterials() {
         const mStr = getMStr(), mGlow = getMGlow(), mSus = getMSus(), mRimFlash = getMRimFlash();
         const mStrHitOutline = getMStrHitOutline(), mAccentOutline = getMAccentOutline();
@@ -67,10 +46,8 @@ export function createMaterialRetint({
         for (let s = 0; s < ctx.settings.activePalette.length; s++) {
             const c = ctx.settings.activePalette[s];
             if (mStr[s]) {
-                // Gradient strings (0..5) keep a white base so the per-vertex
-                // colours in gNoteGrad[s] show pure; only flat strings (6/7)
-                // take the palette colour. mStr is MeshBasicMaterial (no
-                // emissive) — guard the legacy emissive retint.
+                // Gradient strings (0..5) keep a white base so gNoteGrad[s]'s per-vertex colors
+                // show pure; only flat strings (6/7) take the palette color directly.
                 if (s >= 6) mStr[s].color.setHex(c);
                 if (mStr[s].emissive) mStr[s].emissive.setHex(c);
             }
@@ -89,8 +66,7 @@ export function createMaterialRetint({
                 mAccentOutline[s].emissive.setHex(c);
             }
             if (mAccentCore[s]) mAccentCore[s].emissive.setHex(c);
-            // Verdict materials use fixed colours (0x22ff88 hit, 0xff0066 miss)
-            // that are independent of the string palette — no retint needed.
+            // Verdict materials use fixed colors (hit/miss), independent of the string palette.
             for (const haloArr of [mAccentHaloNear, mAccentHaloMid, mAccentHaloFar]) {
                 if (haloArr[s]) haloArr[s].color.setHex(c);
             }
@@ -103,23 +79,21 @@ export function createMaterialRetint({
                 }
             }
         }
-        // Per-string gem bodies (strings 0..5) are a baked per-vertex
-        // gradient (gNoteGrad), not a flat material — recolor them too so a
-        // custom palette reaches the note/sustain/vibrato gem bodies.
+        // Per-string gem bodies (strings 0..5) are a baked per-vertex gradient, not a flat
+        // material — recolor them too so a custom palette reaches gem bodies.
         recolorGemGradients();
-        // Re-apply vibrancy: mGlow's color is a lerp between white and
-        // the palette colour, so a palette swap must rebuild that
-        // lerp from the new endpoints. Skipped pre-init when mGlow
-        // isn't allocated yet — applyVibrancy() guards on that.
+        // mGlow's color is a lerp between white and the palette color, so a swap must rebuild
+        // it from the new endpoints. applyVibrancy() guards on mGlow not yet being allocated.
         applyVibrancy();
     }
 
-    // Recompute the per-vertex gem-gradient colors from the active palette.
-    // Built-in palettes (and unchanged slots of a custom palette) keep the
-    // hand-tuned DEFAULT_GEM_GRADIENTS stops so the stock look is preserved;
-    // a custom slot derives a top-highlight / bottom-shade from its base
-    // color. Mutates the existing 'color' attribute in place (no geometry
-    // churn, pooled note meshes pick it up next frame).
+    /**
+     * Recomputes the per-vertex gem-gradient colors from the active
+     * palette. Built-in palettes (and unchanged slots of a custom
+     * palette) keep the hand-tuned {@link DEFAULT_GEM_GRADIENTS} stops; a
+     * custom slot derives a top-highlight/bottom-shade from its base
+     * color. Mutates the `color` attribute in place — no geometry churn.
+     */
     function recolorGemGradients() {
         const gNoteGrad = getGNoteGrad();
         if (!T || !gNoteGrad || !gNoteGrad.length) return;
@@ -132,9 +106,8 @@ export function createMaterialRetint({
             const base = ctx.settings.activePalette[s];
             let topHex, botHex;
             if (isCustom && base !== PALETTES.default[s]) {
-                // Match the SUBTLE stock gem shading (bottom ≈ 0.78 of a
-                // near-base top), so a custom gem reads as a flat-ish gem
-                // in the chosen color rather than a strong gradient.
+                // Match the subtle stock gem shading (bottom ~0.78 of a near-base top) so a
+                // custom gem reads as flat-ish in the chosen color rather than a strong gradient.
                 topHex = _lightenInt(base, 0.05);
                 botHex = _darkenInt(base, 0.78);
             } else {
@@ -156,24 +129,21 @@ export function createMaterialRetint({
         }
     }
 
-    // Vibrancy + glow live-update helpers. Both walk the same
-    // material set applyPaletteToMaterials walks (plus the static
-    // outline / technique materials) and mutate uniform-backed
-    // properties — colour, opacity, emissiveIntensity. No
-    // material.needsUpdate flag is needed for these; Three.js
-    // re-reads them on the next render call. mGlow.emissiveIntensity
-    // and BASE_GLOW/MAX_GLOW/IDLE_OP are NOT written here — those
-    // are stomped per-frame inside updateStringHighlights() and the
-    // anticipation loop in update(), so they read glowMul /
-    // _vibrancyIdleOp / vibrancy directly each frame instead.
+    /**
+     * Vibrancy live-update: walks the same material set
+     * {@link applyPaletteToMaterials} does, mutating color/opacity/
+     * emissiveIntensity — no `needsUpdate` flag needed, Three.js re-reads
+     * on the next render. `mGlow.emissiveIntensity` is not written here —
+     * that's stomped per-frame by `updateStringHighlights()`, which reads
+     * `glowMul`/`_vibrancyIdleOp` directly instead.
+     */
     function applyVibrancy() {
         const mStr = getMStr(), mSus = getMSus(), mGlow = getMGlow(), mAccentCore = getMAccentCore();
         const projMeshArr = getProjMeshArr();
         const t = ctx.settings.vibrancy;
         const idleOp     = 0.4  + 0.6  * t;  // mStr / IDLE_OP source
-        // projIdleOp drives the projMeshArr ghost-frame opacity and is
-        // read by drawNote() as `_vibrancyProjOp`, which layers a
-        // per-frame factor on top.
+        // Drives projMeshArr ghost-frame opacity; read by drawNote() as `_vibrancyProjOp`,
+        // which layers a per-frame factor on top.
         const projIdleOp = 0.15 + 0.35 * t;
         const susOp      = 0.35 + 0.45 * t;  // mSus
         const lineGlowOp = 0.15 + 0.35 * t;  // thin Line glow layer behind each string
@@ -181,10 +151,8 @@ export function createMaterialRetint({
             if (mStr[s])  mStr[s].opacity  = idleOp;
             if (mSus[s])  mSus[s].opacity  = susOp;
             if (mGlow[s]) {
-                // Hit-note body lerps from white (current pastel
-                // look — colour comes through the emissive only)
-                // toward the palette colour as vibrancy → 1, so at
-                // vibrancy=1 the white-wash on hit notes goes away.
+                // Hit-note body lerps from white (the pastel look, color via emissive only)
+                // toward the palette color as vibrancy -> 1.
                 if (!_paletteColorTmp && T) _paletteColorTmp = new T.Color();
                 if (_paletteColorTmp) {
                     mGlow[s].color.setHex(0xffffff).lerp(_paletteColorTmp.setHex(ctx.settings.activePalette[s]), t);
@@ -202,10 +170,8 @@ export function createMaterialRetint({
                 }
             }
         }
-        // ctx.board.stringLines[s].material.opacity is overwritten by
-        // updateStringHighlights() every frame, so the closed-form
-        // value would be stomped. updateStringHighlights() reads
-        // _vibrancyIdleOp directly instead — keep that in sync.
+        // ctx.board.stringLines[s].material.opacity is overwritten every frame by
+        // updateStringHighlights(), which reads _vibrancyIdleOp directly — keep it in sync.
         for (let s = 0; s < ctx.board.stringLineGlows.length; s++) {
             const line = ctx.board.stringLineGlows[s];
             if (line && line.material) line.material.opacity = lineGlowOp;
@@ -225,8 +191,7 @@ export function createMaterialRetint({
         const g = ctx.settings.glowMul;
         for (let s = 0; s < ctx.settings.activePalette.length; s++) {
             if (mStr[s])  mStr[s].emissiveIntensity  = 0.002 * g;
-            // mGlow[s].emissiveIntensity is per-frame in update();
-            // see Phase 4 comment block.
+            // mGlow[s].emissiveIntensity is set per-frame in update() instead.
             if (projMeshArr && projMeshArr[s]) {
                 for (const pm of projMeshArr[s]) {
                     if (pm.material) pm.material.emissiveIntensity = 0.002 * g;
@@ -234,8 +199,7 @@ export function createMaterialRetint({
             }
             if (mStrHitOutline[s]) mStrHitOutline[s].emissiveIntensity = 1.0 * g;
             if (mAccentOutline[s]) mAccentOutline[s].emissiveIntensity = ACCENT_RIM_BASE_EMISSIVE * g;
-            // mAccentCore[].emissiveIntensity is per-frame in update()
-            // alongside mGlow (accent fill boost).
+            // mAccentCore[].emissiveIntensity is set per-frame in update() alongside mGlow.
         }
         if (mWhiteOutline) mWhiteOutline.emissiveIntensity = 0.6 * g;
         if (mMissOutline)  mMissOutline.emissiveIntensity  = 1.2 * g;
@@ -253,18 +217,17 @@ export function createMaterialRetint({
         }
     }
 
-    // Per-frame verdict-glow apply -- moved verbatim out of update() (Stage
-    // 7, post-3e). Applies the level-driven verdict brightness the note-
-    // state provider accumulated into noteVerdictState LAST frame (a
-    // 1-frame lag is imperceptible), then resets it for this frame's fresh
-    // capture in the gem path (note.js's drawNote()). vg = 1 when no
-    // provider alpha was seen (legacy event path / note_detect off),
-    // leaving the authored 4.0/0.7 x glowMul brightness from applyGlow()
-    // untouched. Only the verdict-only materials (mHitBright + its
-    // face-fill arrays, and the hit sustain outline) are scaled -- never
-    // mStrHitOutline, which is the default rim for every fretted note.
-    // Fits here rather than a new file because it walks the same
-    // mHitBright/mHitSusOutline getters applyGlow() already has.
+    /**
+     * Per-frame verdict-glow apply: applies the level-driven verdict
+     * brightness the note-state provider accumulated into
+     * `noteVerdictState` last frame (a 1-frame lag is imperceptible),
+     * then resets it for this frame's fresh capture in `note.js`'s
+     * `drawNote()`. `vg = 1` when no provider alpha was seen (legacy
+     * event path / note_detect off), leaving `applyGlow()`'s authored
+     * brightness untouched. Only the verdict-only materials (`mHitBright`
+     * + its face-fill arrays, and the hit sustain outline) are scaled —
+     * never `mStrHitOutline`, the default rim for every fretted note.
+     */
     function applyVerdictGlow() {
         const mHitBright = getMHitBright(), mHitSusOutline = getMHitSusOutline();
         const vg = noteVerdictState.sawAlpha ? noteVerdictState.maxAlpha : 1;

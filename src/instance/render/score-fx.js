@@ -1,33 +1,23 @@
-// Score FX (notedetect game-scoring layer, notedetect >=1.13) -- moved
-// verbatim out of main.js (Stage 7, post-3e). Two channels: (1) per-note
-// "+N" score pops, sourced from the note-state provider's { points, mult,
-// popKey } fields at the moment a gem's verdict lands; (2) session-level
-// bursts/pulses from the `notedetect:fx` event (streak milestones,
-// multiplier tier changes). Everything renders on the 2D overlay canvas --
-// no Three.js objects, nothing to dispose. Pools are fixed-size slot arrays
-// created once per factory instance; when all slots are busy a new effect
-// is simply dropped. See CLAUDE.md's "Score FX" section for the full
-// consumer contract (this is the reference implementation other renderer
-// plugins copy).
-//
-// fxSpawnPop / fxHandle / fxResolvePalette are injected as deps into
-// note.js and instance/notedetect/listeners.js respectively (unchanged --
-// those two files already treated them as deps before this move, so only
-// the construction/injection sites in main.js needed updating).
-//
-// getCam/getProbe/getNStr/getNoteDetectFrameNowMs are live getters, not
-// deps snapshots: cam/_probe are (re)assigned by createDomAndScene() inside
-// initScene() (same reassignment shape bloom-composer.js already treats
-// this way), nStr is recomputed every update() call, and
-// noteDetectFrameNowMs is written by update() at the top of every frame.
-// sY and noteDetectLabels are stable per-init references (sY is a `const`
-// arrow function; noteDetectLabels is the same array reference note.js
-// already receives as a plain dep, mutated in place via `.length = 0` and
-// `.push()`, only ever REPLACED at teardown()/next-init() -- same lifetime
-// as this whole factory). `ctx` is the per-instance state object
-// (ctx.cam.curX etc.) -- drawScoreFx's 2D-canvas-context parameter is
-// named `ctx2d`, not `ctx`, specifically so it can't shadow this dep the
-// way the pre-move code accidentally did (see drawScoreFx's own comment).
+/**
+ * Score FX (notedetect game-scoring layer, notedetect >=1.13). Two
+ * channels: (1) per-note "+N" score pops, sourced from the note-state
+ * provider's `{ points, mult, popKey }` fields at the moment a gem's
+ * verdict lands; (2) session-level bursts/pulses from the
+ * `notedetect:fx` event (streak milestones, multiplier tier changes).
+ * Everything renders on the 2D overlay canvas — no Three.js objects,
+ * nothing to dispose. Pools are fixed-size slot arrays; when all slots
+ * are busy a new effect is dropped. See CLAUDE.md's "Score FX" section
+ * for the full consumer contract — this is the reference implementation
+ * other renderer plugins copy.
+ *
+ * `getCam`/`getProbe`/`getNStr`/`getNoteDetectFrameNowMs` are live
+ * getters: `cam`/`_probe` are (re)assigned by `createDomAndScene()`
+ * inside `initScene()`, `nStr` is recomputed every `update()` call, and
+ * `noteDetectFrameNowMs` is written at the top of every frame. `ctx` is
+ * the per-instance state object (`ctx.cam.curX` etc.) — {@link drawScoreFx}'s
+ * 2D-canvas-context parameter is deliberately named `ctx2d`, not `ctx`,
+ * so it can't shadow this dep.
+ */
 export function createScoreFx({ ctx, getCam, getProbe, sY, getNStr, noteDetectLabels, getNoteDetectFrameNowMs }) {
     const _FX_POP_LIFE_MS = 700;
     const _FX_BURST_LIFE_MS = 900;
@@ -40,20 +30,14 @@ export function createScoreFx({ ctx, getCam, getProbe, sY, getNStr, noteDetectLa
         px: new Float32Array(_FX_BURST_N), py: new Float32Array(_FX_BURST_N),
         vx: new Float32Array(_FX_BURST_N), vy: new Float32Array(_FX_BURST_N),
     }));
-    // popKey -> expiry ms. Dedupes pops (chord members share the chord's
-    // popKey; sustains keep returning points for the whole glow window).
+    /** popKey -> expiry ms. Dedupes pops — chord members share the chord's popKey; sustains keep returning points for the whole glow window. */
     const _fxSeen = new Map();
-    // Generation counter: bumped by teardownScoreFx() so the deferred
-    // window-copy fallback in notedetect/listeners.js (a zero-delay task
-    // the listener removal can't cancel) bails instead of re-arming ring/
-    // burst state after teardown.
+    /** Bumped by teardownScoreFx() so the deferred window-copy fallback in notedetect/listeners.js (a zero-delay task the listener removal can't cancel) bails instead of re-arming state after teardown. */
     let _fxGen = 0;
     let _fxLastFxDetail = null;  // reference dedup: window + instanceRoot dispatches share one detail
     let _fxRingMs = -1e9;        // multiplier ring-pulse anchor
     let _fxRingMult = 1;
-    // Canvas-side palette per notedetect skin (mirrors the accents in
-    // notedetect's assets/plugin.css; fonts are document-loaded by that
-    // stylesheet so the overlay canvas can use the family names).
+    /** Canvas-side palette per notedetect skin, mirroring notedetect's own CSS accents; fonts are document-loaded by that stylesheet. */
     const _FX_PALETTES = {
         neon:    { accent: '#00f0ff', accent2: '#ff2ec4', font: 'Orbitron' },
         esports: { accent: '#e8b43a', accent2: '#f5f5f4', font: 'Rajdhani' },
@@ -101,8 +85,8 @@ export function createScoreFx({ ctx, getCam, getProbe, sY, getNStr, noteDetectLa
     }
 
     function fxHandle(d) {
-        // Reference dedup — notedetect dispatches the SAME detail object
-        // on window and on its instanceRoot; whichever arrives first wins.
+        // Reference dedup — notedetect dispatches the SAME detail object on window and on its
+        // instanceRoot; whichever arrives first wins.
         if (d === _fxLastFxDetail) return;
         _fxLastFxDetail = d;
         const nowMs = performance.now();
@@ -112,12 +96,10 @@ export function createScoreFx({ ctx, getCam, getProbe, sY, getNStr, noteDetectLa
             _fxRingMs = nowMs;
             _fxRingMult = d.mult;
         }
-        // NOTE: 'streakBreak' is deliberately unhandled. It used to arm a
-        // full-screen red flash; that effect was removed outright (it washed
-        // the whole panel mid-song, including the notes you were trying to
-        // read). The event is simply ignored now. The other streak feedback —
-        // the hit-heat spark escalation gated on _streakFx in drawNote — is
-        // unaffected. Don't reintroduce a full-panel fill here.
+        // 'streakBreak' is deliberately unhandled — it used to arm a full-screen red flash
+        // that washed the whole panel mid-song, including the notes being read. Don't
+        // reintroduce a full-panel fill here; the hit-heat spark escalation in drawNote
+        // (gated on _streakFx) is the surviving streak feedback and is unaffected.
     }
 
     function drawNotedetectLabels(ctx2d, W, H) {
@@ -146,29 +128,19 @@ export function createScoreFx({ ctx, getCam, getProbe, sY, getNStr, noteDetectLa
         ctx2d.restore();
     }
 
-    // Score FX overlay pass — "+N" pops rising off their gems, milestone
-    // particle bursts / multiplier ring-pulses anchored on the strike line.
-    // Same overlay layer + projection pattern as drawNotedetectLabels;
-    // costs one early-out when nothing is active.
-    //
-    // BUGFIX (follow-up to the extraction commit): the 2D-canvas-context
-    // parameter used to be named `ctx`, shadowing this module's own
-    // per-instance `ctx` dep, so the strike-line-center probe read
-    // `ctx.cam.curX` off the CanvasRenderingContext2D -- which has no
-    // `.cam` property -- and threw `undefined.curX`. Verified via a
-    // controlled A/B against the pre-extraction commit that this bug
-    // predates the move (same crash, same trigger). Only reachable when a
-    // live note_detect score provider fires a milestone/multiplier-tier-up
-    // event while a "+N" pop is also active, which none of this repo's
-    // Playwright checks exercise (no scorer mounted) -- confirmed fixed via
-    // a synthetic notedetect:fx dispatch. Renamed to `ctx2d` and reads the
-    // real per-instance `ctx` dep for `.cam.curX`.
+    /**
+     * Score FX overlay pass: "+N" pops rising off their gems, milestone
+     * particle bursts / multiplier ring-pulses anchored on the strike
+     * line. Same overlay layer + projection pattern as
+     * {@link drawNotedetectLabels}. The 2D-canvas-context parameter is
+     * named `ctx2d`, not `ctx` — naming it `ctx` previously shadowed this
+     * module's own per-instance `ctx` dep and crashed the strike-line
+     * probe (`ctx.cam.curX` resolving against the canvas context instead).
+     */
     function drawScoreFx(ctx2d, W, H) {
         const cam = getCam(), _probe = getProbe(), nStr = getNStr();
         if (!cam || !_probe) return;
         const nowMs = getNoteDetectFrameNowMs() || performance.now();
-        // TTL-prune the pop dedup keys (bounded: only notes hit in the
-        // last few seconds).
         if (_fxSeen.size) {
             for (const [k, exp] of _fxSeen) {
                 if (exp <= nowMs) _fxSeen.delete(k);
@@ -201,8 +173,8 @@ export function createScoreFx({ ctx, getCam, getProbe, sY, getNStr, noteDetectLa
             }
         }
 
-        // Multiplier ring-pulse: one expanding ring on tier-up; the ×4
-        // tier pulses in the secondary accent like the HUD badge.
+        // Multiplier ring-pulse: one expanding ring on tier-up; the x4 tier pulses in the
+        // secondary accent like the HUD badge.
         if (centerOk && ringAge < 600) {
             const t = ringAge / 600;
             const ease = 1 - Math.pow(1 - t, 2);
@@ -215,7 +187,6 @@ export function createScoreFx({ ctx, getCam, getProbe, sY, getNStr, noteDetectLa
             ctx2d.globalAlpha = 1;
         }
 
-        // Milestone bursts.
         if (anyBurst && centerOk) {
             for (let i = 0; i < _fxBursts.length; i++) {
                 const b = _fxBursts[i];
@@ -264,9 +235,7 @@ export function createScoreFx({ ctx, getCam, getProbe, sY, getNStr, noteDetectLa
         ctx2d.restore();
     }
 
-    // Backward-seek reset: a practice loop / rewind re-judges the same
-    // popKeys, and the wall-time TTL alone would suppress their fresh "+N"
-    // pops for up to 4 s.
+    /** Backward-seek reset: a practice loop/rewind re-judges the same popKeys, and the wall-time TTL alone would suppress their fresh "+N" pops for up to 4s. */
     function clearFxSeen() {
         _fxSeen.clear();
     }

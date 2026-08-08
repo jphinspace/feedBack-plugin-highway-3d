@@ -4,28 +4,21 @@ import {
 } from '../../core/constants.js';
 import { lowerBoundT } from '../../core/chart-util.js';
 
-// Per-frame lookahead/gap prepasses -- moved verbatim out of update()
-// (Stage 7 Track C). All five feed the standalone-note loop / chord loop
-// (via _noteFrame / noteState) as explicit params or return values; bundled
-// into one file since they're a tight chain (each reads a scratch buffer
-// the previous one just filled).
-//
-// _scrNextNoteByString / _scrNextNoteByStringData / _scrRecentByString /
-// _scrGhostLastT are used nowhere else in main.js (verified via whole-file
-// grep) -- moved to be genuinely private state of this factory, same
-// "own it outright" upgrade chords.js's _scrChordNote got.
-//
-// _scrGhostPrevBuf stays an injected dep (not private) because it's ALSO
-// handed to note.js/chords.js at construction time as the same Map
-// reference those modules read from later in the same frame.
+/**
+ * Per-frame lookahead/gap prepasses that feed the standalone-note loop /
+ * chord loop (via `_noteFrame`/`noteState`). Bundled into one file since
+ * they're a tight chain — each reads a scratch buffer the previous one
+ * just filled. `_scrGhostPrevBuf` is an injected dep (not private) because
+ * it's also handed to `note.js`/`chords.js` at construction time as the
+ * same Map reference those modules read from later in the same frame.
+ */
 export function createLookaheadPrepasses({ validString, filterValidNotes, _scrGhostPrevBuf }) {
     const _scrNextNoteByString = new Array(MAX_RENDER_STRINGS).fill(null);
     const _scrNextNoteByStringData = Array.from({ length: MAX_RENDER_STRINGS }, () => ({}));
     const _scrRecentByString = new Array(MAX_RENDER_STRINGS).fill(-Infinity);
     const _scrGhostLastT = new Array(MAX_RENDER_STRINGS).fill(-Infinity);
 
-    // Ghost projection window is 0.6s; fretLastActiveTime needs +2s.
-    // Use lowerBoundT to skip past notes and break at +2s.
+    /** Ghost projection window is 0.6s; fretLastActiveTime needs +2s. */
     function computeNextNoteByString(notes, chords, now, nStr, fretLastActiveTime) {
         _scrNextNoteByString.fill(null, 0, nStr);
         const nextNoteByString = _scrNextNoteByString;
@@ -40,8 +33,6 @@ export function createLookaheadPrepasses({ validString, filterValidNotes, _scrGh
             }
         }
         if (chords) {
-            // Time-sorted: lowerBoundT skips past historical chords in O(log N)
-            // instead of walking the entire prefix every frame.
             const _ncLo = lowerBoundT(chords, now);
             for (let _ci = _ncLo; _ci < chords.length; _ci++) {
                 const ch = chords[_ci];
@@ -50,7 +41,7 @@ export function createLookaheadPrepasses({ validString, filterValidNotes, _scrGh
                 for (const cn of ch.notes) {
                     if (!validString(cn.s)) continue;
                     if (!nextNoteByString[cn.s] || ch.t < nextNoteByString[cn.s].t) {
-                        // Reuse per-string scratch object — avoids `{ ...cn, t }` spread allocation.
+                        // Reuse per-string scratch object — avoids a `{ ...cn, t }` spread allocation.
                         const _sd = _scrNextNoteByStringData[cn.s];
                         Object.assign(_sd, cn);
                         _sd.t = ch.t;
@@ -63,13 +54,12 @@ export function createLookaheadPrepasses({ validString, filterValidNotes, _scrGh
         return nextNoteByString;
     }
 
-    // Once a note/chord passes `now` it leaves _drawNextByString, resetting
-    // _nextAnyT and letting old gems linger too long. Scan back at least
-    // CHORD_HWY_LINGER_S so the deadline logic can see every event that
-    // lands inside any active linger window (chord frame linger and gem
-    // linger both cap at CHORD_HWY_LINGER_S — a tighter scan would miss
-    // events in (now - CHORD_HWY_LINGER_S, now - 0.6) and let the frame
-    // linger past the next event).
+    /**
+     * Once a note/chord passes `now` it leaves `_drawNextByString`,
+     * resetting `_nextAnyT` and letting old gems linger too long — scan
+     * back at least {@link CHORD_HWY_LINGER_S} so the deadline logic sees
+     * every event that lands inside any active linger window.
+     */
     function computeRecentByString(notes, chords, now, nStr) {
         const _recArr = _scrRecentByString;
         for (let i = 0; i < nStr; i++) _recArr[i] = -Infinity;
@@ -82,16 +72,8 @@ export function createLookaheadPrepasses({ validString, filterValidNotes, _scrGh
             }
         }
         if (chords) {
-            // Time-sorted: start at the last chord ≤ now instead of
-            // chords.length-1 (which walks past every future chord when
-            // `now` is early in the song).
-            //
-            // lowerBoundT returns the first index with t >= now. If chords
-            // share the same timestamp, walk forward through the t===now
-            // run to the LAST one (so all duplicates at `now` are included
-            // — the original `if (ch.t > now) continue` scan-from-end
-            // included them all). When no chord is exactly at `now`, start
-            // one slot back.
+            // Start at the last chord <= now rather than chords.length-1, which would walk
+            // past every future chord when `now` is early in the song.
             const _ncHi = lowerBoundT(chords, now);
             let _ci = _ncHi;
             if (_ci < chords.length && chords[_ci].t === now) {
@@ -111,14 +93,11 @@ export function createLookaheadPrepasses({ validString, filterValidNotes, _scrGh
         return _recArr;
     }
 
-    // Populate the scalar scratch used by _firstEventTimeGreaterThan — at
-    // most 2 * nStr finite values, then sorted ascending. Float64Array.
-    // subarray returns a view, so .sort() runs in place over the live
-    // prefix without copying or allocating. `scrEventTimes` is main.js's
-    // own Float64Array (injected per-call, not a dep, since the caller
-    // -- _firstEventTimeGreaterThan -- stays main.js-resident and reads
-    // it via closure); the returned length is what main.js reassigns
-    // onto its own bare `_scrEventTimesLen` closure let.
+    /**
+     * Populates the scalar scratch used by `_firstEventTimeGreaterThan` —
+     * at most `2 * nStr` finite values, sorted ascending in place via a
+     * subarray view (no copy/allocation).
+     */
     function computeEventTimesUnion(nextNoteByString, recentByString, nStr, scrEventTimes) {
         let len = 0;
         for (let s = 0; s < nStr; s++) {
@@ -136,16 +115,14 @@ export function createLookaheadPrepasses({ validString, filterValidNotes, _scrGh
         return len;
     }
 
-    // For each note/chord in the upcoming 0.65s window, record the onset
-    // time of its immediate predecessor on the same string. drawNote() uses
-    // this to shrink the ghost preview window from the fixed 0.6s down to
-    // min(0.6, gap) so in dense passages the fret label doesn't float 0.6s
-    // ahead with no gem in sight.
-    //
-    // Two-pointer merge over time-sorted notes + chords so the predecessor
-    // is correct even when notes and chords interleave. Map with numeric
-    // key avoids per-frame string allocation; key = Math.round(t*1e4)*10 + s
-    // (unique for notes > 0.1 ms apart).
+    /**
+     * For each note/chord in the upcoming 0.65s window, records the onset
+     * time of its immediate predecessor on the same string. `drawNote()`
+     * uses this to shrink the ghost preview window from the fixed 0.6s
+     * down to `min(0.6, gap)` so dense passages don't float a fret label
+     * 0.6s ahead with no gem in sight. Two-pointer merge over time-sorted
+     * notes + chords keeps the predecessor correct even when interleaved.
+     */
     function computeGhostPrevGap(notes, chords, now, nStr) {
         _scrGhostPrevBuf.clear();
         for (let _i = 0; _i < nStr; _i++) _scrGhostLastT[_i] = -Infinity;
@@ -176,9 +153,7 @@ export function createLookaheadPrepasses({ validString, filterValidNotes, _scrGh
         }
     }
 
-    // Ramp strGlow while the board ghost is visible so the flying note core
-    // + rim read as one solid string-coloured shape with proj. Window is
-    // (0, PROJ_WIN_MERGE=0.6s) — use lowerBoundT + break.
+    /** Ramps strGlow while the board ghost is visible so the flying note core + rim read as one solid string-colored shape with the projection. */
     function rampStrGlowForUpcomingMerge(notes, chords, now, nextNoteByString, noteState) {
         const PROJ_WIN_MERGE = 0.6;
         if (notes) {
@@ -213,8 +188,7 @@ export function createLookaheadPrepasses({ validString, filterValidNotes, _scrGh
         }
     }
 
-    // Accent: brighter note body (`mGlow` in drawNote) instead of the old
-    // '>' sprite. Notes are sorted — break once past the AHEAD window.
+    /** Accent: brighter note body (`mGlow` in drawNote) rather than a separate sprite. */
     function applyAccentGlow(notes, chords, now, noteState) {
         if (notes) {
             const _acLo = lowerBoundT(notes, now - AHEAD);
