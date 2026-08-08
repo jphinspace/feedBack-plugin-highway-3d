@@ -1,12 +1,12 @@
-// Lyrics overlay — top-centre 2D canvas renderer with syllable-level
-// highlighting (current syllable white, played muted, upcoming dim).
-//
-// The row-layout cache used to be a closure `let _lyrRowsCache`. It is
-// per-instance state (each splitscreen panel measures against its own canvas
-// width), so it must NOT become a module-level singleton — panels would fight
-// over one cache and thrash it every frame. Instead the caller owns it:
-// createLyricsCache() per renderer instance, passed in as the last argument.
-
+/**
+ * Lyrics overlay — top-centre 2D canvas renderer with syllable-level
+ * highlighting (current syllable white, played muted, upcoming dim).
+ *
+ * The row-layout cache is per-instance state (each splitscreen panel
+ * measures against its own canvas width), so it must not be a module-level
+ * singleton. The caller owns it via {@link createLyricsCache}, passed in
+ * as the last argument.
+ */
 export function createLyricsCache() { return { rows: null }; }
 
 export function drawLyrics(lyrics, currentTime, ctx, W, H, cache) {

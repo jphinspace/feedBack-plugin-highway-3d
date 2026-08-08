@@ -1,39 +1,18 @@
-// Notedetect feedback (#9) + Score FX (notedetect >=1.13) listener setup.
-// Moved verbatim out of createFactory()'s initScene() (Stage 7 Phase 3c) --
-// the first slice of the initScene()/teardown() split. This is the
-// "notedetect" subsystem from the plan's dom/renderer/materials/geometry/
-// pools/instanced/notedetect breakdown; it turned out to be the cleanest of
-// the seven because, unlike materials/geometry/pools, it isn't interleaved
-// with other feature clusters in the source -- it's the last thing initScene()
-// does, already self-contained (its own two local helpers, no reads of
-// anything built earlier in initScene()).
-//
-// Two dependency shapes, not one, because the listeners this creates are
-// long-lived (persist across many events/frames, not rebuilt each frame like
-// note.js's `frame` bag):
-//
-// - Plain `deps` fields for state that's genuinely stable for the listener's
-//   whole lifetime: the mark arrays (mutated via .length=0/.push(), never
-//   reassigned to a NEW array while a listener built from a given
-//   initScene() call is still attached -- teardown() nulls the listener
-//   before ever reassigning noteDetectHitMarks/MissMarks to a fresh array,
-//   and this factory reruns fresh on every re-init), _fxElemSeen (a WeakSet,
-//   same story), the two constants, and _fxHandle/_fxResolvePalette
-//   (functions, declared once, never reassigned).
-// - `getFxGen`/`getHighwayCanvas` getters for the two values the _fxOnFx
-//   handler's deferred setTimeout callback reads: _fxGen is incremented by
-//   teardown() specifically to invalidate any callback still in flight when
-//   a NEWER init/teardown cycle happens meanwhile, and highwayCanvas can be
-//   swapped out from under a live instance (canvas-replaced handler) while
-//   this listener is still attached. Both must be read live, at event-fire
-//   time, not snapshotted at listener-creation time -- a plain deps field
-//   would silently break the "torn down meanwhile" cancellation check.
+/**
+ * Notedetect feedback (issue #9) + Score FX (notedetect >=1.13) listener
+ * setup — long-lived listeners, not rebuilt per frame. Two dependency
+ * shapes reflect that:
+ * - Plain `deps` fields for state stable for the listener's whole
+ *   lifetime: the mark arrays (mutated via `.length=0`/`.push()`, never
+ *   reassigned to a new array while attached), `_fxElemSeen` (a WeakSet),
+ *   the two constants, and `_fxHandle`/`_fxResolvePalette`.
+ * - `getFxGen`/`getHighwayCanvas` live getters for values the `_fxOnFx`
+ *   deferred callback reads at event-fire time, not creation time:
+ *   `_fxGen` is bumped by `teardown()` to invalidate any in-flight
+ *   callback from a torn-down instance, and `highwayCanvas` can be
+ *   swapped out from under a live instance by the canvas-replaced handler.
+ */
 export function createNotedetectListeners(deps) {
-    // noteDetectHitMarks/MissMarks are `let`, not `const`, purely to preserve
-    // the original code's `noteDetectHitMarks = noteDetectPushMark(...)`
-    // reassignment verbatim (byte-identical move) -- noteDetectPushMark always
-    // mutates and returns the SAME array it's given, so the reassignment is a
-    // no-op in practice, but this isn't the place to make that judgment call.
     let {
         noteDetectHitMarks, noteDetectMissMarks,
     } = deps;
@@ -68,13 +47,9 @@ export function createNotedetectListeners(deps) {
         const mark = noteDetectNormalizeMark(d);
         if (!mark) return arr;
         const now = performance.now();
-        // Prune expired entries unconditionally. The dedupe path
-        // below can extend expiresAt of any entry (including arr[0]),
-        // so an arr[0] gate is not reliable — it would prevent
-        // pruning entries that expired behind a refreshed front
-        // entry, allowing the array to grow unbounded. These arrays
-        // are tiny (a handful of marks at most), so an unconditional
-        // filter() is negligible and always correct.
+        // Prune unconditionally: the dedupe path below can extend expiresAt of any entry
+        // including arr[0], so an arr[0] gate would miss entries expired behind it. Arrays
+        // are tiny (a handful of marks), so an unconditional filter() is negligible.
         if (arr.length !== 0) {
             const live = arr.filter(m => m.expiresAt > now);
             arr.length = 0;
@@ -106,18 +81,14 @@ export function createNotedetectListeners(deps) {
         window.feedBack.on('note:miss', noteDetectOnBusMiss);
     }
 
-    // Score FX (notedetect ≥1.13). notedetect dispatches each fx
-    // detail object twice in the same task: first explicitly on
-    // window (unscoped), then as a bubbling CustomEvent from its
-    // per-panel instanceRoot (scoped). Element-targeted copies are
-    // authoritative — accept only the ones whose root lives in this
-    // panel's container. The window copy is DEFERRED a task: by the
-    // time it runs, the element copy (same detail reference) has
-    // either arrived — making the window copy a duplicate to drop —
-    // or it never will (detector root not attached to the DOM), in
-    // which case the window copy is the compat fallback. This keeps
-    // splitscreen panels from rendering each other's FX even for
-    // the first event of a session.
+    // Score FX (notedetect >=1.13). notedetect dispatches each fx detail object twice in the
+    // same task: first unscoped on window, then as a bubbling CustomEvent from its per-panel
+    // instanceRoot (scoped). Element-targeted copies are authoritative — accepted only when
+    // their root lives in this panel's container. The window copy is deferred a task: by the
+    // time it runs, the element copy either already arrived (making the window copy a
+    // duplicate to drop) or never will (detector root not in the DOM), in which case the
+    // window copy is the compat fallback. Keeps splitscreen panels from rendering each
+    // other's FX even for the first event of a session.
     _fxResolvePalette();
     const _fxOnFx = (e) => {
         const d = e && e.detail;
@@ -132,7 +103,7 @@ export function createNotedetectListeners(deps) {
         }
         const gen = getFxGen();
         setTimeout(() => {
-            if (gen !== getFxGen()) return;   // torn down (or re-inited) meanwhile
+            if (gen !== getFxGen()) return; // torn down (or re-inited) meanwhile
             if (_fxElemSeen.has(d)) return;
             _fxHandle(d);
         }, 0);

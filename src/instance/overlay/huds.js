@@ -1,29 +1,16 @@
-// Section + tone HUD cards drawn on the 2D overlay canvas.
-//
-// Both are pure (ctx, opts) renderers: every value they need — the chart
-// arrays, the current time, canvas dimensions, the position/size settings, and
-// the running `lyricsBottom` / `stackOffset` used to stack cards in a corner —
-// arrives through `opts`, and every colour/metric constant is declared inside
-// the function. That is why they moved out of the createFactory() closure
-// without needing the ctx object: they never touched it.
-//
-// Each returns the height it drew, which the caller pushes onto its per-corner
-// stack so the next card lands below it.
+/**
+ * Section + tone HUD cards drawn on the 2D overlay canvas. Both are pure
+ * `(ctx, opts)` renderers — every value they need arrives through `opts`.
+ * Each returns the height it drew (0 if nothing rendered), which the
+ * caller pushes onto its per-corner stack so the next card lands below it.
+ */
 
-// Two-line section card. Top line is "Now: <current>", bottom line
-// is "Up Next: <next> in <countdown>". Explicit labels disambiguate
-// current vs upcoming — earlier single-line variant rendered both
-// states with the same word and was confusing during playback.
-//
-// Returns boxH on draw, 0 when nothing rendered. Position / size
-// mirror the chord-diagram contract: 'tl' / 'tr' / 'bl' / 'br'
-// anchor corners, sizeSlider in [0,1] scales card height.
-//
-// Hidden when:
-//   - no sections array, or
-//   - playback has not yet reached the first section AND there's
-//     no upcoming-only fallback rendered (we still show "Up Next"
-//     during the pre-roll so the user sees what's coming).
+/**
+ * Two-line section card: "Now: <current>" / "Up Next: <next> in
+ * <countdown>". Position/size mirror the chord-diagram contract: `'tl'`/
+ * `'tr'`/`'bl'`/`'br'` anchor corners, `sizeSlider` in `[0,1]` scales card
+ * height. Still shows "Up Next" alone during pre-roll, before the first section.
+ */
 export function drawSectionHud(ctx, opts) {
     const {
         sections, currentTime,
@@ -43,17 +30,12 @@ export function drawSectionHud(ctx, opts) {
     }
     const cur  = curIdx >= 0 ? sections[curIdx] : null;
     const next = (curIdx + 1 < sections.length) ? sections[curIdx + 1] : null;
-    // Pre-first-section: nothing playing yet but next is coming —
-    // still useful to render "Up Next" alone so the user gets the
-    // anticipatory cue during the song's intro silence.
+    // Pre-first-section: render "Up Next" alone as an anticipatory cue during the intro.
     if (!cur && !next) return 0;
 
     const nowName = cur ? cur.name : '';
-    // Render countdown as a separate span so it can take a calmer
-    // grey-white treatment while the section name itself stays
-    // cyan. Combining them into one string would inherit the cyan
-    // fill across both, defeating the visual hierarchy promised
-    // in the FR.
+    // Countdown is a separate span (calmer grey-white) so combining it into one string
+    // doesn't inherit the section name's cyan fill.
     let nextName = '';
     let nextCountdown = '';
     if (next) {
@@ -68,10 +50,8 @@ export function drawSectionHud(ctx, opts) {
     const baseH = Math.max(34, Math.min(72, Math.round(canvasH * 0.085 * sizeF)));
     const PAD_X = Math.round(baseH * 0.45);
     const PAD_Y = Math.round(baseH * 0.20);
-    // Per-text-element scale applied to nameSize / tagSize / lineH
-    // when the unscaled card would overflow a narrow panel
-    // (splitscreen quad layout, ultra-tall portrait). Computed
-    // below from the measured contentW vs the available width.
+    // Scale applied to nameSize/tagSize/lineH when the unscaled card would overflow a
+    // narrow panel; computed below from measured contentW vs. available width.
     let textScale = 1.0;
     const baseLineH    = Math.round(baseH * 0.46);
     const baseNameSize = Math.round(baseH * 0.36);
@@ -81,9 +61,7 @@ export function drawSectionHud(ctx, opts) {
     const TAG_NOW  = 'Now:';
     const TAG_NEXT = 'Up Next:';
 
-    // Phase-1 measurement at the unscaled font sizes — used to
-    // decide whether textScale needs to drop, and to lay out the
-    // final draw at whatever scale we land on.
+    // Unscaled measurement pass — decides whether textScale needs to drop.
     ctx.save();
     ctx.font = `${baseTagSize}px sans-serif`;
     const tagNowWBase  = ctx.measureText(TAG_NOW).width;
@@ -103,10 +81,8 @@ export function drawSectionHud(ctx, opts) {
     const numLines = (nowName ? 1 : 0) + (nextName ? 1 : 0);
     if (numLines === 0) return 0;
 
-    // Target width budget: cap at canvasW - 16 and reserve PAD_X
-    // either side. If contentWBase exceeds the budget, scale the
-    // font proportionally — clamped to 0.55 so labels stay legible
-    // even on extreme split-panel widths.
+    // Width budget: canvasW - 16 minus PAD_X either side. Over budget scales the font down,
+    // clamped to 0.55 so labels stay legible on extreme split-panel widths.
     const maxBoxW = Math.max(40, canvasW - 16);
     const availContentW = Math.max(1, maxBoxW - PAD_X * 2);
     if (contentWBase > availContentW) {
@@ -118,11 +94,8 @@ export function drawSectionHud(ctx, opts) {
     const tagSize  = Math.max(1, Math.round(baseTagSize  * textScale));
     const TAG_GAP  = Math.max(1, Math.round(baseTagGap   * textScale));
 
-    // Phase-2 re-measurement at the scaled font sizes for the
-    // final layout. measureText doesn't scale linearly with font
-    // size on every glyph, so re-measuring is cheaper than
-    // multiplying the base widths by textScale and risking a
-    // half-pixel overflow.
+    // Re-measure at the scaled font sizes rather than multiplying base widths by
+    // textScale — measureText doesn't scale linearly with font size on every glyph.
     ctx.save();
     ctx.font = `${tagSize}px sans-serif`;
     const tagNowW  = ctx.measureText(TAG_NOW).width;
@@ -151,10 +124,8 @@ export function drawSectionHud(ctx, opts) {
     else                        { bx = E; by = TOP_Y + stackOffset; }
     bx = Math.max(0, Math.min(canvasW - boxW, bx));
     by = Math.max(0, Math.min(canvasH - boxH, by));
-    // Suppress overlap with the wrapped lyrics banner regardless
-    // of corner. Bottom-corner cards on short panels can still
-    // reach up into the banner once boxH exceeds the space below
-    // the lyrics — same shape the chord diagram uses.
+    // Suppress overlap with the wrapped lyrics banner regardless of corner — bottom-corner
+    // cards on short panels can still reach up into it once boxH exceeds the space below.
     if (lyricsBottom > 0 && by < lyricsBottom) return 0;
 
     ctx.save();
@@ -166,9 +137,7 @@ export function drawSectionHud(ctx, opts) {
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
 
-    // Layout each line with tag left-aligned, name in cyan after a
-    // small gap. Both lines share the same x origin (bx + PAD_X)
-    // so the tag column visually aligns vertically.
+    // Both lines share the same x origin so the tag column aligns vertically.
     const lineX = bx + PAD_X;
     let lineY = by + PAD_Y + lineH / 2;
     const TAG_COLOR = 'rgba(180,190,205,0.85)';
@@ -202,10 +171,11 @@ export function drawSectionHud(ctx, opts) {
     return boxH;
 }
 
-// Tone-change HUD — card showing the active tone and the next upcoming
-// tone with a countdown. Mirrors drawSectionHud's layout contract
-// (position, size slider, lyricsBottom) but uses an amber accent colour
-// so it reads as distinct from the cyan section card.
+/**
+ * Tone-change HUD: active tone + next upcoming tone with a countdown.
+ * Mirrors {@link drawSectionHud}'s layout contract with an amber accent
+ * instead of cyan.
+ */
 export function drawToneHud(ctx, opts) {
     const {
         toneChanges, toneBase = '',

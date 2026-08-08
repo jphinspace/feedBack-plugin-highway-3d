@@ -2,17 +2,16 @@ import {
     DIAG_CELL_MAX, DIAG_SIZE_MAX, DIAG_SIZE_MIN,
 } from '../../core/constants.js';
 
-// OffscreenCanvas render-cache wrapper around drawChordDiagram() -- moved
-// verbatim out of main.js as `_drawDiagramCached` (Stage 7, post-3e).
-// Fully-faded-in diagrams (entranceT >= 1.0) are rasterised once per
-// distinct (name/frets/nStr/inverted/size/position/canvas-size/stack)
-// key and reused via drawImage(); diagrams still animating their entrance
-// (entranceT < 1.0) skip the cache and call drawChordDiagram() directly
-// every frame, since the cache key doesn't include entranceT. Private
-// cache Map + max-size constant, own-it-outright -- nothing outside this
-// wrapper touched them in main.js. clearDiagramCache() is exposed for the
-// three main.js call sites that used to call `_diagRenderCache.clear()`
-// directly (lefty-flip mirror, a resize path, destroy()).
+/**
+ * OffscreenCanvas render-cache wrapper around {@link drawChordDiagram}.
+ * Fully-faded-in diagrams (`entranceT >= 1.0`) are rasterized once per
+ * distinct `(name/frets/nStr/inverted/size/position/canvas-size/stack)` key
+ * and reused via `drawImage()`; diagrams still animating their entrance
+ * skip the cache and call `drawChordDiagram()` directly every frame, since
+ * the cache key doesn't include `entranceT`. `clearDiagramCache()` is
+ * exposed for callers that need to drop the cache directly (lefty-flip
+ * mirror, a resize path, `destroy()`).
+ */
 export function createChordDiagramCache() {
     const _diagRenderCache = new Map();
     const _DIAG_CACHE_MAX = 6;
@@ -53,12 +52,7 @@ export function createChordDiagramCache() {
     return { drawDiagramCached, clearDiagramCache };
 }
 
-// Returns indices of the longest consecutive run in a sorted integer
-// array as { start, len } — `sorted[start..start+len)` is the run.
-// Avoids the two per-call sub-array allocations of the previous
-// implementation (best + cur arrays grown via .push), at the cost
-// of one small 2-key result object. Net: callers in the chord-
-// diagram render path no longer churn arrays per visible chord.
+/** Indices of the longest consecutive run in a sorted integer array: `{ start, len }`, where `sorted[start..start+len)` is the run. */
 export function longestConsecutiveRun(sorted) {
     let bestStart = -1, bestLen = 0;
     let curStart = -1, curLen = 0;
@@ -280,32 +274,22 @@ export function drawChordDiagram(ctx, opts) {
         ctx.stroke();
     }
 
-    // Barre detection — two complementary paths:
+    // Barre detection — two complementary paths. Templates are high-e-first:
+    // frets[0]=high e, frets[COLS-1]=low E.
     //
     // PATH A (F-shape / mini-barre): at least two ADJACENT columns are at startFret.
-    //   Bracket is initially set to the consecutive run's own endpoints (not the full
+    //   Bracket is set to the consecutive run's own endpoints (not the full
     //   startFretCols range) so isolated bass notes at the same fret can't pull the
-    //   bracket across an open gap (e.g. "2 0 2 2 0 0" stays bracketed at cols 2..3).
+    //   bracket across an open gap.
     //
     // PATH B (full-span barre / extension):
-    //   When PATH A fired: extend the bracket outward to the full outer startFret span
-    //     if the span ≥ MIN_BARRE_SPAN and every column between the outer startFret
+    //   When PATH A fired: extend the bracket to the full outer startFret span if
+    //     the span >= MIN_BARRE_SPAN and every column between the outer startFret
     //     columns is fretted (f > 0).
-    //   When PATH A did NOT fire: detect standalone full barres (e.g. x24442, x46654)
-    //     where only the two outermost strings sit at startFret.  An additional check
-    //     ensures that no intermediate column is itself at startFret — this rules out
-    //     alternating-fret voicings like "1 3 1 3 1 0" (col 2 at startFret would fire
-    //     incorrectly) while still catching B-major-style shapes where the barre
-    //     finger covers only the outer two strings.
-    //
-    // Templates are high-e-first: frets[0]=high e, frets[COLS-1]=low E.
-    // Examples (6-string, MIN_BARRE_SPAN=4):
-    //   F major [1,1,2,3,3,1]: PATH A run=[4,5] → bracket 4..5; PATH B span=5, all fretted → extends to 0..5 ✓
-    //   B major x24442:        PATH A no run; PATH B span=4, all fretted, no inner at startFret → 1..5 ✓
-    //   mini-A  x02220:        PATH A run=[2,3,4] → bracket 2..4; PATH B span=2<4 → no extension ✓
-    //   D major xx0232:        PATH A run length=1 → no PATH A; PATH B span<4 → no bracket ✓
-    //   2 0 2 2 0 0:           PATH A run=[2,3] → bracket 2..3; PATH B span=3<4 → no extension ✓
-    //   1 3 1 3 1 0:           PATH A no run; PATH B: inner col 2 at startFret → no bracket ✓
+    //   When PATH A did NOT fire: detect standalone full barres where only the two
+    //     outermost strings sit at startFret, requiring no intermediate column also
+    //     at startFret — this rules out alternating-fret voicings while still
+    //     catching shapes where the barre finger covers only the outer two strings.
     const startFretCols = [];
     for (let col = 0; col < COLS; col++) {
         if (frets[getStrIdx(col)] === startFret) startFretCols.push(col);
