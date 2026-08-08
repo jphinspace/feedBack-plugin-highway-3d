@@ -6,33 +6,16 @@ import { dZ } from '../../core/fret-geometry.js';
 import { getChartAnchorAt, laneBoundsFromAnchor } from '../../core/chart-util.js';
 import { _venueSceneOverride } from '../../background/venue.js';
 
-// The dynamic highway lane (the highlighted strip under active frets) +
-// its nested fret-boundary extension lines -- moved verbatim out of
-// update() (Stage 7 Track C). Construction-time-only deps (pools/
-// materials/facades), same as every initScene()-cluster extraction;
-// the interesting part is the per-call surface:
-//
-// - `highwayIntensity` and `fretDividersVisible` are read-only snapshots
-//   for this call (both fully settled by the time update() reaches this
-//   point in the frame -- highwayIntensity via the single-notes/chords
-//   accum copy-back, fretDividersVisible a settings snapshot that never
-//   changes mid-frame), so they're plain parameters, not live getters.
-// - `hwyLaneArpOuterDividers`/`arpLaneRimAccentMul`/`arpLaneS` (the arp-
-//   outer-rail prep block) turned out to be used ONLY inside this
-//   section (verified via whole-file grep) despite being computed
-//   earlier in update(), ahead of the unrelated "Fret-wire hit flash"
-//   block -- moved to be fully local here; nothing else in update()
-//   ever reads them, and the fret-wire block doesn't touch any of the
-//   lane-rail variables either, so reordering the (independent) prep
-//   after fret-wire-hit-flash instead of before it is a no-op for
-//   observable behaviour.
-// - `_laneSeg*` (the parallel scratch arrays for the anchor-driven
-//   segmented lane) were previously main.js closure-level scratch but,
-//   like chords.js's `_scrChordNote`, are referenced ONLY inside this
-//   section -- moved to be genuinely private state of this factory.
-// - Returns `{ hwyLaneFretClipMin, hwyLaneFretClipMax }`: the one piece
-//   of state that escapes this section, consumed later in update() by
-//   the fret-column reference markers (their cadence-row clipping).
+/**
+ * The dynamic highway lane (the highlighted strip under active frets) +
+ * its nested fret-boundary extension lines. `highwayIntensity` and
+ * `fretDividersVisible` are read-only per-call snapshots, both fully
+ * settled by the time `update()` reaches this point in the frame.
+ * `_laneSeg*` (parallel scratch arrays for the anchor-driven segmented
+ * lane) are private state of this factory — referenced nowhere else.
+ * Returns `{ hwyLaneFretClipMin, hwyLaneFretClipMax }`, consumed later in
+ * `update()` by the fret-column reference markers for cadence-row clipping.
+ */
 export function createHighwayLane({
     pLane, pLaneDivider, mLaneOdd, mLaneEven, mLaneDivider, mLaneDividerArp, mLaneDividerExt,
     xFret, arpeggioLaneRail, arpeggioLaneDividerXYScaleMatchFrameRim,
@@ -83,16 +66,13 @@ export function createHighwayLane({
                     hwyLaneFretClipMax = nearB.dMax;
                 }
 
-                // Span the full (AHEAD + BEHIND) window so the lane's far edge
-                // lands at dZ(AHEAD) = -AHEAD*TS, aligned with the note horizon.
-                // Using just AHEAD here made the far edge stop at -TS*(AHEAD-BEHIND),
-                // leaving the last BEHIND seconds of notes without a lane underneath.
+                // Span the full (AHEAD + BEHIND) window so the lane's far edge lands at
+                // dZ(AHEAD) = -AHEAD*TS, aligned with the note horizon — AHEAD alone would
+                // leave the last BEHIND seconds of notes without a lane underneath.
                 const sliceDt = (AHEAD + BEHIND) / HIGHWAY_LANE_TIME_SLICES;
-                // Single-pass build-and-merge into the parallel-array
-                // scratch buffers. Consecutive slices that resolve to the
-                // same anchor bounds collapse into one segment by extending
-                // its z1; otherwise a new entry appends. No per-frame array
-                // or {b,z0,z1} object allocations.
+                // Single-pass build-and-merge into the parallel-array scratch buffers.
+                // Consecutive slices resolving to the same anchor bounds collapse into one
+                // segment by extending its z1, avoiding per-frame object allocations.
                 _laneSegLen = 0;
                 for (let k = 0; k < HIGHWAY_LANE_TIME_SLICES; k++) {
                     const dt0 = k * sliceDt;
@@ -100,14 +80,11 @@ export function createHighwayLane({
                     const tC = now + (dt0 + dt1) * 0.5 - BEHIND;
                     const b = laneBoundsFromAnchor(getChartAnchorAt(anchors, tC));
                     if (!b) continue;
-                    // The lane STOPS AT THE HIT LINE (z = 0) — issue #991. The
-                    // slice window starts BEHIND seconds in the past, so the
-                    // first slices map to positive z, i.e. past the hit line
-                    // toward the player. Nothing is ever drawn there: notes and
-                    // chord frames clamp to Math.min(0, dZ(dt)), so that strip
-                    // is lane with nothing on it. Clamp the NEAR edge only —
-                    // the far edge stays at dZ(AHEAD+BEHIND)+TS*BEHIND = -AHEAD*TS,
-                    // aligned with the note horizon, exactly as before.
+                    // The lane stops at the hit line (z = 0): the slice window starts BEHIND
+                    // seconds in the past, so early slices map to positive z (past the hit
+                    // line) where nothing is ever drawn (notes/chord frames clamp to
+                    // Math.min(0, dZ(dt))) — clamp only the near edge, the far edge stays at
+                    // -AHEAD*TS, aligned with the note horizon.
                     const z0 = Math.min(0, dZ(dt0) + TS * BEHIND);
                     const z1 = Math.min(0, dZ(dt1) + TS * BEHIND);
                     // Slice lies entirely past the hit line -> zero length, nothing
@@ -261,11 +238,8 @@ export function createHighwayLane({
                 divMin = dMin;
                 divMax = dMax;
 
-                // Far edge at -AHEAD*TS (the note horizon), near edge at the
-                // hit line (z = 0) — the lane does not run past it toward the
-                // player, where nothing is ever drawn (#991). Spanning
-                // AHEAD+BEHIND and shifting by +TS*BEHIND put the near edge at
-                // +TS*BEHIND; spanning AHEAD alone keeps the same far edge.
+                // Far edge at -AHEAD*TS (the note horizon), near edge at the hit line (z = 0)
+                // — the lane doesn't run past it toward the player, where nothing is drawn.
                 const laneLen = TS * AHEAD;
                 const zLane = -laneLen / 2;
                 const laneOp = (HIGHWAY_LANE_STRIPE_OP_BASE + highwayIntensity * HIGHWAY_LANE_STRIPE_OP_INT)
@@ -287,7 +261,7 @@ export function createHighwayLane({
                 }
 
                 if (highwayIntensity > 0.05) {
-                    // Matches the lane above: ends at the hit line (#991).
+                    // Matches the lane above: ends at the hit line.
                     const divLen = TS * AHEAD;
                     const yPos = boardY + 0.03 * K;
                     const divOp2 = 0.02 + highwayIntensity * 0.1;
@@ -320,8 +294,8 @@ export function createHighwayLane({
 
             // ── Fret boundary extension lines ─────────────────────────
             if (mLaneDividerExt && fretDividersVisible) {
-                // Same hit-line stop as the lane (#991) — otherwise these lines
-                // would be the only floor geometry still running past it.
+                // Same hit-line stop as the lane, or these would be the only floor geometry
+                // still running past it.
                 const extLaneLen = TS * AHEAD;
                 const extZMid = -extLaneLen / 2;
                 const extYPos = boardY + 0.03 * K;

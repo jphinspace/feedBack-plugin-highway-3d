@@ -1,28 +1,19 @@
 import { ARP_HWY_RAIL_END_TAIL_S, ARP_HWY_RAIL_START_LEAD_S, BEHIND } from '../../core/constants.js';
 
-// Arpeggio lane-rail geometry: the purple vertical rails drawn on the
-// highway lane for the duration of a hand-shape's arpeggio window, plus
-// the note/chord-id lookups (arpHsBoundsForNote,
-// arpeggioChordIdForNoteWithInferCache) that gate note-level arpeggio
-// visuals. Split out of the chord/arpeggio inference cluster in
-// ./chord-inference.js because it answers a different question --
-// "where does the RAIL/GEM render" vs "what IS this chord/hand-shape" --
-// but every function here still bottoms out in that module's
-// chordInference.hsStart/hsEnd/hsChordIdNorm/handShapeMarkedArpeggio, so
-// it takes the already-built chordInference instance as a dependency
-// rather than re-deriving any of that.
-//
-// validString/filterValidNotes are injected for the same reason as
-// chord-inference.js: both are nStr-dependent per-instance state that
-// stays in the createFactory() closure.
-//
-// The two WeakMap caches (_arpCidCache, _arpBoundsCache) are chart-static
-// and per-instance for the usual reason (CLAUDE.md pitfall #14).
+/**
+ * Arpeggio lane-rail geometry: the purple vertical rails drawn on the
+ * highway lane for the duration of a hand-shape's arpeggio window, plus
+ * the note/chord-id lookups that gate note-level arpeggio visuals. Split
+ * out from `./chord-inference.js` because it answers "where does the
+ * rail/gem render" rather than "what is this chord/hand-shape", though it
+ * still bottoms out in that module's `hsStart`/`hsEnd`/`hsChordIdNorm`/
+ * `handShapeMarkedArpeggio`, taken as a dependency. `validString`/
+ * `filterValidNotes` are injected for the same nStr-dependency reason as
+ * `chord-inference.js`. The two WeakMap caches are chart-static and kept
+ * per-instance so splitscreen panels don't share entries.
+ */
 export function createArpeggioLaneRail({ chordInference, validString, filterValidNotes }) {
-    // Chart-static WeakMap cache: note object → chord-id (or null sentinel).
-    // The result depends only on the note's (t, s, f) and the chart's handShapes
-    // + chordTemplates, which never change after load. Keyed by note object so
-    // switching songs/arrangements drops the entries with the old array.
+    /** Chart-static WeakMap cache: note object -> chord-id (or null). Depends only on the note's (t, s, f) and the chart's handShapes + chordTemplates. */
     const _ARP_CID_NULL = Object.freeze({});
     const _arpCidCache = new WeakMap();
     function arpeggioChordIdForNoteWithInferCache(n, handShapes, chordTemplates, notesArr, hsInferFlags) {
@@ -53,13 +44,12 @@ export function createArpeggioLaneRail({ chordInference, validString, filterVali
         return result;
     }
 
-    /** Returns {start, end} chart-time bounds of the arpeggio handshape that contains
-     *  this note, or null when not found.  Uses hsInferFlags to skip ruled-out
-     *  handshapes; falls back to a full scan when hsInferFlags is null. */
-    // WeakMap cache — arpHsBoundsForNote result is chart-static (note, handShapes,
-    // and hsInferFlags never change after chart load). Each renderer instance has
-    // its own WeakMap, so splitscreen panels don't interfere.
-    // Sentinel: _ARP_BOUNDS_NULL = {} distinguishes "no matching hs" from "uncached".
+    /**
+     * `{start, end}` chart-time bounds of the arpeggio handshape containing
+     * this note, or `null`. Uses `hsInferFlags` to skip ruled-out
+     * handshapes; falls back to a full scan when null. Chart-static WeakMap
+     * cache; `_ARP_BOUNDS_NULL` distinguishes "no matching hs" from "uncached".
+     */
     const _ARP_BOUNDS_NULL = Object.freeze({});
     const _arpBoundsCache = new WeakMap();
     function arpHsBoundsForNote(n, handShapes, hsInferFlags) {
@@ -86,9 +76,9 @@ export function createArpeggioLaneRail({ chordInference, validString, filterVali
     }
 
     /**
-     * Chart-time window for purple rails: hand-shape span clipped to matching
-     * ``chords[].t`` and template notes in the passage — same times that drive
-     * the 3D arpeggio frame (``ch.t`` + note stream), avoiding rails that start
+     * Chart-time window for purple rails: hand-shape span clipped to
+     * matching `chords[].t` and template notes in the passage — the same
+     * times that drive the 3D arpeggio frame, avoiding rails that start
      * before the box or end before the last arpeggiated note.
      */
     function effectiveArpRailChartBoundsForHandShape(hs, chords, chordTemplates, notesArr) {
@@ -131,14 +121,13 @@ export function createArpeggioLaneRail({ chordInference, validString, filterVali
             if (tMaxC != null) shapeHi = Math.max(shapeHi, tMaxC);
         }
         shapeLo -= ARP_HWY_RAIL_START_LEAD_S;
-        // Only extend past the handshape end when notes/chords genuinely reach
-        // beyond it — otherwise the tail would make the rail visually larger
-        // than the actual handshape duration (e.g. 0.38 s / 1.3 s ≈ 29% extra).
+        // Only extend past the handshape end when notes/chords genuinely reach beyond it —
+        // otherwise the tail would make the rail visually larger than the handshape duration.
         if (shapeHi > _hsEndOrig) shapeHi += ARP_HWY_RAIL_END_TAIL_S;
         return { shapeLo, shapeHi };
     }
 
-    /** Cache the authored arpeggio marker per hand shape. */
+    /** Caches the authored arpeggio marker per hand shape. */
     function fillLaneRailHandShapeFlags(handShapes, chordTemplates, outFlags) {
         const nHs = handShapes.length;
         for (let i = 0; i < nHs; i++) {
@@ -160,7 +149,7 @@ export function createArpeggioLaneRail({ chordInference, validString, filterVali
         }
     }
 
-    /** ``[tChartLo,tChartHi]`` chart times that a lane slice covers (see module ``BEHIND`` / approach ``dt``). */
+    /** Whether `[tChartLo, tChartHi]` overlaps any active arpeggio hand-shape's bounds. */
     function arpeggioLaneOuterRailChartIntervalOverlaps(
         tChartLo,
         tChartHi,
@@ -198,9 +187,9 @@ export function createArpeggioLaneRail({ chordInference, validString, filterVali
     }
 
     /**
-     * True when **chart time** ``chartT`` falls inside an arpeggio hand-shape.
-     * Uses a short end tail only — no ``CHORD_HWY_LINGER_S`` — so purple lane
-     * rails match visible highway slices and do not leak after shapes end.
+     * True when chart time `chartT` falls inside an arpeggio hand-shape.
+     * Uses a short end tail only — no `CHORD_HWY_LINGER_S` — so purple
+     * lane rails match visible highway slices and don't leak after shapes end.
      */
     function arpeggioLaneOuterRailAtChartTime(
         chartT, handShapes, boundLo, boundHi, laneRailFlags,
@@ -211,9 +200,9 @@ export function createArpeggioLaneRail({ chordInference, validString, filterVali
     }
 
     /**
-     * Same ``chordAccent ? ft *= 1.22`` as the 3D arpeggio chord rim so lane
-     * rails match an accented frame when the active hand shape links to a
-     * chord row that carries ``.ac`` notes.
+     * Same `chordAccent ? ft *= 1.22` boost as the 3D arpeggio chord rim,
+     * so lane rails match an accented frame when the active hand shape
+     * links to a chord row carrying `.ac` notes.
      */
     function arpeggioLaneDividerFrameAccentMul(nowT, handShapes, chords, boundLo, boundHi, laneRailFlags) {
         if (!handShapes || handShapes.length === 0 || !chords || chords.length === 0) return 1;
