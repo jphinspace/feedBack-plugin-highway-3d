@@ -21,16 +21,16 @@ import {
     h3dVenueSceneGetState,
 } from './background/venue.js';
 
-// THE ONLY FILE THAT WRITES window.* -- every renderer module exports
-// plain functions/values; this file is the sole place they get bound onto
-// the global object the host and settings.html actually call against.
-// Every name is spelled out longhand below (not looped over
-// Object.entries) so this stays the one auditable, greppable list of the
-// plugin's entire external window.* surface.
-//
-// Not called at this module's own top level (import-time purity -- see
-// docs/plugin-modules split plan): src/main.js calls installGlobals()
-// once, alongside its other startup call (initFretSpacing()).
+/**
+ * The only file that writes `window.*`. Every renderer module exports
+ * plain functions/values; this is the sole place they bind onto the
+ * global object the host and settings.html call against. Every name is
+ * spelled out longhand (not looped over `Object.entries`) so this stays
+ * one auditable, greppable list of the plugin's entire external `window.*` surface.
+ *
+ * Not called at this module's own top level — `main.js` calls
+ * `installGlobals()` once, alongside `initFretSpacing()`.
+ */
 export function installGlobals() {
     window.h3dBgSetStyle = h3dBgSetStyle;
     window.h3dBgSetIntensity = h3dBgSetIntensity;
