@@ -2,20 +2,17 @@ import { T } from '../../core/three.js';
 import { K, STR_THICK, S_GAP } from '../../core/constants.js';
 import { SETTING_DEFAULTS } from '../../settings/defaults.js';
 
-// Guitar nut + headstock geometry -- moved verbatim out of buildBoard()
-// (Stage 7, post-3e). Self-contained: only reads the caller's already-
-// computed local layout values (nStr, sY, xHeadLeft, nutXC, nutLenX,
-// nutRearX -- all recomputed fresh by buildBoard() on every call, so
-// they're explicit params, not deps) plus ctx.settings.nutColor/
-// headstockColor/nutHeadstockVisible and writes ctx.board.nutHeadstockGroup.
-// _h3dHexOrDefault was used nowhere else in main.js -- moved to be private
-// state of this module (own-it-outright, same upgrade chords.js's
-// _scrChordNote got).
-//
-// Disposal: buildBoard()'s own generic `fretG.children` traversal (its
-// first block, run before this is called again on rebuild) disposes
-// nutHeadstockGroup's meshes/materials along with everything else in
-// fretG -- no nut/headstock-specific disposal needed here or in teardown().
+/**
+ * Guitar nut + headstock geometry. Self-contained: reads only the caller's
+ * already-computed local layout values (recomputed fresh by `buildBoard()`
+ * on every call, so they're explicit params, not deps) plus
+ * `ctx.settings.nutColor`/`headstockColor`/`nutHeadstockVisible`, and
+ * writes `ctx.board.nutHeadstockGroup`.
+ *
+ * Disposal: `buildBoard()`'s own generic `fretG.children` traversal
+ * disposes `nutHeadstockGroup`'s meshes/materials on rebuild along with
+ * everything else in `fretG` — no nut/headstock-specific disposal needed.
+ */
 function h3dHexOrDefault(hexStr, defHex) {
     const d = defHex || SETTING_DEFAULTS.nutColor;
     const s = (typeof hexStr === 'string' && /^#[0-9a-fA-F]{6}$/.test(hexStr.trim()))

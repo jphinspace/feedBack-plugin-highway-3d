@@ -8,28 +8,21 @@ import {
 } from '../../core/constants.js';
 import { DEFAULT_GEM_GRADIENTS } from '../../core/palette.js';
 
-// Note-gem geometry + every material that colors a gem/outline/sustain-trail
-// (Stage 7 Track B / 3-ctx-3). Moved verbatim out of initScene() — construction-
-// time only, no `ctx` needed: every field here is read (never reassigned) by
-// everything downstream, verified via a whole-file bare-reassignment grep
-// (see CLAUDE.md's "deps/frame/accum" note). `activePalette` and `glowMul`
-// are baked into these materials AT CONSTRUCTION TIME, matching the original
-// code exactly -- a later palette change retints the built materials in place
-// via `_applyPaletteToMaterials()` (still in main.js), it doesn't reconstruct
-// them, so a stale `activePalette`/`glowMul` snapshot here is correct, not a bug.
-//
-// `mkGhostFrameGeometry` is returned (not called here) because its one call
-// site (`initScene()`'s board-projection-ghost pool block) is still resident
-// in main.js -- kept as a function so that later slice can call it unchanged.
+/**
+ * Note-gem geometry + every material that colors a gem/outline/sustain
+ * trail. Construction-time only. `activePalette`/`glowMul` are baked into
+ * these materials at construction time; a later palette change retints the
+ * built materials in place via `_applyPaletteToMaterials()` rather than
+ * reconstructing them, so a stale snapshot here is correct by design.
+ * {@link mkGhostFrameGeometry} is returned rather than called here since
+ * its one call site (the board-projection-ghost pool) is still in `main.js`.
+ */
 export function createNoteGemVisuals({ activePalette, glowMul, noteG, _recolorGemGradients, _ownedSharedGeos, gHaloBar: _gHaloBarIn }) {
-    // Rectangular note geometry
     const gNote = new T.BoxGeometry(NW, NH, ND);
-    // Per-string vertical gradient gems — colours sampled from the
-    // original colour PNGs (top highlight → deeper bottom). Each gradient
-    // string gets its own BoxGeometry clone carrying a per-vertex colour
-    // attribute; the gem core swaps to gNoteGrad[s] in drawNote while its
-    // material (mStr[s]) is white + vertexColors:true so the gradient
-    // shows pure. Strings 6/7 have no entry and fall back to flat gNote.
+    // Per-string vertical gradient gems. Each gets its own BoxGeometry clone carrying a
+    // per-vertex color attribute; drawNote swaps the gem core to gNoteGrad[s] while its
+    // material (mStr[s]) is white + vertexColors:true so the gradient shows pure.
+    // Strings 6/7 have no entry and fall back to flat gNote.
     const gNoteGrad = DEFAULT_GEM_GRADIENTS.map(([topHex, botHex]) => {
         const g = new T.BoxGeometry(NW, NH, ND);
         const _pos = g.attributes.position;
@@ -49,11 +42,9 @@ export function createNoteGemVisuals({ activePalette, glowMul, noteG, _recolorGe
         _ownedSharedGeos.push(g);
         return g;
     });
-    // Seed gem colors from whatever palette is active at mount (custom
-    // colors recolor the gem bodies just like the strings/trails).
     _recolorGemGradients();
 
-    /** Filled ring matching flying-note outline (1.1) minus core (1.0); hollow centre. */
+    /** Filled ring matching flying-note outline (1.1x) minus core (1.0x); hollow centre. */
     function mkGhostFrameGeometry() {
         const ow = NW * 1.1;
         const oh = NH * 1.1;
@@ -82,37 +73,26 @@ export function createNoteGemVisuals({ activePalette, glowMul, noteG, _recolorGe
     const gBeat = new T.BufferGeometry().setFromPoints(
         [new T.Vector3(0, 0, 0), new T.Vector3(1, 0, 0)],
     );
-    // Tap chevron (open V pointing downward) — filled outline for extrusion into a solid mesh
 
+    // Tap chevron (open V pointing downward), extruded into a solid mesh.
     const chevronShape = new T.Shape();
-
-    // Adjusting points for a "stubby" look
-    // Width: increased to +/- 0.8 for a broader look
-    // Height: capped at 0.2 to make it significantly shorter
-    chevronShape.moveTo(-0.6, 0.3);   // Top left point (further out, lower down)
-    chevronShape.lineTo(0, -0.1);     // Interior vertex (shallower V)
-    chevronShape.lineTo(0.6, 0.3);    // Top right point (further out, lower down)
-
-    chevronShape.lineTo(0.8, 0.0);    // Right outer thickness point
-    chevronShape.lineTo(0, -0.3);     // Bottom vertex / Outer point (less deep)
-    chevronShape.lineTo(-0.8, 0.0);   // Left outer thickness point
-
+    chevronShape.moveTo(-0.6, 0.3);
+    chevronShape.lineTo(0, -0.1);
+    chevronShape.lineTo(0.6, 0.3);
+    chevronShape.lineTo(0.8, 0.0);
+    chevronShape.lineTo(0, -0.3);
+    chevronShape.lineTo(-0.8, 0.0);
     chevronShape.closePath();
-
-    // Create the 3D mesh geometry with a small depth
     const gTapChevron = new T.ExtrudeGeometry(chevronShape, {
         depth: 0.04 * K,
         bevelEnabled: false,
     });
-
-    // Optional: Center the geometry if the pivot point feels off
     gTapChevron.computeBoundingBox();
     const centerOffset = -0.5 * (gTapChevron.boundingBox.max.y + gTapChevron.boundingBox.min.y);
     gTapChevron.translate(0, centerOffset, 0);
 
-    // String materials. Strings 0..5 use a per-vertex gradient (color is
-    // white so the gradient baked into gNoteGrad[s] shows pure); strings
-    // 6/7 keep a flat colour (vertexColors:false ignores the attribute).
+    // Strings 0..5 use a per-vertex gradient (color white so gNoteGrad[s] shows pure);
+    // strings 6/7 keep a flat color (vertexColors:false ignores the attribute).
     const mStr = activePalette.map((c, i) => new T.MeshBasicMaterial({
         color: i < 6 ? 0xffffff : c,
         vertexColors: i < 6,
@@ -135,12 +115,11 @@ export function createNoteGemVisuals({ activePalette, glowMul, noteG, _recolorGe
         color: c, emissive: c, emissiveIntensity: 1.0,
         transparent: true, opacity: 1.0, depthWrite: false,
     }));
-    // Stronger coloured rim + body for accented notes (.ac); drawNote swaps these in behind ND hit/miss.
+    /** Stronger colored rim + body for accented (`.ac`) notes; drawNote swaps these in behind hit/miss. */
     const mAccentOutline = activePalette.map(c => new T.MeshLambertMaterial({
         color: c, emissive: c, emissiveIntensity: ACCENT_RIM_BASE_EMISSIVE,
         transparent: true, opacity: 1.0, depthWrite: false,
     }));
-    // Same colour response as mGlow (vibrancy lerp) but separate emissive drive for extra accent punch.
     const mAccentCore = activePalette.map(c => new T.MeshLambertMaterial({
         color: 0xffffff, emissive: c, emissiveIntensity: 1.5,
         transparent: true, opacity: 1.0, depthWrite: false,
@@ -158,28 +137,21 @@ export function createNoteGemVisuals({ activePalette, glowMul, noteG, _recolorGe
     const mAccentHaloNear = mkAccentHaloMats(ACCENT_HALO_OP_NEAR);
     const mAccentHaloMid = mkAccentHaloMats(ACCENT_HALO_OP_MID);
     const mAccentHaloFar = mkAccentHaloMats(ACCENT_HALO_OP_FAR);
-    // Frozen per-string shell descriptors — see _accentShellsByString
-    // declaration. Materials live for the renderer's lifetime, so
-    // these refs stay valid until teardown() clears them.
+    // Materials live for the renderer's lifetime, so these refs stay valid until teardown().
     const _accentShellsByString = mAccentHaloFar.map((_, s) => Object.freeze([
         Object.freeze({ mat: mAccentHaloFar[s],  ixy: ACCENT_HALO_XY_OUTER, iz: ACCENT_HALO_Z_OUTER, zK: 0.012 }),
         Object.freeze({ mat: mAccentHaloMid[s],  ixy: ACCENT_HALO_XY_MID,   iz: ACCENT_HALO_Z_MID,   zK: 0.008 }),
         Object.freeze({ mat: mAccentHaloNear[s], ixy: ACCENT_HALO_XY_INNER, iz: ACCENT_HALO_Z_INNER, zK: 0.005 }),
     ]));
-    // Chord/arpeggio frame accent bloom — single gradient bar geometry.
-    // The 4 bloom shells (expand=1.00/1.10/1.25/1.45, op=0.90/0.65/0.38/0.18)
-    // are baked into vertex colours as their additive sum at each Y level,
-    // so one mesh per bar replaces 4 per-shell meshes (16→4 draw calls/chord).
-    // Normalised Y = ±(expand / EXPAND_MAX); EXPAND_MAX = 1.45.
-    // Values > 1.0 in the Float32Array buffer are intentional: WebGL passes
-    // them to the shader unchanged, and additive blending clips naturally.
-    // Y levels (normalised): ±(shell_expand / 1.45)
-    //   ±0.690 = shell 1 edge  ±0.759 = shell 2  ±0.862 = shell 3  ±1.0 = shell 4
-    // Brightness = additive sum of all shells covering that band:
-    //   |y| < 0.690 → all 4: 0.90+0.65+0.38+0.18 = 2.11
-    //   |y| < 0.759 → 3 shells: 0.65+0.38+0.18 = 1.21
-    //   |y| < 0.862 → 2 shells: 0.38+0.18 = 0.56
-    //   |y| ≤ 1.000 → shell 4 only: 0.18
+    /**
+     * Chord/arpeggio frame accent bloom bar. The 4 bloom shells
+     * (expand=1.00/1.10/1.25/1.45, op=0.90/0.65/0.38/0.18) are baked into
+     * vertex colors as their additive sum at each Y level, so one mesh
+     * per bar replaces 4 per-shell meshes. Normalized Y = ±(expand/1.45);
+     * values >1.0 in the buffer are intentional — additive blending clips
+     * them naturally. Resulting bands: |y|<0.690 → 2.11, <0.759 → 1.21,
+     * <0.862 → 0.56, ≤1.0 → 0.18.
+     */
     let gHaloBar = _gHaloBarIn;
     if (!gHaloBar) {
         // prettier-ignore
@@ -216,49 +188,33 @@ export function createNoteGemVisuals({ activePalette, glowMul, noteG, _recolorGe
             blending: T.AdditiveBlending, side: T.DoubleSide, forceSinglePass: true, fog: false,
         }),
     ));
-    // Notedetect feedback outline (issue #9): hot magenta-red (0xff0066, hue
-    // ~345°) — distinct from the string red 0xff2828 at hue ~0°. Note rendering
-    // swaps its outline.material between mWhiteOutline / per-string
-    // mHitBright[s] / mMissOutline based on recent notedetect events.
+    // Hot magenta-red (hue ~345°), distinct from string red (hue ~0°). Note rendering swaps
+    // its outline material between mWhiteOutline / per-string mHitBright[s] / mMissOutline.
     const mMissOutline = new T.MeshLambertMaterial({ color: 0xff0066, emissive: 0xff0066, emissiveIntensity: 1.2, transparent: true, opacity: 1.0, depthWrite: false });
-    // Transparent placeholder for front (+Z, group 4) and back (-Z, group 5)
-    // of the lateral face-fill material array. Also the default material for
-    // the pNoteEdge pool: pool consumers reassign .material before render, so
-    // the placeholder is never displayed — using an explicitly-invisible
-    // material makes that intent obvious.
+    // Invisible placeholder for the lateral face-fill material array's front/back groups, and
+    // the pNoteEdge pool default — pool consumers always reassign .material before render.
     // BoxGeometry group order: 0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z(front), 5=-Z(back)
     const mEdgeTransparent = new T.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
-    // mMissEdgeArrays: use mMissOutline (same Lambert+emissive material as the gem
-    // border) so the lateral face fill matches the outline colour exactly.
     const mMissEdgeArrays = [mMissOutline, mMissOutline, mMissOutline, mMissOutline, mEdgeTransparent, mEdgeTransparent];
 
-    // Hit: fixed neon spring-green on every string — 0x22ff88 is cyan-shifted
-    // enough to be readable even on the green string (0x30d040). The outline
-    // + lateral faces flash green regardless of which string was hit.
+    // Fixed neon spring-green on every string (cyan-shifted enough to stay readable on the
+    // green string itself); the outline + lateral faces flash green regardless of which string.
     const mHitBright = activePalette.map(() => new T.MeshLambertMaterial({
         color: 0x22ff88, emissive: 0x22ff88, emissiveIntensity: 4.0 * glowMul,
         transparent: true, opacity: 1.0, depthWrite: false,
     }));
     const mHitBrightArrays = mHitBright.map(m => [m, m, m, m, mEdgeTransparent, mEdgeTransparent]);
 
-    // Rim flash: string-coloured, wire-fashion intensity. Colour and
-    // emissive both take the palette colour so the rim reads as the
-    // string lighting up, not as a white wash over it.
     const mRimFlash = activePalette.map((c) => new T.MeshLambertMaterial({
         color: c, emissive: c, emissiveIntensity: 1,
         transparent: true, opacity: 1.0, depthWrite: false,
     }));
-    // Readability (#2 / charrette): the note gems + their outlines punch THROUGH
-    // the distance fog so upcoming notes stay legible as they render in at the
-    // horizon. The board, lane, sustains and background scenery keep their
-    // atmospheric fog — only the note-defining materials are exempted, so the
-    // highway still reads as deep while the notes never dissolve into the haze.
+    // Note gems + outlines punch through the distance fog so upcoming notes stay legible near
+    // the horizon; the board, lane, sustains, and background scenery keep atmospheric fog.
     [mWhiteOutline, mMissOutline].forEach(m => { if (m) m.fog = false; });
     [mStr, mGlow, mStrHitOutline, mHitBright, mRimFlash].forEach(arr => arr && arr.forEach(m => { if (m) m.fog = false; }));
-    // Outline materials render at a lower renderOrder than the body.
-    // The body is rendered on top with opacity:1 on hit/miss, which
-    // fully covers the outline center — only the fringe that extends
-    // past the body edges (0.2*K on each side) is visible.
+    // Outline renders at a lower renderOrder than the body; the opaque hit/miss body fully
+    // covers the outline center, leaving only the fringe past the body edges visible.
     const mSusOutline     = new T.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.3, transparent: true, opacity: 0.75, depthWrite: false });
     const mHitSusOutline  = new T.MeshLambertMaterial({ color: 0x22ff88, emissive: 0x22ff88, emissiveIntensity: 0.8, transparent: true, opacity: 0.45, depthWrite: false });
     const mBeatM = new T.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25 });

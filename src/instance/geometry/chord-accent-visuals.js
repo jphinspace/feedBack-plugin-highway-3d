@@ -6,21 +6,18 @@ import {
     FRET_LABEL_GOLD_HEX,
 } from '../../core/constants.js';
 
-// The chord/arpeggio-frame gradient textures, the PM/FH strum X-mark
-// fill+line geometry (both legacy InstancedMesh and current per-chord pool
-// forms), and the remaining chord/note-label/connector-line pools -- moved
-// verbatim out of initScene() (Stage 7 Track B / 3-ctx-3). Construction-time
-// only, no `ctx` needed (verified via whole-file bare-reassignment grep).
-//
-// gPMXLines/gFHXLines/gArpBracket keep their original build-once guards:
-// the current value is passed in and reused if already built (same trick as
-// note-gem-visuals.js's gHaloBar), matching the original `if (!X)` checks.
+/**
+ * Chord/arpeggio-frame gradient textures, the PM/FH strum X-mark
+ * fill+line geometry (legacy InstancedMesh form plus the current per-chord
+ * pool form), and the remaining chord/note-label/connector-line pools.
+ * Construction-time only. `gPMXLines`/`gFHXLines`/`gArpBracket` reuse the
+ * passed-in value if already built, same as `note-gem-visuals.js`'s `gHaloBar`.
+ */
 export function createChordAccentVisuals({
     noteG, lblG, textSprites, glowMul, _imColor, IM_STRUM_CAP,
     _imPMXFillAlphaArr, _imFHXFillAlphaArr, _imPMXLinesAlphaArr, _imFHXLinesAlphaArr,
     gPMXLines: _gPMXLinesIn, gFHXLines: _gFHXLinesIn, gArpBracket: _gArpBracketIn,
 }) {
-    // Chord frame palette (frame alpha 128, fill gradient alpha 32; MeshBasic).
     const chR = CHORD_BOX_TEAL_HEX >> 16 & 255;
     const chG = CHORD_BOX_TEAL_HEX >> 8 & 255;
     const chB = CHORD_BOX_TEAL_HEX & 255;
@@ -35,8 +32,7 @@ export function createChordAccentVisuals({
     chordFrameGradTex.minFilter = T.LinearFilter;
     chordFrameGradTex.wrapS = T.ClampToEdgeWrapping;
     chordFrameGradTex.wrapT = T.ClampToEdgeWrapping;
-    // DataTexture defaults to linear color space; flag this gradient
-    // as sRGB so the chord-box hex values match other sRGB color textures.
+    // DataTexture defaults to linear color space; flag sRGB so the hex values match other sRGB textures.
     chordFrameGradTex.colorSpace = T.SRGBColorSpace;
     chordFrameGradTex.needsUpdate = true;
 
@@ -252,9 +248,8 @@ export function createChordAccentVisuals({
         noteG.add(imFHXFill);
     }
 
-    // PM X lines — 8 segments baked as thin quads in ±1 normalised space.
-    // Scale the pool mesh by (innerW*0.5, -innerH*0.5, ...) per chord;
-    // the Y-negated scale matches the XLINES convention (fya>0 = below centre).
+    // PM X lines — 8 segments baked as thin quads in ±1 normalised space. The pool mesh
+    // scale's Y is negated per chord to match the XLINES convention (fya>0 = below centre).
     let gPMXLines = _gPMXLinesIn;
     if (!gPMXLines) {
         const HT = 0.016; // normalised half-thickness ≈ lw/hH for a typical chord
@@ -288,9 +283,8 @@ export function createChordAccentVisuals({
         gPMXLines.setAttribute('position', new T.BufferAttribute(pos, 3));
         gPMXLines.setIndex(new T.BufferAttribute(idx, 1));
     }
-    // PM lines — InstancedMesh (varying color + alpha per chord).
-    // instanceColor (THREE built-in) carries baseRimHex per instance;
-    // instanceAlpha carries the per-chord opacity.
+    // PM lines — InstancedMesh (varying color + alpha per chord). instanceColor (THREE
+    // built-in) carries baseRimHex per instance; instanceAlpha carries per-chord opacity.
     let imPMXLines, _imPMXLinesMat;
     {
         const _imLinesVert = [
@@ -331,8 +325,7 @@ export function createChordAccentVisuals({
         imPMXLines.instanceMatrix.setUsage(T.DynamicDrawUsage);
         imPMXLines.frustumCulled = false;
         imPMXLines.renderOrder = 11;
-        // Eagerly initialise instanceColor so USE_INSTANCING_COLOR is
-        // defined when the shader is compiled on the first draw.
+        // Eagerly initialise instanceColor so USE_INSTANCING_COLOR is defined at first compile.
         _imColor.set(1, 1, 1);
         imPMXLines.setColorAt(0, _imColor);
         imPMXLines.instanceColor.setUsage(T.DynamicDrawUsage);
@@ -340,7 +333,7 @@ export function createChordAccentVisuals({
         noteG.add(imPMXLines);
     }
 
-    // FH X lines — same scheme, 8 segments from the FH_XLINES pattern
+    // FH X lines — same scheme, 8 segments from the FH_XLINES pattern.
     let gFHXLines = _gFHXLinesIn;
     if (!gFHXLines) {
         const HT = 0.022; // slightly wider — FH wings are shorter, need more visual weight
@@ -422,11 +415,9 @@ export function createChordAccentVisuals({
         noteG.add(imFHXLines);
     }
 
-    // Pool-based strum-indicator replacements.  The IM approach above uses
-    // a fixed renderOrder per mesh type, which lets far-chord X marks overdraw
-    // gems/frames of nearer chords. Pools give per-chord Z-proportional renderOrder.
-    // Geometries are shared with the (now empty) IMs — MeshBasicMaterial
-    // ignores the instanceAlpha / instanceColor attributes on the geometry.
+    // Pool-based strum-indicator replacements: unlike the fixed-renderOrder IMs above, pools
+    // give per-chord Z-proportional renderOrder so far chords can't overdraw nearer ones.
+    // Geometry is shared with the (now empty) IMs — MeshBasicMaterial ignores their instance attributes.
     const pPMXFill = pool(noteG, () => new T.Mesh(
         gPMXFill,
         new T.MeshBasicMaterial({
@@ -457,15 +448,12 @@ export function createChordAccentVisuals({
     ));
 
     const pChordLbl = pool(lblG,  () => new T.Sprite(textSprites.txtMat('', '#e8d080', true, 'chord').clone()));
-    // Single shared barre material — all pool meshes reference it,
-    // so _applyGlow() can mutate emissiveIntensity once and every
-    // recycled / future-allocated barre mesh picks up the change.
+    // Single shared barre material — every pool mesh references it, so _applyGlow() can
+    // mutate emissiveIntensity once and every recycled/future barre mesh picks it up.
     const mBarre = new T.MeshLambertMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.9 * glowMul, transparent: true, depthWrite: false });
     const pBarreLine  = pool(noteG, () => new T.Mesh(new T.BoxGeometry(1, 1, 1), mBarre));
-    // Shared 1×1×1 box geometry — brackets can require many pooled
-    // meshes per frame, so per-mesh BoxGeometry allocation would
-    // duplicate buffers and create unnecessary GPU disposal work.
-    // Disposed once in teardown (alongside the other shared geos).
+    // Shared geometry — brackets can need many pooled meshes per frame, so per-mesh
+    // BoxGeometry allocation would duplicate buffers and add GPU disposal work.
     let gArpBracket = _gArpBracketIn;
     if (!gArpBracket) gArpBracket = new T.BoxGeometry(1, 1, 1);
     const pArpBracket = pool(noteG, () => new T.Mesh(
@@ -480,15 +468,13 @@ export function createChordAccentVisuals({
         }),
     ));
 
-    // Per-note fret number below note with connector line
     const pNoteFretLabel = pool(lblG, () => {
         const _nfl = new T.Sprite(textSprites.txtMat('0', FRET_LABEL_GOLD_HEX, false, 'noteFret').clone());
         _nfl.material.fog = false;
         _nfl.material.depthTest = false;
         return _nfl;
     });
-    // Teaching marks fg/sd labels (§6.2.2). One pool, two get()s per note
-    // (finger + degree); the texture is swapped per draw via material.map.
+    /** Teaching finger/degree labels — one pool, two get()s per note; the texture swaps per draw via material.map. */
     const pTeachMarkLbl = pool(lblG, () => {
         const _tml = new T.Sprite(textSprites.txtMat('0', '#7fd1ff', false, 'teachMark').clone());
         _tml.material.fog = false;
