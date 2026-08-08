@@ -1,22 +1,17 @@
 import { T } from '../../core/three.js';
 
-// #4 Bloom: lazy-load the vendored postprocessing addons and build an
-// EffectComposer (RenderPass -> UnrealBloomPass -> OutputPass/ACES) --
-// moved verbatim out of two standalone main.js pieces (a private
-// `_bloomEnsure()` function, plus the inline resize-check that used to sit
-// right after its call site in draw()) as one cohesive unit (Stage 7,
-// post-3e). draw()'s own render-DISPATCH (the toneMapping toggle +
-// comp.render() vs ren.render() choice) stays in main.js -- that's the
-// per-frame orchestration decision, not a bloom-subsystem concern.
-//
-// ren/scene/cam/highwayCanvas are all bare main.js closure `let`s
-// reassigned by initScene()/teardown() -- not stable object references --
-// so they're threaded through as live getters (same shape as dom-and-
-// scene.js's getHighwayCanvas), read at call time exactly like the
-// original bare-closure reads were. No staleness change from the move:
-// the async Promise.all().then() callback below reads getRenderer()/
-// getScene()/getCamera() at RESOLUTION time, same timing as the original
-// code's closure-variable reads.
+/**
+ * Bloom: lazy-loads the vendored postprocessing addons and builds an
+ * EffectComposer (RenderPass -> UnrealBloomPass -> OutputPass/ACES).
+ * `draw()`'s own render dispatch (the toneMapping toggle + `comp.render()`
+ * vs `ren.render()` choice) stays in `main.js` as the per-frame
+ * orchestration decision.
+ *
+ * `ren`/`scene`/`cam`/`highwayCanvas` are bare `main.js` closure `let`s
+ * reassigned by `initScene()`/`teardown()`, not stable object references,
+ * so they're threaded through as live getters — read at call time, same
+ * timing as a direct closure-variable read.
+ */
 export function createBloomComposer({ getRenderer, getScene, getCamera, canvasSize, getHighwayCanvas }) {
     let composer = null;
     let bloomPass = null;
@@ -38,10 +33,9 @@ export function createBloomComposer({ getRenderer, getScene, getCamera, canvasSi
             try {
                 const sz = canvasSize(getHighwayCanvas()) || { w: 1280, h: 720 };
                 const w = Math.max(2, sz.w | 0), h = Math.max(2, sz.h | 0);
-                // Multisampled (WebGL2 MSAA) HalfFloat target so anti-aliasing
-                // survives the bloom path — EffectComposer's default target has no
-                // `samples`, which is why bloom-on looked jagged (worst on non-Retina
-                // DPR1 displays that have no supersampling cushion).
+                // Multisampled (WebGL2 MSAA) HalfFloat target so anti-aliasing survives the
+                // bloom path — EffectComposer's default target has no `samples`, which made
+                // bloom-on look jagged (worst on non-Retina DPR1 displays).
                 const bloomRT = new T.WebGLRenderTarget(w, h, { type: T.HalfFloatType, samples: 4 });
                 const comp = new EC.EffectComposer(getRenderer(), bloomRT);
                 comp.addPass(new RP.RenderPass(getScene(), getCamera()));
@@ -55,8 +49,7 @@ export function createBloomComposer({ getRenderer, getScene, getCamera, canvasSi
         return null;
     }
 
-    // Returns the composer, already resized to the current canvas backing
-    // size (or null if bloom isn't ready/available yet).
+    /** Returns the composer resized to the current canvas backing size, or `null` if not ready. */
     function getResizedBloomComposer() {
         const comp = ensureBloomComposer();
         if (!comp) return null;

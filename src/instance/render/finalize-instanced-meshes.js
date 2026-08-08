@@ -1,11 +1,9 @@
-// Flushes the 6 palm-mute / fret-hand-mute technique InstancedMeshes at the
-// end of a frame -- moved verbatim out of update() (Stage 7 Track A). Must
-// be called after every drawNote()/chord-loop write for the frame is done
-// (an ordering requirement, not a data dependency -- see the call site).
-//
-// Plain function, not a factory: nothing here is constructed once and
-// reused -- every argument is read fresh from the caller's closure on each
-// call, so there's no `deps` tier to inject.
+/**
+ * Flushes the 6 palm-mute/fret-hand-mute technique InstancedMeshes at the
+ * end of a frame. Must be called after every drawNote()/chord-loop write
+ * for the frame is done — an ordering requirement, not a data dependency.
+ * Not a factory: every argument is read fresh from the caller on each call.
+ */
 export function finalizeInstancedMeshBatches({
     imPMTech, imFHTech, imPMXFill, imPMXLines, imFHXFill, imFHXLines,
     _imPMTechCount, _imFHTechCount,
@@ -24,9 +22,9 @@ export function finalizeInstancedMeshBatches({
             imFHTech.geometry.getAttribute('instanceAlpha').needsUpdate = true;
         }
     }
-    // These IMs are kept alive but always empty (count=0) — rendering
-    // is now handled by the pPMXFill / pMuteXLines / pFHXFill / pFHXLines
-    // pools which support per-chord Z-proportional renderOrder.
+    // Kept alive but always empty (count=0) — rendering is now handled by the
+    // pPMXFill/pMuteXLines/pFHXFill/pFHXLines pools, which support per-chord
+    // Z-proportional renderOrder.
     if (imPMXFill)  imPMXFill.count  = 0;
     if (imPMXLines) imPMXLines.count = 0;
     if (imFHXFill)  imFHXFill.count  = 0;

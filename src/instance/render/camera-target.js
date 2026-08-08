@@ -3,15 +3,13 @@ import {
     LOOKAHEAD_LOCK_ENGAGE_MAXF, LOOKAHEAD_LOCK_RELEASE_MAXF,
 } from '../../core/constants.js';
 
-// Camera target resolution -- the classic-mode / lookahead-mode branch that
-// decides ctx.cam.tgtX/tgtDist for camUpdate() (a separate function, called
-// after update() returns) to smooth toward. Moved verbatim out of update()
-// (Stage 7 Track C). The cleanest section found in this track: everything
-// it writes goes into ctx.cam (a stable shared dep) or dies as a purely
-// local variable at the end of the block -- lockActive/bootstrapHoldActive
-// are never read again after this section, verified via whole-file grep.
-// So this is a pure deps-plus-explicit-parameters extraction, no frame/
-// accum tier needed and no return value.
+/**
+ * Camera target resolution: the classic-mode/lookahead-mode branch that
+ * decides `ctx.cam.tgtX`/`tgtDist` for `camUpdate()` (called separately,
+ * after `update()` returns) to smooth toward. `lockActive`/
+ * `bootstrapHoldActive` are purely local — never read again after this
+ * function returns.
+ */
 export function createCameraTarget({
     ctx, xFretMid, _applyNoteCamTargets, camLowFretPullbackU, camBaseDistU,
     lookaheadSmoothCamStep, lookaheadTargetWorldX,
@@ -40,9 +38,8 @@ export function createCameraTarget({
         }
 
         if (bootstrapHoldActive) {
-            // Keep the chart-load target intact until the ordinary live
-            // path can compute the same phrase. Camera Director still
-            // layers its free-camera transform in camUpdate().
+            // Keep the chart-load target intact until the ordinary live path can compute the
+            // same phrase. Camera Director still layers its free-camera transform in camUpdate().
             lockActive = ctx.cam.prevLockActive;
         } else if (!(cameraMode === 'lookahead')) {
             lockActive = _applyNoteCamTargets(

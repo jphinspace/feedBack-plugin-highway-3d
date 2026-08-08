@@ -3,15 +3,13 @@ import { K } from '../../core/constants.js';
 
 const SPARK_N = 256;
 
-// Hit-spark particle system (#3): a pooled additive Points cloud; a small
-// burst fires at a gem on a verified hit (spawned via sparkBurst(), passed
-// as a dep into note.js's createNoteRenderer), advanced once per frame via
-// sparkUpdate() (called from the "juice" block in draw()) -- moved verbatim
-// out of initScene()/two standalone functions (Stage 7 Track A/D). The
-// backing Float32Arrays are private to this factory; `sparkPts` is returned
-// so main.js's teardown() can keep disposing it directly (same "extract
-// createX(), leave teardown()'s existing disposal as-is" precedent as
-// sustain-rail.js/etc -- teardown()'s dispose call was left untouched).
+/**
+ * Hit-spark particle system: a pooled additive Points cloud. A small burst
+ * fires at a gem on a verified hit ({@link sparkBurst}, injected into
+ * `note.js`'s `createNoteRenderer`), advanced once per frame via
+ * {@link sparkUpdate}. `sparkPts` is returned so `main.js`'s `teardown()`
+ * can keep disposing it directly.
+ */
 export function createHitSparks({ scene }) {
     const sparkPos = new Float32Array(SPARK_N * 3);
     const sparkCol = new Float32Array(SPARK_N * 3);

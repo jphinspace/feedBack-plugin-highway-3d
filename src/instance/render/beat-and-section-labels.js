@@ -1,16 +1,12 @@
 import { dZ } from '../../core/fret-geometry.js';
 import { NH, S_BASE, K } from '../../core/constants.js';
 
-// Beat lines and on-highway section labels -- two small, narrow-surface
-// update() banners moved verbatim (Stage 7 Track A). Each touches exactly
-// one pool + one or two materials and no shared camera/settings state
-// beyond what's passed in per call, so unlike the Chords mega-block these
-// don't need a `frame` bag -- the caller already has fresh values for
-// everything at the point it calls these once per frame.
-//
-// sectionLabelsOnHighway (the opt-in setting gate) is checked by the
-// caller before calling drawSectionLabels, not here -- it's ordinary
-// settings state, not something this module owns.
+/**
+ * Beat lines and on-highway section labels. Each touches exactly one pool
+ * + one or two materials and no shared camera/settings state beyond what's
+ * passed in per call. `sectionLabelsOnHighway` (the opt-in setting gate)
+ * is checked by the caller before calling `drawSectionLabels`, not here.
+ */
 export function createBeatAndSectionLabels({ pBeat, mBeatM, mBeatQ, pSec, textSprites, boardSpanX, sY, xFret }) {
     function drawBeatLines(beats, now, t0, t1) {
         if (!beats) return;
