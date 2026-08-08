@@ -11,49 +11,30 @@ import { freeCamFor } from '../../settings/store.js';
 import { effectiveVfov } from '../model/math.js';
 import { _aspectPaneKey, _aspectRegisterPane, _resolveTuneFor } from '../../ui/aspect-panel.js';
 
-// camUpdate() (smooth camera lerp + self-correcting NDC look-at) and
-// applySize() (DPR + canvas size + aspect clamping) -- moved verbatim out
-// of main.js (Stage 7, post-3e). Bundled into one file because CLAUDE.md's
-// own internal main.js structure list already described them as sibling
-// concerns ("camUpdate() -- ... writes ctx.cam" / "applySize() -- ... writes
-// ctx.cam"), and applySize() sets ctx.cam._paneAspect / cam.aspect that
-// camUpdate() reads back the same frame.
-//
-// This pairing was ORIGINALLY deferred (the plan's "Phase 2 — abandoned"
-// section) because camUpdate()/applySize() shared mutable state with
-// update()/drawNote()/teardown() with no single owner -- at the time, that
-// meant the extraction would need to invent its own shared-state solution.
-// Track B's ctx.cam already solved exactly that problem since: every field
-// these two functions touch (curX/tgtX/curDist/tgtDist/curLookY/tgtLookY/
-// aspectScale/_paneAspect/_fretRowFitBoost) is already `ctx.cam.field`
-// explicitly, read/written the same way by every other already-extracted
-// consumer (camera-target.js, camera-bootstrap.js, lookahead-math.js, ...).
-// Moving camUpdate()/applySize() into their own file changes nothing about
-// how those other modules see the shared state -- it's still the same
-// `ctx` object reference, just called through `cameraLifecycle.x()` instead
-// of a bare name.
-//
-// `cam`/`_probe`/`wrap`/`ren`/`lyricsCanvas` are plain deps, not live
-// getters: all five are only ever reassigned via the createDomAndScene()
-// destructure inside initScene() (where this factory is itself
-// constructed, AFTER that destructure runs) or nulled in teardown() --
-// never mid-lifetime while this module is live. `highwayCanvas` is the one
-// exception (reassigned mid-lifetime by dom-and-scene.js's
-// _canvasReplacedHandler), so it stays a live getter. `nStr`/`_leftyCached`
-// change between initScene() calls too (a runtime string-count/lefty flip
-// only rebuilds the board, not the whole scene -- see main.js's draw()),
-// so they're live getters as well. `_renderScale` changes via both init()
-// and draw()'s renderScale-change branch.
-//
-// `_wrapPinned`/`_appliedW`/`_appliedH` are applySize()'s own state, used
-// nowhere else EXCEPT draw()'s per-frame self-resize-detection fallback
-// (splitscreen overrides hw.resize and never calls renderer.resize(), so
-// draw() has to notice a backing-store/CSS-box drift itself) -- moved to
-// private state here (own-it-outright) with one combined getAppliedSize()
-// getter for that one external reader. Their explicit `= 0`/`= false`
-// resets in main.js's destroy() are no longer needed: this whole factory
-// is reconstructed fresh on the next initScene() call, same as every other
-// post-3e slice's private state (hit-sparks.js's arrays, etc.).
+/**
+ * `camUpdate()` (smooth camera lerp + self-correcting NDC look-at) and
+ * `applySize()` (DPR + canvas size + aspect clamping), bundled together
+ * since `applySize()` sets `ctx.cam._paneAspect`/`cam.aspect` that
+ * `camUpdate()` reads back the same frame. Every field these two touch
+ * (`curX`/`tgtX`/`curDist`/`tgtDist`/`curLookY`/`tgtLookY`/`aspectScale`/
+ * `_paneAspect`/`_fretRowFitBoost`) lives on `ctx.cam`, read/written the
+ * same way by every other camera-adjacent module.
+ *
+ * `cam`/`_probe`/`wrap`/`ren`/`lyricsCanvas` are plain deps: only ever
+ * reassigned via `createDomAndScene()`'s destructure inside `initScene()`
+ * (before this factory is constructed) or nulled in `teardown()`, never
+ * mid-lifetime. `highwayCanvas` is a live getter since it CAN be
+ * reassigned mid-lifetime (`dom-and-scene.js`'s `_canvasReplacedHandler`).
+ * `nStr`/`_leftyCached` are live getters too — a runtime string-count/lefty
+ * flip rebuilds only the board, not the whole scene. `_renderScale`
+ * changes via both `init()` and `draw()`'s renderScale-change branch.
+ *
+ * `_wrapPinned`/`_appliedW`/`_appliedH` are `applySize()`'s own private
+ * state, exposed via {@link getAppliedSize} for `draw()`'s per-frame
+ * self-resize-detection fallback (splitscreen overrides `hw.resize` and
+ * never calls `renderer.resize()`, so `draw()` must notice a backing-store/
+ * CSS-box drift itself).
+ */
 export function createCameraLifecycle({
     ctx, cam, _probe, wrap, ren, lyricsCanvas, chordDiagramCache, sY, _paneUid,
     getHighwayCanvas, getNStr, getLeftyCached, getRenderScale,
@@ -67,16 +48,10 @@ export function createCameraLifecycle({
         const lerp = CAM_LERP_BASE * Math.max(bpm, 60) / 120;
 
         // ── Horizontal-FOV-hold + optional wide-pane pose nudges ──
-        // Driven by window.__h3dAspectTune (default off → exact no-op).
-        // _resolveTuneFor(paneKey) returns the shared base with THIS pane's
-        // overrides (if any) laid on top, so a single split pane can be framed
-        // independently. The base is seeded from defaults + localStorage on
-        // first read, so a persisted tuning session applies on load without
-        // opening the panel. Every field is finite-coerced. When disabled (or
-        // splitOnly and not in a split) the tune is treated as null, so
-        // effectiveVfov returns the base vertical fov and cam.fov is restored
-        // to it. The fov write is guarded on an actual change so a steady pane
-        // costs nothing.
+        // Driven by window.__h3dAspectTune (default off → exact no-op). _resolveTuneFor(paneKey)
+        // returns the shared base with this pane's overrides laid on top, so a split pane can be
+        // framed independently. When disabled (or splitOnly outside a split) the tune is null,
+        // so effectiveVfov returns the base vertical fov and cam.fov is restored to it.
         const highwayCanvas = getHighwayCanvas();
         const nStr = getNStr();
         const _leftyCached = getLeftyCached();
@@ -105,13 +80,10 @@ export function createCameraLifecycle({
             _slot.aspect = ctx.cam._paneAspect; _slot.vfov = _vfov;
             _ro.__last = _paneKey;
         }
-        // Optional pose nudges (height / dolly / pitch) to chase a low-flat
-        // wide-pane look if fov alone isn't enough. Gated to wide panes and
-        // suppressed while the Camera Director owns the view (it wins).
+        // Optional pose nudges (height/dolly/pitch) to chase a low-flat wide-pane look if fov
+        // alone isn't enough. Gated to wide panes; suppressed while Camera Director owns the view.
         const _startAspect = (_tune && Number.isFinite(_tune.startAspect) && _tune.startAspect > 0)
             ? _tune.startAspect : HORPLUS_START_ASPECT;
-        // Resolve the Camera Director bridge once (per-panel under splitscreen,
-        // else global). Used both for the wide-pane gate and the transforms below.
         const _freeCam = freeCamFor(highwayCanvas);
         const _dirActive = !!(_freeCam && _freeCam.enabled);
         const _wide = !!(_tune && ctx.cam._paneAspect > _startAspect) && !_dirActive;
@@ -140,16 +112,10 @@ export function createCameraLifecycle({
         if (_poseHMul !== 1) _camY *= _poseHMul;
         if (_poseDMul !== 1) _camZ *= _poseDMul;
         // ── Free-camera user tweaks (orbit / height / zoom / pan) ──
-        // Driven by the Camera Director plugin via the camera bridge:
-        // window.__h3dCamCtlPanels[panelIndexFor(canvas)] when split (this
-        // panel's own camera), falling back to the global window.__h3dCamCtl.
-        // Layered ON TOP of the auto-framing so note tracking still works.
-        // The bridge is read once into _freeCam and reused for both the
-        // position and the look-at transforms; every field is coerced to a
-        // finite number before use so a malformed object can never feed NaN
-        // into cam.position / cam.lookAt.
-        // _freeCam resolved above via freeCamFor(highwayCanvas): the
-        // per-panel __h3dCamCtlPanels entry, else global __h3dCamCtl, else null.
+        // Driven by the Camera Director plugin via the camera bridge (resolved above into
+        // _freeCam: per-panel window.__h3dCamCtlPanels entry, else global __h3dCamCtl, else
+        // null), layered on top of the auto-framing so note tracking still works. Every field
+        // is coerced to a finite number so a malformed bridge object can't feed NaN into the camera.
         const _lookAtZ = -FOCUS_D * 0.35 * _poseLookZMul;
         if (_freeCam && _freeCam.enabled) {
             const _distMul = Number.isFinite(_freeCam.distMul) ? _freeCam.distMul : 1;
@@ -243,28 +209,15 @@ export function createCameraLifecycle({
         const baseDPR = splitscreenActive() ? Math.min(devicePixelRatio, 1.25) : Math.min(devicePixelRatio, 2);
         ren.setPixelRatio(getRenderScale() * baseDPR);
         ren.setSize(w, h);
-        // Pin the overlay to #highway's exact box so it fully covers the
-        // canvas. The wrap is anchored to top:0/left:0/right:0 of its
-        // offset parent, which only lines up with #highway when the
-        // canvas sits at the parent's origin. The v3 player can place
-        // chrome above the canvas, shifting the wrap up so its lower edge
-        // falls short of #highway — leaving a strip of the canvas exposed
-        // (the reported gap, where the previous renderer's frame showed
-        // through). The wrap is a sibling of highwayCanvas, so they share
-        // an offset parent; tracking the canvas's box keeps the overlay
-        // flush in single-player and splitscreen alike.
-        //
-        // Derive the box from the SAME getBoundingClientRect measurements
-        // that drive ren.setSize(w, h) — NOT integer offsetTop/Width — so
-        // the overlay matches the renderer exactly. Under browser zoom or
-        // fractional flex layouts the canvas lands on sub-pixel bounds;
-        // offsetWidth/Top round to whole pixels and would leave the wrap up
-        // to 1px short of (or shifted from) the canvas, reopening the
-        // exposed edge strip. Position is taken relative to the containing
-        // block's padding edge (clientTop/Left strip the parent's border),
-        // which is what `top`/`left` resolve against for the absolutely
-        // positioned wrap. Guarded on a laid-out canvas (offsetWidth/Height
-        // > 0); otherwise fall back to the static top:0/left:0/right:0.
+        // Pin the overlay to #highway's exact box: the wrap's static top:0/left:0/right:0
+        // anchor only lines up with #highway when the canvas sits at the parent's origin, but
+        // the v3 player can place chrome above the canvas and shift the wrap up, leaving a
+        // strip of the canvas exposed. Measured via getBoundingClientRect (same as
+        // ren.setSize(w, h)), not integer offsetTop/Width — under browser zoom or fractional
+        // flex layouts, rounding to whole pixels would leave the wrap up to 1px short of the
+        // canvas. Position is relative to the containing block's padding edge (clientTop/Left
+        // strip the parent's border), what top/left resolve against for the absolutely
+        // positioned wrap. Falls back to the static anchor when the canvas isn't laid out yet.
         if (highwayCanvas && highwayCanvas.offsetWidth > 0 && highwayCanvas.offsetHeight > 0) {
             const _pinParent = wrap.offsetParent || highwayCanvas.parentNode;
             const _cr = highwayCanvas.getBoundingClientRect();
@@ -278,13 +231,9 @@ export function createCameraLifecycle({
             wrap.style.height = _cr.height + 'px';
             _wrapPinned = true;
         } else {
-            // Canvas not laid out (e.g. init ran before #highway had a real
-            // box, or a panel hide/show where canvasSize() falls back to the
-            // parent panel). Reset to the static anchor — if we had pinned
-            // before, the old top/left/right:auto/width would otherwise stay
-            // and the wrap would reappear at a stale horizontal position on
-            // the next show. Leave _wrapPinned false so the rAF loop re-pins
-            // once the canvas materializes again.
+            // Canvas not laid out yet (e.g. init before #highway has a real box). Reset to the
+            // static anchor so a stale pinned position from before doesn't stick; _wrapPinned
+            // stays false so the rAF loop re-pins once the canvas materializes.
             wrap.style.top = '0';
             wrap.style.left = '0';
             wrap.style.right = '0';
@@ -304,10 +253,7 @@ export function createCameraLifecycle({
         _appliedW = w; _appliedH = h;
     }
 
-    // The one external reader of applySize()'s private state: draw()'s
-    // per-frame self-resize-detection fallback (splitscreen overrides
-    // hw.resize and never calls renderer.resize(), so draw() has to notice
-    // a backing-store/CSS-box drift itself and re-run applySize()).
+    /** For draw()'s per-frame self-resize-detection fallback (splitscreen overrides hw.resize and never calls renderer.resize()). */
     function getAppliedSize() {
         return { w: _appliedW, h: _appliedH, pinned: _wrapPinned };
     }
