@@ -2,14 +2,7 @@ import {
     BASE_VFOV, HORPLUS_MIN_VFOV, HORPLUS_START_ASPECT, TREMOLO_BUMP_S, VIBRATO_HALF_WAVE_S,
 } from '../../core/constants.js';
 
-// Small pure helpers with zero closure dependencies -- each takes everything
-// it needs as a parameter and touches no per-instance state, so unlike almost
-// everything else still in createFactory(), these moved with a plain cut
-// (no factory, no injected deps, no ctx). Grouped here because each is a
-// handful of lines with nothing else in this codebase to sensibly live next
-// to.
-
-// Camera vertical-fov compensation for ultra-wide (Hor+) aspect ratios.
+/** Camera vertical-fov compensation for ultra-wide (Hor+) aspect ratios. */
 export function effectiveVfov(aspect, tune) {
     const base = (tune && Number.isFinite(tune.baseVfov)) ? tune.baseVfov : BASE_VFOV;
     if (!tune || !tune.enabled || !Number.isFinite(aspect) || aspect <= 0) return base;
@@ -18,42 +11,35 @@ export function effectiveVfov(aspect, tune) {
     if (aspect <= start) return base;
     const floor = Number.isFinite(tune.minVfovDeg) ? tune.minVfovDeg : HORPLUS_MIN_VFOV;
     const DEG = Math.PI / 180;
-    // Held horizontal fov: explicit hfovDeg if given, else the horizontal
-    // cone the base vertical fov produces at the start aspect.
+    // Held horizontal fov: explicit hfovDeg if given, else the horizontal cone the base
+    // vertical fov produces at the start aspect.
     const hfov = (Number.isFinite(tune.hfovDeg) && tune.hfovDeg > 0)
         ? tune.hfovDeg * DEG
         : 2 * Math.atan(Math.tan(base * DEG / 2) * start);
     // Vertical fov that reproduces that horizontal cone at this aspect.
     let vfov = 2 * Math.atan(Math.tan(hfov / 2) / aspect) / DEG;
     const blend = Number.isFinite(tune.blend) ? Math.max(0, Math.min(1, tune.blend)) : 1;
-    vfov = base + (vfov - base) * blend;            // 0 = base, 1 = full Hor+
+    vfov = base + (vfov - base) * blend; // 0 = base, 1 = full Hor+
     if (!Number.isFinite(vfov)) return base;
     return Math.max(floor, Math.min(base, vfov));
 }
 
-// Resilient canvas-dimension lookup: falls back to the parent container when
-// the canvas itself reports zero bounds (hidden via any mechanism), then to
-// the player-footer/controls height, so callers always get a usable size.
+/** Resilient canvas-dimension lookup: falls back to the parent container, then the player-footer/controls height. */
 export function canvasSize(canvas) {
     if (canvas) {
-        // If the canvas has zero bounds (hidden via any mechanism — inline style,
-        // CSS class, or hidden ancestor) fall back to the parent container
-        // (the splitscreen panelDiv) which is always visible and correctly sized.
+        // A canvas with zero bounds (hidden via any mechanism) falls back to its parent
+        // container (the splitscreen panelDiv), which is always visible and correctly sized.
         const rect = canvas.getBoundingClientRect();
         const target = (rect.width === 0 || rect.height === 0) && canvas.parentNode ? canvas.parentNode : canvas;
         const sz = target === canvas ? rect : target.getBoundingClientRect();
         if (sz.width > 0 && sz.height > 0) return { w: sz.width, h: sz.height };
     }
-    // Reserve the full bottom area: #player-footer wraps the Section
-    // Practice bar + #player-controls. Fall back to #player-controls.
     const ch = (document.getElementById('player-footer')
         || document.getElementById('player-controls'))?.offsetHeight || 50;
     return { w: innerWidth, h: innerHeight - ch };
 }
 
-// Dispose every geometry/material in a Three.js object subtree and detach it
-// from its parent. Generic scene-graph cleanup used by background-style
-// teardown paths.
+/** Disposes every geometry/material in a Three.js object subtree and detaches it from its parent. */
 export function disposeGroupTree(obj) {
     if (!obj) return;
     obj.traverse((child) => {
@@ -67,8 +53,7 @@ export function disposeGroupTree(obj) {
     obj.parent?.remove(obj);
 }
 
-// Darken a 0xRRGGBB colour by `factor` (0..1) for the slide-arrow marker --
-// full string colour is too bright next to the gem.
+/** Darkens a 0xRRGGBB color by `factor` (0..1), for the slide-arrow marker (full string color is too bright next to the gem). */
 export function darkenHex(hex, factor) {
     const h = (hex >>> 0) & 0xffffff;
     const r = Math.round(((h >> 16) & 0xff) * factor);
@@ -81,26 +66,19 @@ export function noteHasVibrato(n) {
     return !!(n && (n.vb || n.vibrato));
 }
 
-// Teaching marks (§6.2.2) — display only, never grading. Pure label
-// helpers, mirroring static/highway.js so the two highways agree;
-// node-tested via tests/js/highway_teaching_marks.test.js.
+/** Fret-hand finger label: '' when unset/out of range, 0 -> 'T' (thumb), 1..4 -> '1'..'4'. Display only, never grading. */
 export function teachingFingerLabel(fg) {
-    // fret-hand finger: '' when unset/out of range; 0 -> 'T' (thumb),
-    // 1..4 -> '1'..'4'.
     if (!Number.isInteger(fg) || fg < 0 || fg > 4) return '';
     return fg === 0 ? 'T' : String(fg);
 }
+/** Scale degree label: chromatic 0..11 above the active key tonic; '' when unset/out of range. Display only, never grading. */
 export function teachingDegreeLabel(sd) {
-    // scale degree: chromatic 0..11 above the active key tonic; '' when
-    // unset/out of range.
     if (!Number.isInteger(sd) || sd < 0 || sd > 11) return '';
     return String(sd);
 }
 
+/** Linearly interpolates a bend curve `[{t, v}]` (t = seconds from note onset) at elapsed time `t`, clamped to the endpoints. */
 export function bnvSampleAt(bnv, t) {
-    // Linear interpolation of a bend curve [{t, v}] (§6.2.1; t is
-    // seconds from the note onset) at elapsed time t. Clamps to the
-    // endpoints; returns 0 for an empty/invalid curve.
     if (!Array.isArray(bnv) || bnv.length === 0) return 0;
     if (t <= bnv[0].t) return bnv[0].v;
     const last = bnv[bnv.length - 1];

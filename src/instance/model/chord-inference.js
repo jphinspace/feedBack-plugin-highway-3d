@@ -5,34 +5,25 @@ import {
 } from '../../core/constants.js';
 import { lowerBoundT } from '../../core/chart-util.js';
 
-// Chord/arpeggio/hand-shape inference: turning chart-format chordTemplates +
-// handShapes + the raw note stream into what the renderer actually draws
-// (repeat-run detection, synthesized chords for fingerpicking passages with
-// no <chord> events, arpeggio-vs-strum classification, CAGED/guide-tone
-// labels). Every function here is a pure chart-data -> derived-data
-// transform; none of them touch Three.js, the DOM, or per-frame render
-// state.
-//
-// Two real external dependencies, both nStr-dependent (per-string validity
-// depends on the CURRENT arrangement's string count, which changes at
-// runtime -- see validString()'s doc comment in main.js) and so can't move
-// here without dragging nStr along: validString() and filterValidNotes().
-// createChordInference() takes them as injected dependencies rather than
-// importing them, since there's nothing to import them FROM -- they still
-// live in the createFactory() closure.
-//
-// The WeakMap caches here (_chordSigCache, _chordShapeCache, _hintCache,
-// _arpInferCache, _arpCoverCache) are chart-static: chart data never changes
-// after load, so each is computed once per unique chord/hand-shape object and
-// reused every frame. Per-instance for the usual reason (CLAUDE.md pitfall
-// #14) -- a module singleton would leak cache entries across splitscreen
-// panels showing different songs.
+/**
+ * Chord/arpeggio/hand-shape inference: turns chart-format `chordTemplates` +
+ * `handShapes` + the raw note stream into what the renderer draws
+ * (repeat-run detection, synthesized chords for fingerpicking passages with
+ * no `<chord>` events, arpeggio-vs-strum classification, CAGED/guide-tone
+ * labels). Every function is a pure chart-data -> derived-data transform;
+ * none touch Three.js, the DOM, or per-frame render state.
+ *
+ * `validString`/`filterValidNotes` are injected rather than imported since
+ * they depend on the current arrangement's string count (`nStr`), which
+ * still lives in the `createFactory()` closure.
+ *
+ * The WeakMap caches here are chart-static — computed once per unique
+ * chord/hand-shape object and reused every frame. Kept per-instance (not a
+ * module singleton) so splitscreen panels showing different songs don't
+ * share cache entries.
+ */
 export function createChordInference({ validString, filterValidNotes }) {
-    /**
-     * Normalized fingering signature for chord repeat-run detection, or null.
-     * Cached via WeakMap so the sort+join only runs once per unique chord object
-     * across all frames — chart data never changes after load.
-     */
+    /** Normalized fingering signature for chord repeat-run detection, or null. Cached via WeakMap. */
     let _chordSigCache = new WeakMap();
     function chordShapeSignature(ch) {
         if (!ch?.notes) return null;
@@ -46,24 +37,19 @@ export function createChordInference({ validString, filterValidNotes }) {
         return sig;
     }
 
-    /** Tolerate RS/sloppak boolean-ish ``true`` / ``1`` forms. */
+    /** Tolerates RS/sloppak boolean-ish `true`/`1` forms. */
     function truthyChartFlag(v) {
         if (v === true || v === 1) return true;
         if (v === '1') return true;
         return typeof v === 'string' && v.toLowerCase() === 'true';
     }
 
-    /** RS / sloppak `hd` (highDensity); tolerate occasional string forms. */
+    /** RS/sloppak `hd` (highDensity); tolerates occasional string forms. */
     function chordWireHighDensity(ch) {
         return truthyChartFlag(ch && ch.hd);
     }
 
-    /**
-     * Per spec, `displayName` is the UI label for a chord template
-     * (defaulting to `name` when the chart didn't set it). Always go
-     * through this helper so name vs. displayName drift can't surface
-     * the wrong label or break displayName-based dedupe heuristics.
-     */
+    /** UI label for a chord template — `displayName`, falling back to `name`. Always go through this so the two can't drift apart. */
     function chordTemplateLabel(tmpl) {
         if (!tmpl) return '';
         const d = tmpl.displayName;
@@ -72,11 +58,7 @@ export function createChordInference({ validString, filterValidNotes }) {
         return typeof n === 'string' ? n : '';
     }
 
-    /**
-     * Arpeggio styling is driven by authored metadata, not by post-hoc
-     * note-stream inference. Prefer explicit hand-shape flags and fall back
-     * to template markers when present.
-     */
+    /** Arpeggio styling is driven by authored metadata (explicit hand-shape flags, falling back to template markers), not note-stream inference. */
     function chordTemplateMarkedArpeggio(cid, chordTemplates) {
         if (cid == null || !chordTemplates) return false;
         const tmpl = chordTemplates[cid] ?? chordTemplates[Number(cid)];
@@ -95,15 +77,12 @@ export function createChordInference({ validString, filterValidNotes }) {
     }
 
     /**
-     * Matching hand-shape metadata for a chord onset. ``explicit`` follows
+     * Matching hand-shape metadata for a chord onset. `explicit` follows
      * authored arpeggio markers only; note inference is handled separately
-     * by the callers that still need it for non-visual behavior.
-     *
-     * Cached per chord: result depends only on (ch, hss, chordTemplates),
-     * all chart-static for the lifetime of an arrangement. The cache is
-     * swapped on (hss, templates) ref change so an arrangement switch
-     * cannot resurrect stale entries. Empty-input case bypasses the cache
-     * — it returns a fresh sentinel anyway and isn't hot enough to share.
+     * by callers that need it. Cached per chord (depends only on `(ch,
+     * hss, chordTemplates)`, all chart-static); the cache is swapped
+     * whole on `(hss, templates)` ref change so an arrangement switch
+     * can't resurrect stale entries.
      */
     const _HINT_NONE = Object.freeze({ explicit: false, covered: false, hs: null });
     let _hintCache = new WeakMap();
@@ -137,7 +116,7 @@ export function createChordInference({ validString, filterValidNotes }) {
         return result;
     }
 
-    /** Build ``ch.notes`` from ``chordTemplates[cid].frets`` (-1 omitted). */
+    /** Builds `ch.notes` from `chordTemplates[cid].frets` (-1 omitted). */
     function chordNotesFromTemplate(cid, templates) {
         if (templates == null || cid == null) return [];
         const tmpl = templates[cid] ?? templates[Number(cid)];
@@ -151,10 +130,10 @@ export function createChordInference({ validString, filterValidNotes }) {
     }
 
     /**
-     * Chart-format fingerpicking passages often have ``<handShape>`` + per-string
-     * ``<note>`` rows but **no** ``<chord>`` events. The 3D chord frame / arp
-     * styling only runs over ``bundle.chords``, so synthesize minimal chord
-     * rows at each hand-shape onset when the chart omits them.
+     * Chart-format fingerpicking passages often have `<handShape>` + per-string
+     * `<note>` rows but no `<chord>` events. The 3D chord frame / arp styling
+     * only runs over `bundle.chords`, so synthesize minimal chord rows at
+     * each hand-shape onset when the chart omits them.
      */
     function mergeHandShapeSynthChords(realChords, handShapes, chordTemplates) {
         if (!handShapes || handShapes.length === 0) return realChords;
@@ -162,24 +141,14 @@ export function createChordInference({ validString, filterValidNotes }) {
         const synth = [];
         const seenSynth = new Set();
         const tol = 0.028;
-        /**
-         * Suppress a synth chord box when a real chord with the **same trimmed
-         * display name** played within this window — Custom songs commonly authors
-         * several ``<chordTemplate>`` rows that share a display name (with
-         * trailing-whitespace IDs) for fingering variants. The follow-up
-         * hand-shape with no chord row is a fingering hint, not a new strum
-         * (e.g. Jackson 5 "I Want You Back" ~0:27 — Fm7 cid=18 strum followed
-         * by Fm7 cid=19 hand-shape, which earlier produced a stacked second
-         * "Fm7" label and an extra chord frame).
-         */
+        // Suppress a synth chord box when a real chord with the same trimmed display name
+        // played within this window — some charts author several <chordTemplate> rows
+        // sharing a display name for fingering variants, and the follow-up hand-shape with
+        // no chord row is a fingering hint, not a new strum.
         const SAME_NAME_RUN_S = 0.5;
         const trimmedTemplateName = (cid) => {
             if (cid == null || !chordTemplates) return '';
             const tmpl = chordTemplates[cid] ?? chordTemplates[Number(cid)];
-            // custom songs commonly authors several <chordTemplate> rows that share
-            // a displayName for fingering variants; the suppression
-            // heuristic in the surrounding code dedupes on the *label*,
-            // not the underlying name, so go through chordTemplateLabel.
             return chordTemplateLabel(tmpl).trim();
         };
         outer: for (let i = 0; i < handShapes.length; i++) {
@@ -196,13 +165,9 @@ export function createChordInference({ validString, filterValidNotes }) {
                 const rid = ch.id;
                 const sameId = rid === cid || Number(rid) === Number(cid);
                 if (sameId && Math.abs(ch.t - st) <= tol) continue outer;
-                // A real strum at the same onset already represents this
-                // chord — never synthesize a phantom on top of it. The
-                // id/name checks alone miss hand-shapes whose template
-                // differs from (or shares no name with) the coincident real
-                // chord — e.g. an edited chart that left a stale hand-shape
-                // template pointing at the pre-edit shape, which then drew a
-                // spurious second power chord beside the real one.
+                // A real strum at the same onset already represents this chord — never
+                // synthesize a phantom on top of it, even if id/name don't match (e.g. a
+                // stale hand-shape template pointing at a pre-edit shape).
                 if (Math.abs(ch.t - st) <= tol) continue outer;
                 if (!sameId && myName !== '') {
                     const otherName = trimmedTemplateName(rid);
@@ -219,12 +184,8 @@ export function createChordInference({ validString, filterValidNotes }) {
             synth.push({
                 t: st,
                 id: cid,
-                // `hd` is the chart-format `highDensity` wire field (gallops /
-                // repeated strums), not an arpeggio carrier — arpeggio
-                // intent is read directly from the hand-shape via
-                // chordHandShapeArpeggioHint() downstream. Keep `hd` false
-                // so chordWireHighDensity() / label-suppression behave the
-                // same as for any other non-gallop chord row.
+                // `hd` is the chart-format highDensity wire field (gallops/repeated strums),
+                // not an arpeggio carrier — arp intent comes from chordHandShapeArpeggioHint().
                 hd: false,
                 notes,
                 /** Hand-shape fill-in (no authored chord row) — skip note-stream arp frame. */
@@ -245,21 +206,10 @@ export function createChordInference({ validString, filterValidNotes }) {
         return merged;
     }
 
-    /**
-     * Merge chart-format ``chordTemplates[id].frets`` with live ``chordNote`` rows.
-     * Cached via WeakMap on the chord object — chord data never changes after
-     * chart load, so the Map is computed once and reused every frame.
-     * The init-time callers (fillArpeggioGhostInferFlags) pass ephemeral `fakeCh`
-     * objects that are never seen again, so they bypass the cache naturally.
-     */
+    /** Merges chart-format `chordTemplates[id].frets` with live `chordNote` rows. Cached via WeakMap on the chord object. */
     let _chordShapeCache = new WeakMap();
 
-    // Reset the validString()/nStr-dependent chord caches owned by this
-    // module. The caller (main.js's own _resetStringDependentCaches, which
-    // also owns _filterValidNotesCache and _mergeCacheResult) calls this as
-    // its half of the same reset -- see that function's comment for why nStr
-    // changing (e.g. a 7-string chart whose stringCount arrives after the
-    // first frame) needs every one of these caches dropped together.
+    /** Drops the validString()/nStr-dependent chord caches this module owns — call alongside the other string-dependent caches when nStr changes. */
     function resetStringDependentCaches() {
         _chordSigCache = new WeakMap();
         _chordShapeCache = new WeakMap();
@@ -297,7 +247,7 @@ export function createChordInference({ validString, filterValidNotes }) {
         return hitTimes.length >= 4 && spread >= 0.016;
     }
 
-    /** RS XML / IPC payloads use snake_case or camelCase field names. */
+    /** RS XML/IPC payloads use snake_case or camelCase field names. */
     function hsStart(hs) {
         if (!hs) return NaN;
         const v = hs.start_time != null ? hs.start_time : hs.startTime;
@@ -318,7 +268,7 @@ export function createChordInference({ validString, filterValidNotes }) {
         return v == null ? null : v;
     }
 
-    /** ``<handShape>`` chart duration in seconds (snake_case or camelCase XML). */
+    /** `<handShape>` chart duration in seconds. */
     function handShapeChartSpanSec(hs) {
         const a = hsStart(hs), b = hsEnd(hs);
         if (Number.isNaN(a) || Number.isNaN(b)) return 0;
@@ -326,26 +276,12 @@ export function createChordInference({ validString, filterValidNotes }) {
     }
 
     /**
-     * When ``hd`` is missing/false, detect arpeggio from the **note** stream
-     * using the **full voicing** (template ∪ chord notes). RS often stores the
-     * plucks only in ``notes[]``, not as duplicate chord rows.
-     *
-     * @param {{ tLo: number, tHi: number } | null} [timeWin]
-     *        When set (e.g. from ``<handShape>`` span), scan staggered picks
-     *        across the whole held-shape window — RS often omits ``arp`` and ``hd``.
+     * When `hd` is missing/false, detects arpeggio from the note stream
+     * using the full voicing (template ∪ chord notes) — RS often stores
+     * plucks only in `notes[]`, not as duplicate chord rows. Cached per
+     * chord; invalidates on `(notesArr, hss)` ref change.
+     * @param {{ tLo: number, tHi: number } | null} [timeWin] - when set (e.g. from a `<handShape>` span), scan the whole held-shape window
      */
-    // Cached per chord: result depends on (ch, shape, notesArr) and an
-    // optional timeWin which itself is a function of the chord's matching
-    // <handShape>. Both inputs are chart-static, so the cache invalidates
-    // on (notesArr, hss) ref change — `hss` is threaded in purely as the
-    // invalidation key for the chord-loop caller, which passes a stable
-    // `ch` (reused across frames) and a timeWin that is null until
-    // bundle.handShapes arrives over the WS; without the hss check the
-    // null-timeWin result would stick once handShapes loaded late. shape
-    // comes from mergeChordShape(ch) which is also chart-static, so it
-    // doesn't enter the invalidation key directly. The cache deliberately
-    // stores boolean results; a sentinel distinguishes "not computed"
-    // from "false".
     let _arpInferCache = new WeakMap();
     let _arpInferCacheNotesRef = null;
     let _arpInferCacheHssRef = null;
@@ -379,23 +315,13 @@ export function createChordInference({ validString, filterValidNotes }) {
             hitStrings.add(n.s);
         }
         if (!hitTimesQualifyArpeggioSpread(hitTimes)) return false;
-        // A genuine arpeggio SWEEPS across the held shape, so its standalone
-        // notes land on MULTIPLE strings of the shape. When every matching
-        // hit is on a single string, this is a repeated single-string run
-        // (e.g. a palm-muted gallop hammering the chord's root) that happens
-        // to share one string/fret with the chord — NOT an arpeggio. Inferring
-        // one here deferred the chord's gems and made the power chord render as
-        // just that one repeated note (bar 25 of starlight). Require ≥2 strings.
+        // A genuine arpeggio sweeps across the held shape, landing on multiple strings. A
+        // single-string match is a repeated gallop that happens to share one string/fret
+        // with the chord, not an arpeggio — require at least 2 strings.
         if (hitStrings.size < 2) return false;
-        // Strumming/gallop rejection — far more hits than the shape has
-        // strings means the chord's notes are being re-struck repeatedly
-        // (a riff/gallop reusing both power-chord notes), not swept once as
-        // an arpeggio. This guard used to live inside `if (timeWin)`, so it
-        // was skipped for charts with no hand-shapes (timeWin null) — which
-        // let dense two-string gallops over a power chord infer a bogus
-        // arpeggio and defer the chord's gems (bar 88 of starlight: a
-        // (s5:4,s6:2) chord whose root+fifth recur ~16x over 2 s). Apply it
-        // with the actual window span whether or not a hand-shape is present.
+        // Far more hits than the shape has strings means the chord's notes are being
+        // re-struck repeatedly (a gallop reusing the same strings), not swept once. Apply
+        // this check regardless of whether a hand-shape/timeWin is present.
         const winSpan = timeWin ? (timeWin.tHi - timeWin.tLo) : (tHi - tLo);
         if (winSpan > ARP_INFER_MULTI_STRUM_WIN_MIN_S
             && hitTimes.length > shape.size + ARP_INFER_MULTI_STRUM_HIT_SLACK) {
@@ -406,8 +332,7 @@ export function createChordInference({ validString, filterValidNotes }) {
                 const spread = hitTimes[hitTimes.length - 1] - hitTimes[0];
                 if (spread < ARP_INFER_STRUM_VS_ARP_SPREAD_MIN_S) return false;
             }
-            // Reject when too few staggered hits for a genuine sweep across
-            // the held shape — see ARP_INFER_MIN_HITS_VS_SHAPE_CAP.
+            // Reject when there are too few staggered hits for a genuine sweep across the shape.
             const minHits = Math.min(shape.size, ARP_INFER_MIN_HITS_VS_SHAPE_CAP);
             if (hitTimes.length < minHits) return false;
         }
@@ -415,15 +340,11 @@ export function createChordInference({ validString, filterValidNotes }) {
     }
 
     /**
-     * True when standalone note rows already cover every string/fret in the
-     * arpeggio shape, so drawing the chord gems too would duplicate the same
-     * authored passage.
+     * True when standalone note rows already cover every string/fret in
+     * the arpeggio shape, so drawing the chord gems too would duplicate
+     * the same authored passage. Cached per chord (chart-static, keyed on
+     * `notesArr` ref).
      */
-    // Cached per chord: result depends on (ch, shape, notesArr) — chart-
-    // static; the cache invalidates on notesArr ref change. The same
-    // ``ch`` may be queried multiple times per frame from the chord
-    // render loop (deferChordGems / _deferFallback / suppressSynthChord),
-    // so survival across frames is also useful.
     let _arpCoverCache = new WeakMap();
     let _arpCoverCacheNotesRef = null;
     function chordShapeCoveredByStandaloneNotes(ch, shape, notesArr, timeWin) {
@@ -453,9 +374,9 @@ export function createChordInference({ validString, filterValidNotes }) {
     }
 
     /**
-     * Notes in an inferred arpeggio passage are charted in ``notes[]`` with
-     * staggered times; treat them like chord-cluster notes for chart-format-style
-     * board-ghost fret digits (``fromChord`` + template column).
+     * Notes in an inferred arpeggio passage are charted in `notes[]` with
+     * staggered times; treat them like chord-cluster notes for
+     * chart-format-style board-ghost fret digits.
      */
     function arpeggioChordIdForNote(n, handShapes, chordTemplates, notesArr) {
         if (!handShapes || handShapes.length === 0 || !notesArr || notesArr.length === 0) return null;
@@ -484,10 +405,10 @@ export function createChordInference({ validString, filterValidNotes }) {
     }
 
     /**
-     * Per-frame warmup: ``inferArpeggioFromNotePattern`` depends only on
-     * ``handShape × chart``, not on the candidate note — the old path
-     * recomputed it for every visible note (O(notecount × hs × notescan)).
-     * Fill ``outFlags[i]`` with the boolean once per ``handShapes[i]``.
+     * Per-frame warmup: {@link inferArpeggioFromNotePattern} depends only
+     * on `handShape × chart`, not the candidate note, so this fills
+     * `outFlags[i]` once per `handShapes[i]` instead of recomputing per
+     * visible note.
      */
     function fillArpeggioGhostInferFlags(handShapes, chordTemplates, notesArr, outFlags, outSynthOnsetSet = null) {
         for (let i = 0; i < handShapes.length; i++) {
@@ -509,15 +430,10 @@ export function createChordInference({ validString, filterValidNotes }) {
                         const shape = mergeChordShape(fakeCh, synthNotes, chordTemplates);
                         const tw = { tLo: hsLo - 0.06, tHi: hsHi + 0.06 };
                         infer = inferArpeggioFromNotePattern(fakeCh, shape, notesArr, tw, handShapes);
-                        // Chord-hold gate: inferArpeggioFromNotePattern can fire true
-                        // when open-string notes coincidentally match the template's
-                        // open positions but only a SINGLE fretted (f>0) string is
-                        // actually played at the handshape onset. Treat that as a
-                        // chord hold (not an arpeggio) — clear the arp flag, no
-                        // brackets. The original implementation also intended to
-                        // record a synthetic sustain extending to hsEnd for the
-                        // onset note, but that read-side was never wired up; the
-                        // visual decay-before-handshape-end is benign.
+                        // Chord-hold gate: inference can fire true when open-string notes
+                        // coincidentally match the template's open positions but only a single
+                        // fretted (f>0) string is actually played at onset — that's a chord
+                        // hold, not an arpeggio, so clear the flag (no brackets).
                         if (infer) {
                             let _frettedCount = 0;
                             let _onsetNote = null;
@@ -537,22 +453,20 @@ export function createChordInference({ validString, filterValidNotes }) {
                             }
                             if (_frettedCount <= 1 && _onsetNote !== null) {
                                 outFlags[i] = false;
-                                continue; // chord hold handled — skip onset-match and outFlags assignment
+                                continue;
                             }
                         }
-                        // Non-arp template inferred as arpeggio: suppress brackets.
-                        // Only explicit arp-marked templates (arp:true / displayName "-arp")
-                        // should show [ ] / < > bracket markers.
+                        // Non-arp template inferred as arpeggio: suppress brackets. Only
+                        // explicit arp-marked templates should show [ ] / < > markers.
                         if (infer && outSynthOnsetSet != null
                             && !handShapeMarkedArpeggio(hs, chordTemplates)) {
                             outSynthOnsetSet.add(hsLo);
                         }
-                        // Also treat as arp ghost when the hs generated a suppressed
-                        // synth chord: any standalone note in the onset window matches
-                        // any shape string. Handles patterns where inferArpeggioFromNotePattern
-                        // returns false (e.g. repeated arpeggio across a long hs span
-                        // triggers the multi-strum rejection), but the player still
-                        // needs the "hold this shape" ghost fret numbers on the board.
+                        // Also treat as arp ghost when the hs generated a suppressed synth chord:
+                        // any standalone note in the onset window matches any shape string. This
+                        // covers patterns inferArpeggioFromNotePattern rejects (e.g. the
+                        // multi-strum guard on a long hs span) but the player still needs the
+                        // "hold this shape" ghost fret numbers on the board.
                         if (!infer) {
                             const _oLo = hsLo - ARP_FRAME_ONSET_PAD_S;
                             const _oHi = hsLo + ARP_FRAME_ONSET_CLUSTER_S;
@@ -563,11 +477,6 @@ export function createChordInference({ validString, filterValidNotes }) {
                                 if (_on.t < _oLo) continue;
                                 if (shape.get(_on.s) === _on.f) {
                                     infer = true;
-                                    // Only suppress brackets when the handshape is NOT an
-                                    // explicit arpeggio (arp:true template / displayName "-arp").
-                                    // Genuine arp handshapes reached via onset-match still need
-                                    // the [ ] bracket markers — only non-arp synth chords are
-                                    // "false positives" that should hide the brackets.
                                     if (outSynthOnsetSet != null
                                         && !handShapeMarkedArpeggio(hs, chordTemplates)) {
                                         outSynthOnsetSet.add(hsLo);
@@ -583,10 +492,6 @@ export function createChordInference({ validString, filterValidNotes }) {
         }
     }
 
-    // Every function drawNote()/update() call directly, not just the four this
-    // module was originally scoped around -- ground truth (no-undef, run after
-    // the move) showed the hand-shape/arpeggio cluster is called into from
-    // many more places in the closure than the original 4-function estimate.
     return {
         chordShapeSignature, chordWireHighDensity, chordTemplateLabel,
         chordTemplateMarkedArpeggio, handShapeMarkedArpeggio, chordHandShapeArpeggioHint,
@@ -596,12 +501,12 @@ export function createChordInference({ validString, filterValidNotes }) {
     };
 }
 
-/** Harmony annotations (§6.3.1 / §6.6): display labels for a chord's
- * function (instance `fn.rn` Roman numeral) and template `voicing`,
- * `caged` shape, and `guideTones`. '' for each when absent/malformed;
- * `caged`/`guideTones` come back pre-formatted ("CAGED: E" / "gt 4,10").
- * Pure; shared with the 2D highway and node-tested. Display only — never
- * grading. */
+/**
+ * Harmony annotation display labels: chord function (`fn.rn` Roman
+ * numeral), template `voicing`, `caged` shape, and `guideTones`. `''` for
+ * each when absent/malformed; `caged`/`guideTones` come back pre-formatted
+ * (`"CAGED: E"` / `"gt 4,10"`). Display only — never grading.
+ */
 export function chordHarmonyLabels(fn, voicing, caged, guideTones) {
     const rn = (fn && typeof fn.rn === 'string') ? fn.rn.trim() : '';
     const vc = (typeof voicing === 'string') ? voicing.trim() : '';

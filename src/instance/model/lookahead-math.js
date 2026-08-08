@@ -3,32 +3,28 @@ import {
 } from '../../core/constants.js';
 import { getChartAnchorAt, lowerBoundT } from '../../core/chart-util.js';
 
-// Lookahead-camera-mode pure math -- moved verbatim out of main.js (Stage 7,
-// post-3e). `getMeasureStarts` is a live getter, not a deps snapshot:
-// _measureStarts is a bare main.js closure `let` REASSIGNED (new array
-// reference, not mutated in place) whenever update() rebuilds it from fresh
-// beats data, on song-change reset, and on teardown() -- a one-time
-// construction-time snapshot would go stale after the very first rebuild.
-// Same shape as dom-and-scene.js's getHighwayCanvas / bloom-composer.js's
-// getRenderer.
-//
-// lookaheadEndTime() is purely internal (only ever called by the other four
-// functions in this file, never from main.js) -- not returned.
+/**
+ * Lookahead-camera-mode pure math. `getMeasureStarts` is a live getter, not
+ * a deps snapshot: `_measureStarts` is reassigned (new array reference)
+ * whenever `update()` rebuilds it from fresh beats data, on song-change
+ * reset, and on teardown — a construction-time snapshot would go stale
+ * after the first rebuild.
+ */
 export function createLookaheadMath({ ctx, xFret, xFretMid, validString, getMeasureStarts }) {
-    // Earliest chart time CAM_LOOKAHEAD_MEASURES measures ahead of `now`,
-    // using the cached measure-start times. With no beats it falls back to
-    // CAM_LOOKAHEAD_SEC seconds. Past the last known measure, extrapolates
-    // using the average measure duration.
+    /**
+     * Earliest chart time {@link CAM_LOOKAHEAD_MEASURES} measures ahead of
+     * `now`, using cached measure-start times. Falls back to
+     * {@link CAM_LOOKAHEAD_SEC} seconds with no beats; extrapolates past
+     * the last known measure using the average measure duration.
+     */
     function lookaheadEndTime(now) {
         const ms = getMeasureStarts();
         if (!ms || ms.length === 0) return now + CAM_LOOKAHEAD_SEC;
-        // Binary search: lo = first index with ms[lo] > now.
         let lo = 0, hi = ms.length;
         while (lo < hi) { const mid = (lo + hi) >> 1; if (ms[mid] <= now) lo = mid + 1; else hi = mid; }
-        const curIdx = lo - 1;                       // current measure (-1 if before the first)
+        const curIdx = lo - 1;
         const targetIdx = curIdx + CAM_LOOKAHEAD_MEASURES;
         if (targetIdx >= 0 && targetIdx < ms.length) return ms[targetIdx];
-        // Past the last measure: extrapolate using the average measure duration.
         if (ms.length >= 2) {
             const avg = (ms[ms.length - 1] - ms[0]) / (ms.length - 1);
             if (avg > 0) return ms[ms.length - 1] + (targetIdx - (ms.length - 1)) * avg;
@@ -36,10 +32,12 @@ export function createLookaheadMath({ ctx, xFret, xFretMid, validString, getMeas
         return now + CAM_LOOKAHEAD_SEC;
     }
 
-    // Earliest future chart time whose lookahead end reaches eventTime.
-    // lookaheadEndTime() is monotonic but measure-stepped, so a small
-    // bounded binary search works for both measure grids and the seconds
-    // fallback without duplicating/inverting its edge-case logic.
+    /**
+     * Earliest future chart time whose lookahead end reaches `eventTime`.
+     * {@link lookaheadEndTime} is monotonic but measure-stepped, so a
+     * bounded binary search works for both measure grids and the seconds
+     * fallback.
+     */
     function lookaheadBootstrapTime(now, eventTime) {
         if (!(eventTime > now) || lookaheadEndTime(now) >= eventTime) return now;
         let lo = now;
