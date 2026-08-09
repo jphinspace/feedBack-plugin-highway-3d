@@ -1,88 +1,54 @@
-<div role="group" aria-labelledby="h3d-strcol-heading">
-    <h3 id="h3d-strcol-heading" class="text-sm font-medium text-gray-400 mb-2">Highway String Colors</h3>
+<div role="group" aria-labelledby="highway_3d_dev-strcol-heading">
+    <h3 id="highway_3d_dev-strcol-heading" class="text-sm font-medium text-gray-400 mb-2">3D Highway (dev) String Colors</h3>
     <p class="text-xs text-gray-500 mb-3">
-        Pick a color per named string for both the 2D and 3D highways (string
+        Pick a color per named string for this development plugin only (string
         lines and gems). Colors follow the string by name, so Low E keeps its
         color whether you're on a 6-string guitar, a 4-string bass, or a 7/8-string
         (where the extra low strings use the Low B / Low F# slots).
     </p>
     <div class="flex gap-2 mb-3">
-        <select id="hwc-theme-select" onchange="window.hwcOnSelectTheme?.(this.value)"
+        <select id="highway_3d_dev-hwc-theme-select"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
             <option value="">Default colors</option>
         </select>
-        <button type="button" onclick="window.hwcSaveTheme?.()" class="bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300">Save as…</button>
-        <button type="button" onclick="window.hwcDeleteTheme?.()" class="bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-400">Delete</button>
+        <button type="button" id="highway_3d_dev-hwc-save" class="bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300">Save as…</button>
+        <button type="button" id="highway_3d_dev-hwc-delete" class="bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-400">Delete</button>
     </div>
-    <!-- One-click presets: apply a whole named palette to every string at once.
-         Buttons are generated from window.feedBack.highwayColors.presets so the
-         list stays in sync with core (app.js HWC_PRESETS). Each calls
-         applyPreset(id), which persists + applies to both highways and refreshes
-         the pickers below. Older core without the presets API leaves this empty. -->
+    <!-- One-click presets are owned by this plugin and update only its renderer. -->
     <div class="mb-3">
         <span class="text-xs text-gray-500 mb-1 block">Quick presets</span>
-        <div id="hwc-presets" class="flex flex-wrap gap-2"></div>
+        <div id="highway_3d_dev-hwc-presets" class="flex flex-wrap gap-2"></div>
     </div>
-    <div id="hwc-pickers" class="mb-3" style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;"></div>
+    <div id="highway_3d_dev-hwc-pickers" class="mb-3" style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;"></div>
     <div class="flex items-center gap-2 mb-2">
-        <button type="button" onclick="window.hwcReset?.()" class="bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300">Reset to defaults</button>
-        <button type="button" onclick="window.hwcCopyShare?.()" class="bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300">Copy share code</button>
-        <span id="hwc-status" class="text-xs text-gray-500"></span>
+        <button type="button" id="highway_3d_dev-hwc-reset" class="bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300">Reset to defaults</button>
+        <button type="button" id="highway_3d_dev-hwc-copy" class="bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300">Copy share code</button>
+        <span id="highway_3d_dev-hwc-status" class="text-xs text-gray-500"></span>
     </div>
     <div class="flex gap-2">
-        <input type="text" id="hwc-import-code" placeholder="Paste a share code…"
+        <input type="text" id="highway_3d_dev-hwc-import-code" placeholder="Paste a share code…"
             aria-label="Import highway color share code"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
-        <button type="button" onclick="window.hwcImport?.()" class="bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300">Import</button>
+        <button type="button" id="highway_3d_dev-hwc-import" class="bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300">Import</button>
     </div>
     <script>
-        // The String Colors UI markup lives here (in the 3D Highway plugin), but
-        // the color manager (translation table, storage, share codec, apply to
-        // BOTH highways) lives in core app.js. Populate the pickers + saved-theme
-        // dropdown once this panel is injected. Guarded so an older core that
-        // lacks the manager simply renders an empty (inert) panel.
+        // settings.html is injected before the plugin module on first load. The module
+        // also calls this initializer after registering it, while this guarded call
+        // handles settings-panel rehydration when the module is already present.
         (function () {
-            if (typeof window.hwcInitSettingsUI === 'function') {
-                try { window.hwcInitSettingsUI(); } catch (e) { console.warn('[3D-Hwy] hwcInitSettingsUI failed', e); }
-            }
-            // Render the one-click preset buttons from core's preset list.
-            try {
-                const api = window.feedBack && window.feedBack.highwayColors;
-                const host = document.getElementById('hwc-presets');
-                if (api && Array.isArray(api.presets) && host) {
-                    host.innerHTML = '';
-                    // Slot order low → high for the preview swatch (bass-side first).
-                    const order = ['lowE', 'A', 'D', 'G', 'B', 'highE'];
-                    for (const p of api.presets) {
-                        const btn = document.createElement('button');
-                        btn.type = 'button';
-                        btn.className = 'flex items-center gap-2 bg-dark-700 border border-gray-800 rounded-lg px-2 py-1 text-xs text-gray-300';
-                        const sw = document.createElement('span');
-                        const stops = order.map((k) => p.colors[k]).filter(Boolean).join(',');
-                        sw.style.cssText = 'width:2.5rem;height:0.85rem;border-radius:3px;border:1px solid #0006;'
-                            + 'background:linear-gradient(90deg,' + stops + ');';
-                        btn.appendChild(sw);
-                        const txt = document.createElement('span');
-                        txt.textContent = p.label;
-                        btn.appendChild(txt);
-                        btn.addEventListener('click', function () {
-                            try { api.applyPreset(p.id); } catch (e) { console.warn('[3D-Hwy] applyPreset failed', e); }
-                        });
-                        host.appendChild(btn);
-                    }
-                }
-            } catch (e) { console.warn('[3D-Hwy] preset render failed', e); }
+            try { window.h3dDevInitStringColorSettingsUI?.(); }
+            catch (e) { console.warn('[3D-Hwy dev] string-color UI init failed', e); }
         })();
     </script>
 </div>
 
-<div role="group" aria-labelledby="h3d-fretboard-heading" class="mt-6">
-    <h3 id="h3d-fretboard-heading" class="text-sm font-medium text-gray-400 mb-2">3D Highway — Fretboard</h3>
+<div role="group" aria-labelledby="highway_3d_dev-fretboard-heading" class="mt-6">
+    <h3 id="highway_3d_dev-fretboard-heading" class="text-sm font-medium text-gray-400 mb-2">3D Highway (dev) — Fretboard</h3>
 
     <!-- Fret spacing -->
     <div class="mt-3">
-        <label for="h3d-fret-spacing" class="text-xs font-medium text-gray-400 mb-1 block">Fret spacing</label>
-        <select id="h3d-fret-spacing"
+        <label for="highway_3d_dev-fret-spacing" class="text-xs font-medium text-gray-400 mb-1 block">Fret spacing</label>
+        <select id="highway_3d_dev-fret-spacing"
             onchange="window.h3dDevSetFretSpacing && window.h3dDevSetFretSpacing(this.value)"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
             <option value="uniform">Uniform (equal width per fret)</option>
@@ -93,10 +59,10 @@
 
     <script>
     (function () {
-        const sel = document.getElementById('h3d-fret-spacing');
+        const sel = document.getElementById('highway_3d_dev-fret-spacing');
         if (sel) {
             try {
-                sel.value = localStorage.getItem('highway_3d.fretSpacing') === 'logarithmic' ? 'logarithmic' : 'uniform';
+                sel.value = localStorage.getItem('highway_3d_dev.fretSpacing') === 'logarithmic' ? 'logarithmic' : 'uniform';
             } catch (_) {
                 sel.value = 'uniform';
             }
@@ -105,18 +71,18 @@
     </script>
 </div>
 
-<div role="group" aria-labelledby="h3d-bg-heading" class="mt-6">
-    <h3 id="h3d-bg-heading" class="text-sm font-medium text-gray-400 mb-2">3D Highway — Background</h3>
+<div role="group" aria-labelledby="highway_3d_dev-bg-heading" class="mt-6">
+    <h3 id="highway_3d_dev-bg-heading" class="text-sm font-medium text-gray-400 mb-2">3D Highway (dev) — Background</h3>
     <p class="text-xs text-gray-500 mb-3">
         Subtle ambient animation in the distant fog area beyond the highway.
-        Settings here apply to all 3D Highway panels by default; per-panel
+        Settings here apply to all 3D Highway (dev) panels by default; per-panel
         overrides can be set later (issue #13 follow-up).
     </p>
 
     <!-- Style -->
     <div class="mt-3">
-        <label for="h3d-bg-style" class="text-xs font-medium text-gray-400 mb-1 block">Style</label>
-        <select id="h3d-bg-style"
+        <label for="highway_3d_dev-bg-style" class="text-xs font-medium text-gray-400 mb-1 block">Style</label>
+        <select id="highway_3d_dev-bg-style"
             onchange="window.h3dDevBgSetStyle && window.h3dDevBgSetStyle(this.value)"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
             <option value="off">Off</option>
@@ -136,10 +102,10 @@
          same in both gives the original "matched" look. "Default" is the
          original look on both. -->
     <div class="mt-3">
-        <label for="h3d-bg-theme" class="text-xs font-medium text-gray-400 mb-1 block">Background</label>
+        <label for="highway_3d_dev-bg-theme" class="text-xs font-medium text-gray-400 mb-1 block">Background</label>
         <!-- Options are populated from SCENE_THEMES (the single id+label source)
              in the hydration script below, so the two dropdowns can't drift. -->
-        <select id="h3d-bg-theme"
+        <select id="highway_3d_dev-bg-theme"
             onchange="window.h3dDevBgSetBgTheme && window.h3dDevBgSetBgTheme(this.value)"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
         </select>
@@ -148,10 +114,10 @@
         </p>
     </div>
     <div class="mt-3">
-        <label for="h3d-hw-theme" class="text-xs font-medium text-gray-400 mb-1 block">Highway (surface + lane)</label>
+        <label for="highway_3d_dev-hw-theme" class="text-xs font-medium text-gray-400 mb-1 block">Highway (surface + lane)</label>
         <!-- Options populated from SCENE_THEMES (see below), same source as the
              Background dropdown so the two stay in lockstep. -->
-        <select id="h3d-hw-theme"
+        <select id="highway_3d_dev-hw-theme"
             onchange="window.h3dDevBgSetHwTheme && window.h3dDevBgSetHwTheme(this.value)"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
         </select>
@@ -164,65 +130,65 @@
          Background style. They used to live in a floating in-canvas panel; the
          on/off + slider controls now live here in the standard settings UI.
          The live preset browser (pick / favorite / ban / cycle) stays in-canvas.
-         Persisted in the 'viz3d_settings' localStorage blob (shared with the
-         in-canvas preset controls); window.h3dDevBcApplySettings() pushes changes
+         Persisted in the dev plugin's 'highway_3d_dev.butterchurn.settings' localStorage blob
+         (also used by its in-canvas preset controls); window.h3dDevBcApplySettings() pushes changes
          to a mounted highway live. -->
-    <div id="h3d-bc-section" class="mt-4">
+    <div id="highway_3d_dev-bc-section" class="mt-4">
         <h3 class="text-sm font-medium text-gray-400 mb-2">Butterchurn (visualizer)</h3>
         <p class="text-xs text-gray-500 mb-2">Active when Background style is set to <em>Butterchurn (visualizer)</em>.</p>
         <div class="flex items-center gap-3 mt-3">
             <label class="flex items-center gap-2 text-sm text-gray-300">
-                <input type="checkbox" id="h3d-bc-enabled" class="accent-accent"> Background on
+                <input type="checkbox" id="highway_3d_dev-bc-enabled" class="accent-accent"> Background on
             </label>
         </div>
         <div class="mt-3">
-            <label for="h3d-bc-opacity" class="text-xs font-medium text-gray-400 mb-1 block">Opacity: <span id="h3d-bc-opacity-label">100%</span></label>
-            <input type="range" id="h3d-bc-opacity" min="0" max="100" class="w-full accent-accent">
+            <label for="highway_3d_dev-bc-opacity" class="text-xs font-medium text-gray-400 mb-1 block">Opacity: <span id="highway_3d_dev-bc-opacity-label">100%</span></label>
+            <input type="range" id="highway_3d_dev-bc-opacity" min="0" max="100" class="w-full accent-accent">
         </div>
         <div class="flex items-center gap-3 mt-3">
             <label class="flex items-center gap-2 text-sm text-gray-300">
-                <input type="checkbox" id="h3d-bc-laneDim" class="accent-accent"> Dim behind lane
+                <input type="checkbox" id="highway_3d_dev-bc-laneDim" class="accent-accent"> Dim behind lane
             </label>
         </div>
         <div class="mt-3">
-            <label for="h3d-bc-laneDimStrength" class="text-xs font-medium text-gray-400 mb-1 block">Dim strength</label>
-            <input type="range" id="h3d-bc-laneDimStrength" min="0" max="100" class="w-full accent-accent">
+            <label for="highway_3d_dev-bc-laneDimStrength" class="text-xs font-medium text-gray-400 mb-1 block">Dim strength</label>
+            <input type="range" id="highway_3d_dev-bc-laneDimStrength" min="0" max="100" class="w-full accent-accent">
         </div>
         <div class="flex items-center gap-3 mt-3">
             <label class="flex items-center gap-2 text-sm text-gray-300">
-                <input type="checkbox" id="h3d-bc-chartAccents" class="accent-accent"> Chart accents
+                <input type="checkbox" id="highway_3d_dev-bc-chartAccents" class="accent-accent"> Chart accents
             </label>
         </div>
         <div class="mt-3">
-            <label for="h3d-bc-chartStrength" class="text-xs font-medium text-gray-400 mb-1 block">Chart strength</label>
-            <input type="range" id="h3d-bc-chartStrength" min="0" max="200" class="w-full accent-accent">
+            <label for="highway_3d_dev-bc-chartStrength" class="text-xs font-medium text-gray-400 mb-1 block">Chart strength</label>
+            <input type="range" id="highway_3d_dev-bc-chartStrength" min="0" max="200" class="w-full accent-accent">
         </div>
         <div class="flex items-center gap-3 mt-3">
             <label class="flex items-center gap-2 text-sm text-gray-300">
-                <input type="checkbox" id="h3d-bc-colorTint" class="accent-accent"> Color tint
+                <input type="checkbox" id="highway_3d_dev-bc-colorTint" class="accent-accent"> Color tint
             </label>
         </div>
         <div class="mt-3">
-            <label for="h3d-bc-tintStrength" class="text-xs font-medium text-gray-400 mb-1 block">Tint strength</label>
-            <input type="range" id="h3d-bc-tintStrength" min="0" max="100" class="w-full accent-accent">
+            <label for="highway_3d_dev-bc-tintStrength" class="text-xs font-medium text-gray-400 mb-1 block">Tint strength</label>
+            <input type="range" id="highway_3d_dev-bc-tintStrength" min="0" max="100" class="w-full accent-accent">
         </div>
         <div class="mt-3">
-            <label for="h3d-bc-guitarGain" class="text-xs font-medium text-gray-400 mb-1 block">Guitar gain: <span id="h3d-bc-guitarGain-label">×6</span></label>
-            <input type="range" id="h3d-bc-guitarGain" min="1" max="12" step="0.5" class="w-full accent-accent">
+            <label for="highway_3d_dev-bc-guitarGain" class="text-xs font-medium text-gray-400 mb-1 block">Guitar gain: <span id="highway_3d_dev-bc-guitarGain-label">×6</span></label>
+            <input type="range" id="highway_3d_dev-bc-guitarGain" min="1" max="12" step="0.5" class="w-full accent-accent">
         </div>
         <div class="mt-3">
-            <label for="h3d-bc-songGain" class="text-xs font-medium text-gray-400 mb-1 block">Song gain: <span id="h3d-bc-songGain-label">×1.8</span></label>
-            <input type="range" id="h3d-bc-songGain" min="0" max="5" step="0.1" class="w-full accent-accent">
+            <label for="highway_3d_dev-bc-songGain" class="text-xs font-medium text-gray-400 mb-1 block">Song gain: <span id="highway_3d_dev-bc-songGain-label">×1.8</span></label>
+            <input type="range" id="highway_3d_dev-bc-songGain" min="0" max="5" step="0.1" class="w-full accent-accent">
         </div>
     </div>
     <script>
         // Self-contained Butterchurn settings wiring. Reads/writes the same
-        // 'viz3d_settings' blob the in-canvas preset controls use (read-modify-
+        // 'highway_3d_dev.butterchurn.settings' blob the in-canvas preset controls use (read-modify-
         // write preserves cyclePool/hold and the favorites/bans lists), then
         // calls window.h3dDevBcApplySettings() so a mounted highway applies the
         // change live. Guarded so it no-ops if the section isn't present.
         (function () {
-            const BC_LS = 'viz3d_settings';
+            const BC_LS = 'highway_3d_dev.butterchurn.settings';
             const BC_DEFAULTS = { enabled: true, opacity: 1.0, laneDim: true, laneDimStrength: 0.45, chartAccents: true, colorTint: true, chartStrength: 1.0, tintStrength: 0.65, guitarGain: 6, songGain: 1.8 };
             function readBlob() { let s = {}; try { s = JSON.parse(localStorage.getItem(BC_LS) || '{}') || {}; } catch (e) {} return s; }
             function patch(p) {
@@ -233,14 +199,14 @@
             }
             const s = Object.assign({}, BC_DEFAULTS, readBlob());
             const $ = (id) => document.getElementById(id);
-            const en = $('h3d-bc-enabled');
+            const en = $('highway_3d_dev-bc-enabled');
             if (!en) return;
-            const op = $('h3d-bc-opacity'), opv = $('h3d-bc-opacity-label');
-            const ld = $('h3d-bc-laneDim'), lds = $('h3d-bc-laneDimStrength');
-            const ca = $('h3d-bc-chartAccents'), cs = $('h3d-bc-chartStrength');
-            const ct = $('h3d-bc-colorTint'), ts = $('h3d-bc-tintStrength');
-            const gg = $('h3d-bc-guitarGain'), ggv = $('h3d-bc-guitarGain-label');
-            const sg = $('h3d-bc-songGain'), sgv = $('h3d-bc-songGain-label');
+            const op = $('highway_3d_dev-bc-opacity'), opv = $('highway_3d_dev-bc-opacity-label');
+            const ld = $('highway_3d_dev-bc-laneDim'), lds = $('highway_3d_dev-bc-laneDimStrength');
+            const ca = $('highway_3d_dev-bc-chartAccents'), cs = $('highway_3d_dev-bc-chartStrength');
+            const ct = $('highway_3d_dev-bc-colorTint'), ts = $('highway_3d_dev-bc-tintStrength');
+            const gg = $('highway_3d_dev-bc-guitarGain'), ggv = $('highway_3d_dev-bc-guitarGain-label');
+            const sg = $('highway_3d_dev-bc-songGain'), sgv = $('highway_3d_dev-bc-songGain-label');
             // Hydrate from saved settings.
             en.checked = !!s.enabled;
             op.value = Math.round((s.opacity != null ? s.opacity : 1) * 100); if (opv) opv.textContent = op.value + '%';
@@ -265,11 +231,11 @@
 
     <!-- Intensity -->
     <div class="mt-3">
-        <label for="h3d-bg-intensity" class="text-xs font-medium text-gray-400 mb-1 block">
-            Intensity: <span id="h3d-bg-intensity-label">0.50</span>
+        <label for="highway_3d_dev-bg-intensity" class="text-xs font-medium text-gray-400 mb-1 block">
+            Intensity: <span id="highway_3d_dev-bg-intensity-label">0.50</span>
         </label>
-        <input type="range" id="h3d-bg-intensity" min="0" max="1" step="0.05" value="0.5"
-            oninput="document.getElementById('h3d-bg-intensity-label').textContent = parseFloat(this.value).toFixed(2);"
+        <input type="range" id="highway_3d_dev-bg-intensity" min="0" max="1" step="0.05" value="0.5"
+            oninput="document.getElementById('highway_3d_dev-bg-intensity-label').textContent = parseFloat(this.value).toFixed(2);"
             onchange="window.h3dDevBgSetIntensity && window.h3dDevBgSetIntensity(this.value)"
             class="w-full accent-accent">
     </div>
@@ -277,7 +243,7 @@
     <!-- Audio reactivity -->
     <div class="flex items-center gap-3 mt-3">
         <label class="flex items-center gap-2 text-sm text-gray-300">
-            <input type="checkbox" id="h3d-bg-reactive" checked
+            <input type="checkbox" id="highway_3d_dev-bg-reactive" checked
                    onchange="window.h3dDevBgSetReactive && window.h3dDevBgSetReactive(this.checked)"
                    class="accent-accent">
             React to audio
@@ -285,35 +251,35 @@
     </div>
 
     <!-- Custom image upload (#19). Persisted in localStorage under
-         h3d_bg_customImageDataUrl (the base64 data URL that drives
-         the texture) and h3d_bg_customImageName (display-only
+         highway_3d_dev.background.customImageDataUrl (the base64 data URL that drives
+         the texture) and highway_3d_dev.background.customImageName (display-only
          filename). Renders as the `image` bg style; the picker
          option above auto-enables once an asset is uploaded. -->
     <div class="mt-3">
-        <label for="h3d-bg-custom-image-file" class="text-xs font-medium text-gray-400 mb-1 block">Custom image</label>
+        <label for="highway_3d_dev-bg-custom-image-file" class="text-xs font-medium text-gray-400 mb-1 block">Custom image</label>
         <p class="text-xs text-gray-500 mb-2">
             Upload a JPG/PNG/WebP (&le;1.5&nbsp;MB). Renders as a slowly
             drifting backdrop in the fog band when the style above is set
             to <em>Custom image</em>.
         </p>
         <div class="flex items-center gap-2">
-            <input type="file" id="h3d-bg-custom-image-file"
+            <input type="file" id="highway_3d_dev-bg-custom-image-file"
                    accept="image/png,image/jpeg,image/webp"
                    class="text-xs text-gray-300 file:mr-2 file:px-2 file:py-1 file:rounded file:border-0 file:bg-dark-600 file:text-gray-300">
-            <button type="button" id="h3d-bg-custom-image-clear"
+            <button type="button" id="highway_3d_dev-bg-custom-image-clear"
                     class="text-xs px-2 py-1 rounded bg-dark-700 border border-gray-800 text-gray-400 hover:text-gray-200">Clear</button>
         </div>
-        <p id="h3d-bg-custom-image-name" class="text-xs text-gray-500 mt-1"></p>
-        <p id="h3d-bg-custom-image-error" class="text-xs text-red-400 mt-1 hidden"></p>
+        <p id="highway_3d_dev-bg-custom-image-name" class="text-xs text-gray-500 mt-1"></p>
+        <p id="highway_3d_dev-bg-custom-image-error" class="text-xs text-red-400 mt-1 hidden"></p>
     </div>
 
     <!-- Custom video upload (#19 follow-up). Bytes live on disk via
          the plugin's routes.py upload route; localStorage holds only
-         the server-side filename (h3d_dev_bg_customVideoName). Renders as
+         the server-side filename (highway_3d_dev.background.customVideoName). Renders as
          the `video` bg style; the picker option above auto-enables
          once an asset is uploaded. -->
     <div class="mt-3">
-        <label for="h3d-bg-custom-video-file" class="text-xs font-medium text-gray-400 mb-1 block">Custom video</label>
+        <label for="highway_3d_dev-bg-custom-video-file" class="text-xs font-medium text-gray-400 mb-1 block">Custom video</label>
         <p class="text-xs text-gray-500 mb-2">
             Upload an MP4 or WebM (&le;50&nbsp;MB). Plays muted, looped
             in the fog band when the style above is set to
@@ -321,19 +287,19 @@
             not in the browser.
         </p>
         <div class="flex items-center gap-2">
-            <input type="file" id="h3d-bg-custom-video-file"
+            <input type="file" id="highway_3d_dev-bg-custom-video-file"
                    accept="video/mp4,video/webm"
                    class="text-xs text-gray-300 file:mr-2 file:px-2 file:py-1 file:rounded file:border-0 file:bg-dark-600 file:text-gray-300">
-            <button type="button" id="h3d-bg-custom-video-clear"
+            <button type="button" id="highway_3d_dev-bg-custom-video-clear"
                     class="text-xs px-2 py-1 rounded bg-dark-700 border border-gray-800 text-gray-400 hover:text-gray-200">Clear</button>
         </div>
-        <p id="h3d-bg-custom-video-name" class="text-xs text-gray-500 mt-1"></p>
-        <p id="h3d-bg-custom-video-error" class="text-xs text-red-400 mt-1 hidden"></p>
+        <p id="highway_3d_dev-bg-custom-video-name" class="text-xs text-gray-500 mt-1"></p>
+        <p id="highway_3d_dev-bg-custom-video-error" class="text-xs text-red-400 mt-1 hidden"></p>
     </div>
 </div>
 
-<div role="group" aria-labelledby="h3d-camera-heading" class="mt-6">
-    <h3 id="h3d-camera-heading" class="text-sm font-medium text-gray-400 mb-2">3D Highway — Camera</h3>
+<div role="group" aria-labelledby="highway_3d_dev-camera-heading" class="mt-6">
+    <h3 id="highway_3d_dev-camera-heading" class="text-sm font-medium text-gray-400 mb-2">3D Highway (dev) — Camera</h3>
     <p class="text-xs text-gray-500 mb-3">
         The camera tracks your upcoming notes — panning along the
         fretboard, zooming for wide chords, and tilting to keep the
@@ -345,8 +311,8 @@
     </p>
 
     <div class="mt-3">
-        <label for="h3d-camera-mode" class="text-xs font-medium text-gray-400 mb-1 block">Camera view</label>
-        <select id="h3d-camera-mode"
+        <label for="highway_3d_dev-camera-mode" class="text-xs font-medium text-gray-400 mb-1 block">Camera view</label>
+        <select id="highway_3d_dev-camera-mode"
             onchange="window.h3dDevBgSetCameraMode && window.h3dDevBgSetCameraMode(this.value)"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
             <option value="lookahead">Wide ahead (default)</option>
@@ -358,33 +324,33 @@
         </p>
     </div>
 
-    <div role="group" aria-labelledby="h3d-fret-look-heading" class="mt-5">
-        <h3 id="h3d-fret-look-heading" class="text-sm font-medium text-gray-400 mb-2">3D Highway — Nut &amp; headstock</h3>
+    <div role="group" aria-labelledby="highway_3d_dev-fret-look-heading" class="mt-5">
+        <h3 id="highway_3d_dev-fret-look-heading" class="text-sm font-medium text-gray-400 mb-2">3D Highway (dev) — Nut &amp; headstock</h3>
         <p class="text-xs text-gray-500 mb-3">
             The 3D neck shows a nut, headstock, and a pitch label per string (from the chart tuning).
             Turn pieces off or pick colors to match your taste.
         </p>
         <div class="flex flex-col gap-3 mt-2">
             <label class="flex items-start gap-2 text-sm text-gray-300 cursor-pointer">
-                <input type="checkbox" id="h3d-nut-headstock-visible" checked class="mt-1 accent-accent"
+                <input type="checkbox" id="highway_3d_dev-nut-headstock-visible" checked class="mt-1 accent-accent"
                     onchange="window.h3dDevBgSetNutHeadstockVisible && window.h3dDevBgSetNutHeadstockVisible(this.checked)">
                 <span>Show nut &amp; headstock</span>
             </label>
             <label class="flex items-start gap-2 text-sm text-gray-300 cursor-pointer">
-                <input type="checkbox" id="h3d-tuning-labels-visible" checked class="mt-1 accent-accent"
+                <input type="checkbox" id="highway_3d_dev-tuning-labels-visible" checked class="mt-1 accent-accent"
                     onchange="window.h3dDevBgSetTuningLabelsVisible && window.h3dDevBgSetTuningLabelsVisible(this.checked)">
                 <span>Show open-string note name per string</span>
             </label>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1">
                 <div>
-                    <label for="h3d-nut-color" class="text-xs font-medium text-gray-400 mb-1 block">Nut color</label>
-                    <input type="color" id="h3d-nut-color" value="#f5f3f0"
+                    <label for="highway_3d_dev-nut-color" class="text-xs font-medium text-gray-400 mb-1 block">Nut color</label>
+                    <input type="color" id="highway_3d_dev-nut-color" value="#f5f3f0"
                         onchange="window.h3dDevBgSetNutColor && window.h3dDevBgSetNutColor(this.value)"
                         class="h-9 w-full max-w-[12rem] cursor-pointer rounded border border-gray-800 bg-dark-700 p-0.5">
                 </div>
                 <div>
-                    <label for="h3d-headstock-color" class="text-xs font-medium text-gray-400 mb-1 block">Headstock color</label>
-                    <input type="color" id="h3d-headstock-color" value="#d4b48a"
+                    <label for="highway_3d_dev-headstock-color" class="text-xs font-medium text-gray-400 mb-1 block">Headstock color</label>
+                    <input type="color" id="highway_3d_dev-headstock-color" value="#d4b48a"
                         onchange="window.h3dDevBgSetHeadstockColor && window.h3dDevBgSetHeadstockColor(this.value)"
                         class="h-9 w-full max-w-[12rem] cursor-pointer rounded border border-gray-800 bg-dark-700 p-0.5">
                 </div>
@@ -404,11 +370,11 @@
             </p>
 
             <div class="mt-3">
-                <label for="h3d-camera-smoothing" class="text-xs font-medium text-gray-400 mb-1 block">
-                    Camera smoothing (X-pan): <span id="h3d-camera-smoothing-label">0.50</span>
+                <label for="highway_3d_dev-camera-smoothing" class="text-xs font-medium text-gray-400 mb-1 block">
+                    Camera smoothing (X-pan): <span id="highway_3d_dev-camera-smoothing-label">0.50</span>
                 </label>
-                <input type="range" id="h3d-camera-smoothing" min="0" max="1" step="0.05" value="0.5"
-                    oninput="document.getElementById('h3d-camera-smoothing-label').textContent = parseFloat(this.value).toFixed(2);"
+                <input type="range" id="highway_3d_dev-camera-smoothing" min="0" max="1" step="0.05" value="0.5"
+                    oninput="document.getElementById('highway_3d_dev-camera-smoothing-label').textContent = parseFloat(this.value).toFixed(2);"
                     onchange="window.h3dDevBgSetCameraSmoothing && window.h3dDevBgSetCameraSmoothing(this.value)"
                     class="w-full accent-accent">
                 <p class="text-[10px] text-gray-500 mt-1">
@@ -431,11 +397,11 @@
             </div>
 
             <div class="mt-3">
-                <label for="h3d-zoom-smoothing" class="text-xs font-medium text-gray-400 mb-1 block">
-                    Zoom smoothing: <span id="h3d-zoom-smoothing-label">0.50</span>
+                <label for="highway_3d_dev-zoom-smoothing" class="text-xs font-medium text-gray-400 mb-1 block">
+                    Zoom smoothing: <span id="highway_3d_dev-zoom-smoothing-label">0.50</span>
                 </label>
-                <input type="range" id="h3d-zoom-smoothing" min="0" max="1" step="0.05" value="0.5"
-                    oninput="document.getElementById('h3d-zoom-smoothing-label').textContent = parseFloat(this.value).toFixed(2);"
+                <input type="range" id="highway_3d_dev-zoom-smoothing" min="0" max="1" step="0.05" value="0.5"
+                    oninput="document.getElementById('highway_3d_dev-zoom-smoothing-label').textContent = parseFloat(this.value).toFixed(2);"
                     onchange="window.h3dDevBgSetZoomSmoothing && window.h3dDevBgSetZoomSmoothing(this.value)"
                     class="w-full accent-accent">
                 <p class="text-[10px] text-gray-500 mt-1">
@@ -450,11 +416,11 @@
             </div>
 
             <div class="mt-3">
-                <label for="h3d-tilt-smoothing" class="text-xs font-medium text-gray-400 mb-1 block">
-                    Tilt smoothing: <span id="h3d-tilt-smoothing-label">0.50</span>
+                <label for="highway_3d_dev-tilt-smoothing" class="text-xs font-medium text-gray-400 mb-1 block">
+                    Tilt smoothing: <span id="highway_3d_dev-tilt-smoothing-label">0.50</span>
                 </label>
-                <input type="range" id="h3d-tilt-smoothing" min="0" max="1" step="0.05" value="0.5"
-                    oninput="document.getElementById('h3d-tilt-smoothing-label').textContent = parseFloat(this.value).toFixed(2);"
+                <input type="range" id="highway_3d_dev-tilt-smoothing" min="0" max="1" step="0.05" value="0.5"
+                    oninput="document.getElementById('highway_3d_dev-tilt-smoothing-label').textContent = parseFloat(this.value).toFixed(2);"
                     onchange="window.h3dDevBgSetTiltSmoothing && window.h3dDevBgSetTiltSmoothing(this.value)"
                     class="w-full accent-accent">
                 <p class="text-[10px] text-gray-500 mt-1">
@@ -468,9 +434,9 @@
             </div>
 
             <div class="mt-4 flex items-start gap-2">
-                <input type="checkbox" id="h3d-camera-lock-low" class="mt-1 accent-accent"
+                <input type="checkbox" id="highway_3d_dev-camera-lock-low" class="mt-1 accent-accent"
                     onchange="window.h3dDevBgSetCameraLockLow && window.h3dDevBgSetCameraLockLow(this.checked)">
-                <label for="h3d-camera-lock-low" class="text-xs text-gray-300 cursor-pointer">
+                <label for="highway_3d_dev-camera-lock-low" class="text-xs text-gray-300 cursor-pointer">
                     <span class="font-medium">Lock camera at frets 1–12.</span>
                     <span class="block text-[10px] text-gray-500 mt-1">
                         When enabled, the camera stops moving as long as all upcoming
@@ -484,11 +450,11 @@
             </div>
 
             <div class="mt-3 ml-6">
-                <label for="h3d-camera-lock-zoom" class="text-xs font-medium text-gray-400 mb-1 block">
-                    Locked zoom: <span id="h3d-camera-lock-zoom-label">0.50</span>
+                <label for="highway_3d_dev-camera-lock-zoom" class="text-xs font-medium text-gray-400 mb-1 block">
+                    Locked zoom: <span id="highway_3d_dev-camera-lock-zoom-label">0.50</span>
                 </label>
-                <input type="range" id="h3d-camera-lock-zoom" min="0" max="1" step="0.05" value="0.5"
-                    oninput="document.getElementById('h3d-camera-lock-zoom-label').textContent = parseFloat(this.value).toFixed(2);"
+                <input type="range" id="highway_3d_dev-camera-lock-zoom" min="0" max="1" step="0.05" value="0.5"
+                    oninput="document.getElementById('highway_3d_dev-camera-lock-zoom-label').textContent = parseFloat(this.value).toFixed(2);"
                     onchange="window.h3dDevBgSetCameraLockZoom && window.h3dDevBgSetCameraLockZoom(this.value)"
                     class="w-full accent-accent">
                 <p class="text-[10px] text-gray-500 mt-1">
@@ -504,11 +470,11 @@
             </div>
 
             <div class="mt-4">
-                <label for="h3d-text-size" class="text-xs font-medium text-gray-400 mb-1 block">
-                    Text size: <span id="h3d-text-size-label">0.50</span>
+                <label for="highway_3d_dev-text-size" class="text-xs font-medium text-gray-400 mb-1 block">
+                    Text size: <span id="highway_3d_dev-text-size-label">0.50</span>
                 </label>
-                <input type="range" id="h3d-text-size" min="0" max="1" step="0.05" value="0.5"
-                    oninput="document.getElementById('h3d-text-size-label').textContent = parseFloat(this.value).toFixed(2);"
+                <input type="range" id="highway_3d_dev-text-size" min="0" max="1" step="0.05" value="0.5"
+                    oninput="document.getElementById('highway_3d_dev-text-size-label').textContent = parseFloat(this.value).toFixed(2);"
                     onchange="window.h3dDevBgSetTextSize && window.h3dDevBgSetTextSize(this.value)"
                     class="w-full accent-accent">
                 <p class="text-[10px] text-gray-500 mt-1">
@@ -524,9 +490,9 @@
 
             <!-- FPS counter -->
             <div class="mt-4 flex items-start gap-2">
-                <input type="checkbox" id="h3d-fps-visible" class="mt-1 accent-accent"
+                <input type="checkbox" id="highway_3d_dev-fps-visible" class="mt-1 accent-accent"
                     onchange="window.h3dDevBgSetFpsVisible && window.h3dDevBgSetFpsVisible(this.checked)">
-                <label for="h3d-fps-visible" class="text-xs text-gray-300 cursor-pointer">
+                <label for="highway_3d_dev-fps-visible" class="text-xs text-gray-300 cursor-pointer">
                     <span class="font-medium">Show FPS counter.</span>
                     <span class="block text-[10px] text-gray-500 mt-1">
                         Displays a live frame-rate readout in the top-right corner of the
@@ -536,11 +502,11 @@
             </div>
 
             <div class="mt-4">
-                <label for="h3d-vibrancy" class="text-xs font-medium text-gray-400 mb-1 block">
-                    Vibrancy: <span id="h3d-vibrancy-label">0.85</span>
+                <label for="highway_3d_dev-vibrancy" class="text-xs font-medium text-gray-400 mb-1 block">
+                    Vibrancy: <span id="highway_3d_dev-vibrancy-label">0.85</span>
                 </label>
-                <input type="range" id="h3d-vibrancy" min="0" max="1" step="0.05" value="0.85"
-                    oninput="document.getElementById('h3d-vibrancy-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetVibrancy && window.h3dDevBgSetVibrancy(this.value)"
+                <input type="range" id="highway_3d_dev-vibrancy" min="0" max="1" step="0.05" value="0.85"
+                    oninput="document.getElementById('highway_3d_dev-vibrancy-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetVibrancy && window.h3dDevBgSetVibrancy(this.value)"
                     onchange="window.h3dDevBgSetVibrancy && window.h3dDevBgSetVibrancy(this.value)"
                     class="w-full accent-accent">
                 <p class="text-[10px] text-gray-500 mt-1">
@@ -557,11 +523,11 @@
             </div>
 
             <div class="mt-4">
-                <label for="h3d-glow" class="text-xs font-medium text-gray-400 mb-1 block">
-                    Glow: <span id="h3d-glow-label">0.25</span>
+                <label for="highway_3d_dev-glow" class="text-xs font-medium text-gray-400 mb-1 block">
+                    Glow: <span id="highway_3d_dev-glow-label">0.25</span>
                 </label>
-                <input type="range" id="h3d-glow" min="0" max="1" step="0.05" value="0.25"
-                    oninput="document.getElementById('h3d-glow-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetGlow && window.h3dDevBgSetGlow(this.value)"
+                <input type="range" id="highway_3d_dev-glow" min="0" max="1" step="0.05" value="0.25"
+                    oninput="document.getElementById('highway_3d_dev-glow-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetGlow && window.h3dDevBgSetGlow(this.value)"
                     onchange="window.h3dDevBgSetGlow && window.h3dDevBgSetGlow(this.value)"
                     class="w-full accent-accent">
                 <p class="text-[10px] text-gray-500 mt-1">
@@ -579,11 +545,11 @@
             </div>
 
             <div class="mt-4">
-                <label for="h3d-hitfx" class="text-xs font-medium text-gray-400 mb-1 block">
-                    Hit feedback intensity: <span id="h3d-hitfx-label">0.70</span>
+                <label for="highway_3d_dev-hitfx" class="text-xs font-medium text-gray-400 mb-1 block">
+                    Hit feedback intensity: <span id="highway_3d_dev-hitfx-label">0.70</span>
                 </label>
-                <input type="range" id="h3d-hitfx" min="0" max="1" step="0.05" value="0.70"
-                    oninput="document.getElementById('h3d-hitfx-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetHitFx && window.h3dDevBgSetHitFx(this.value)"
+                <input type="range" id="highway_3d_dev-hitfx" min="0" max="1" step="0.05" value="0.70"
+                    oninput="document.getElementById('highway_3d_dev-hitfx-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetHitFx && window.h3dDevBgSetHitFx(this.value)"
                     onchange="window.h3dDevBgSetHitFx && window.h3dDevBgSetHitFx(this.value)"
                     class="w-full accent-accent">
                 <p class="text-[10px] text-gray-500 mt-1">
@@ -593,61 +559,61 @@
             </div>
 
             <div class="mt-3 flex items-start justify-between gap-3">
-                <label for="h3d-sparks" class="text-xs font-medium text-gray-400">
+                <label for="highway_3d_dev-sparks" class="text-xs font-medium text-gray-400">
                     Hit sparks
                     <span class="block text-[10px] text-gray-500 font-normal">The particle burst that pops off a note the instant it's detected as a hit. Turn off for a calmer highway — the strike-line flash and colour verdict stay.</span>
                 </label>
-                <input type="checkbox" id="h3d-sparks" checked
+                <input type="checkbox" id="highway_3d_dev-sparks" checked
                     onchange="window.h3dDevBgSetSparks && window.h3dDevBgSetSparks(this.checked)"
                     class="accent-accent mt-0.5">
             </div>
 
             <div class="mt-3 flex items-start justify-between gap-3">
-                <label for="h3d-cinematic" class="text-xs font-medium text-gray-400">
+                <label for="highway_3d_dev-cinematic" class="text-xs font-medium text-gray-400">
                     Cinematic lighting
                     <span class="block text-[10px] text-gray-500 font-normal">Darker stage so the glowing notes pop against it. Turn off for the brighter, flatter look.</span>
                 </label>
-                <input type="checkbox" id="h3d-cinematic" checked
+                <input type="checkbox" id="highway_3d_dev-cinematic" checked
                     onchange="window.h3dDevBgSetCinematic && window.h3dDevBgSetCinematic(this.checked)"
                     class="accent-accent mt-0.5">
             </div>
 
             <div class="mt-3 flex items-start justify-between gap-3">
-                <label for="h3d-streakfx" class="text-xs font-medium text-gray-400">
+                <label for="highway_3d_dev-streakfx" class="text-xs font-medium text-gray-400">
                     Streak feedback
                     <span class="block text-[10px] text-gray-500 font-normal">A clean run quietly "heats up" — bigger sparks the longer you stay accurate. Eases back on a miss.</span>
                 </label>
-                <input type="checkbox" id="h3d-streakfx" checked
+                <input type="checkbox" id="highway_3d_dev-streakfx" checked
                     onchange="window.h3dDevBgSetStreakFx && window.h3dDevBgSetStreakFx(this.checked)"
                     class="accent-accent mt-0.5">
             </div>
 
             <div class="mt-3 flex items-start justify-between gap-3">
-                <label for="h3d-verdictmarks" class="text-xs font-medium text-gray-400">
+                <label for="highway_3d_dev-verdictmarks" class="text-xs font-medium text-gray-400">
                     Accessible verdict marks (✓ / ✗)
                     <span class="block text-[10px] text-gray-500 font-normal">Adds a shape mark to each hit/miss so the result doesn't rely on the green/red colour pair alone.</span>
                 </label>
-                <input type="checkbox" id="h3d-verdictmarks" checked
+                <input type="checkbox" id="highway_3d_dev-verdictmarks" checked
                     onchange="window.h3dDevBgSetVerdictMarks && window.h3dDevBgSetVerdictMarks(this.checked)"
                     class="accent-accent mt-0.5">
             </div>
 
             <div class="mt-3 flex items-start justify-between gap-3">
-                <label for="h3d-bloom" class="text-xs font-medium text-gray-400">
+                <label for="highway_3d_dev-bloom" class="text-xs font-medium text-gray-400">
                     Glow bloom
                     <span class="block text-[10px] text-gray-500 font-normal">Real light-bleed around the glowing notes and hit flash (higher fidelity). Turns itself off in split-screen. If your machine struggles, turn this off first.</span>
                 </label>
-                <input type="checkbox" id="h3d-bloom" checked
+                <input type="checkbox" id="highway_3d_dev-bloom" checked
                     onchange="window.h3dDevBgSetBloom && window.h3dDevBgSetBloom(this.checked)"
                     class="accent-accent mt-0.5">
             </div>
 
             <div class="mt-3 flex items-start justify-between gap-3">
-                <label for="h3d-timingfx" class="text-xs font-medium text-gray-400">
+                <label for="highway_3d_dev-timingfx" class="text-xs font-medium text-gray-400">
                     Timing feedback
                     <span class="block text-[10px] text-gray-500 font-normal">Colours a hit by your timing — on-time green, a touch <span style="color:#35d6ff">early (cyan)</span> or <span style="color:#ffb84d">late (amber)</span> — so you can feel where you sit in the beat.</span>
                 </label>
-                <input type="checkbox" id="h3d-timingfx" checked
+                <input type="checkbox" id="highway_3d_dev-timingfx" checked
                     onchange="window.h3dDevBgSetTimingFx && window.h3dDevBgSetTimingFx(this.checked)"
                     class="accent-accent mt-0.5">
             </div>
@@ -655,8 +621,8 @@
     </details>
 </div>
 
-<div role="group" aria-labelledby="h3d-notes-heading" class="mt-6">
-    <h3 id="h3d-notes-heading" class="text-sm font-medium text-gray-400 mb-2">3D Highway — Notes</h3>
+<div role="group" aria-labelledby="highway_3d_dev-notes-heading" class="mt-6">
+    <h3 id="highway_3d_dev-notes-heading" class="text-sm font-medium text-gray-400 mb-2">3D Highway (dev) — Notes</h3>
     <p class="text-xs text-gray-500 mb-3">
         Per-note display options.
     </p>
@@ -664,22 +630,22 @@
     <!-- Fret digits on board ghost (#12) — not on flying notes -->
     <div class="mt-3 space-y-2">
         <label class="flex items-center gap-2 text-sm text-gray-300">
-            <input type="checkbox" id="h3d-show-fret-on-note" checked
+            <input type="checkbox" id="highway_3d_dev-show-fret-on-note" checked
                    class="accent-accent">
             Show fret numbers on fretboard ghost
         </label>
         <p class="text-[10px] text-gray-500 ml-6">
             Numbers appear on the hollow preview on the fretboard only (not on gems coming down the highway).
         </p>
-        <div id="h3d-fret-ghost-scope-wrap" class="ml-6 mt-2 space-y-2 border-l border-gray-700 pl-3">
+        <div id="highway_3d_dev-fret-ghost-scope-wrap" class="ml-6 mt-2 space-y-2 border-l border-gray-700 pl-3">
             <p class="text-xs font-medium text-gray-400">Where to show</p>
             <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
-                <input type="radio" name="h3d-fret-ghost-scope" id="h3d-fret-ghost-scope-chords" value="chords"
+                <input type="radio" name="highway_3d_dev-fret-ghost-scope" id="highway_3d_dev-fret-ghost-scope-chords" value="chords"
                        class="accent-accent">
                 In chords &amp; arpeggios (chord-hand events only)
             </label>
             <label class="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
-                <input type="radio" name="h3d-fret-ghost-scope" id="h3d-fret-ghost-scope-all" value="all"
+                <input type="radio" name="highway_3d_dev-fret-ghost-scope" id="highway_3d_dev-fret-ghost-scope-all" value="all"
                        class="accent-accent">
                 All notes
             </label>
@@ -693,7 +659,7 @@
          way a slide is headed. -->
     <div class="mt-4">
         <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
-            <input type="checkbox" id="h3d-slide-arrow-approach-visible" checked
+            <input type="checkbox" id="highway_3d_dev-slide-arrow-approach-visible" checked
                    onchange="window.h3dDevBgSetSlideArrowApproachVisible && window.h3dDevBgSetSlideArrowApproachVisible(this.checked)"
                    class="accent-accent">
             Show slide direction arrow on the note
@@ -705,7 +671,7 @@
     </div>
     <div class="mt-4">
         <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
-            <input type="checkbox" id="h3d-slide-arrow-neck-visible" checked
+            <input type="checkbox" id="highway_3d_dev-slide-arrow-neck-visible" checked
                    onchange="window.h3dDevBgSetSlideArrowNeckVisible && window.h3dDevBgSetSlideArrowNeckVisible(this.checked)"
                    class="accent-accent">
             Show slide direction arrow on the neck preview
@@ -717,7 +683,7 @@
     </div>
     <div class="mt-4">
         <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
-            <input type="checkbox" id="h3d-slide-arrow-chain-preview-visible" checked
+            <input type="checkbox" id="highway_3d_dev-slide-arrow-chain-preview-visible" checked
                    onchange="window.h3dDevBgSetSlideArrowChainPreviewVisible && window.h3dDevBgSetSlideArrowChainPreviewVisible(this.checked)"
                    class="accent-accent">
             Show early arrow for slide-into-slide notes
@@ -730,8 +696,8 @@
     </div>
 </div>
 
-<div role="group" aria-labelledby="h3d-sections-heading" class="mt-6">
-    <h3 id="h3d-sections-heading" class="text-sm font-medium text-gray-400 mb-2">3D Highway — Sections</h3>
+<div role="group" aria-labelledby="highway_3d_dev-sections-heading" class="mt-6">
+    <h3 id="highway_3d_dev-sections-heading" class="text-sm font-medium text-gray-400 mb-2">3D Highway (dev) — Sections</h3>
     <p class="text-xs text-gray-500 mb-3">
         Surfaces upcoming song sections (Verse, Chorus, Bridge, …) so you can
         anticipate what's coming. The "Up Next" card is a fixed 2D overlay
@@ -741,7 +707,7 @@
     <!-- Show "Up Next" card -->
     <div class="flex items-center gap-3 mt-3">
         <label class="flex items-center gap-2 text-sm text-gray-300">
-            <input type="checkbox" id="h3d-section-hud-visible"
+            <input type="checkbox" id="highway_3d_dev-section-hud-visible"
                    onchange="window.h3dDevBgSetSectionHudVisible && window.h3dDevBgSetSectionHudVisible(this.checked)"
                    class="accent-accent">
             Show "Up Next" section card
@@ -750,8 +716,8 @@
 
     <!-- Position -->
     <div class="mt-3">
-        <label for="h3d-section-hud-position" class="text-xs font-medium text-gray-400 mb-1 block">Position</label>
-        <select id="h3d-section-hud-position"
+        <label for="highway_3d_dev-section-hud-position" class="text-xs font-medium text-gray-400 mb-1 block">Position</label>
+        <select id="highway_3d_dev-section-hud-position"
             onchange="window.h3dDevBgSetSectionHudPosition && window.h3dDevBgSetSectionHudPosition(this.value)"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
             <option value="tl">Top-left</option>
@@ -763,11 +729,11 @@
 
     <!-- Size slider -->
     <div class="mt-3">
-        <label for="h3d-section-hud-size" class="text-xs font-medium text-gray-400 mb-1 block">
-            Size: <span id="h3d-section-hud-size-label">0.50</span>
+        <label for="highway_3d_dev-section-hud-size" class="text-xs font-medium text-gray-400 mb-1 block">
+            Size: <span id="highway_3d_dev-section-hud-size-label">0.50</span>
         </label>
-        <input type="range" id="h3d-section-hud-size" min="0" max="1" step="0.05" value="0.5"
-            oninput="document.getElementById('h3d-section-hud-size-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetSectionHudSize && window.h3dDevBgSetSectionHudSize(this.value)"
+        <input type="range" id="highway_3d_dev-section-hud-size" min="0" max="1" step="0.05" value="0.5"
+            oninput="document.getElementById('highway_3d_dev-section-hud-size-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetSectionHudSize && window.h3dDevBgSetSectionHudSize(this.value)"
             onchange="window.h3dDevBgSetSectionHudSize && window.h3dDevBgSetSectionHudSize(this.value)"
             class="w-full accent-accent">
         <div class="flex justify-between text-[10px] text-gray-500 mt-1"><span>Small</span><span>Large</span></div>
@@ -781,7 +747,7 @@
         <div class="px-3 pb-3 pt-1">
             <div class="mt-2">
                 <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
-                    <input type="checkbox" id="h3d-section-labels-on-highway"
+                    <input type="checkbox" id="highway_3d_dev-section-labels-on-highway"
                            onchange="window.h3dDevBgSetSectionLabelsOnHighway && window.h3dDevBgSetSectionLabelsOnHighway(this.checked)"
                            class="accent-accent">
                     Show section labels on the highway
@@ -797,8 +763,8 @@
     </details>
 </div>
 
-<div role="group" aria-labelledby="h3d-tone-hud-heading" class="mt-6">
-    <h3 id="h3d-tone-hud-heading" class="text-sm font-medium text-gray-400 mb-2">3D Highway — Tone Changes</h3>
+<div role="group" aria-labelledby="highway_3d_dev-tone-hud-heading" class="mt-6">
+    <h3 id="highway_3d_dev-tone-hud-heading" class="text-sm font-medium text-gray-400 mb-2">3D Highway (dev) — Tone Changes</h3>
     <p class="text-xs text-gray-500 mb-3">
         Overlay card showing the active tone and the next upcoming tone with a
         countdown. Only appears on songs that carry tone-change data. Displayed
@@ -808,7 +774,7 @@
     <!-- Show card -->
     <div class="flex items-center gap-3 mt-3">
         <label class="flex items-center gap-2 text-sm text-gray-300">
-            <input type="checkbox" id="h3d-tone-hud-visible"
+            <input type="checkbox" id="highway_3d_dev-tone-hud-visible"
                    onchange="window.h3dDevBgSetToneHudVisible && window.h3dDevBgSetToneHudVisible(this.checked)"
                    class="accent-accent">
             Show tone change card
@@ -817,8 +783,8 @@
 
     <!-- Position -->
     <div class="mt-3">
-        <label for="h3d-tone-hud-position" class="text-xs font-medium text-gray-400 mb-1 block">Position</label>
-        <select id="h3d-tone-hud-position"
+        <label for="highway_3d_dev-tone-hud-position" class="text-xs font-medium text-gray-400 mb-1 block">Position</label>
+        <select id="highway_3d_dev-tone-hud-position"
             onchange="window.h3dDevBgSetToneHudPosition && window.h3dDevBgSetToneHudPosition(this.value)"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
             <option value="tl" selected>Top-left</option>
@@ -830,19 +796,19 @@
 
     <!-- Size slider -->
     <div class="mt-3">
-        <label for="h3d-tone-hud-size" class="text-xs font-medium text-gray-400 mb-1 block">
-            Size: <span id="h3d-tone-hud-size-label">0.50</span>
+        <label for="highway_3d_dev-tone-hud-size" class="text-xs font-medium text-gray-400 mb-1 block">
+            Size: <span id="highway_3d_dev-tone-hud-size-label">0.50</span>
         </label>
-        <input type="range" id="h3d-tone-hud-size" min="0" max="1" step="0.05" value="0.5"
-            oninput="document.getElementById('h3d-tone-hud-size-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetToneHudSize && window.h3dDevBgSetToneHudSize(this.value)"
+        <input type="range" id="highway_3d_dev-tone-hud-size" min="0" max="1" step="0.05" value="0.5"
+            oninput="document.getElementById('highway_3d_dev-tone-hud-size-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetToneHudSize && window.h3dDevBgSetToneHudSize(this.value)"
             onchange="window.h3dDevBgSetToneHudSize && window.h3dDevBgSetToneHudSize(this.value)"
             class="w-full accent-accent">
         <div class="flex justify-between text-[10px] text-gray-500 mt-1"><span>Small</span><span>Large</span></div>
     </div>
 </div>
 
-<div role="group" aria-labelledby="h3d-chord-diag-heading" class="mt-6">
-    <h3 id="h3d-chord-diag-heading" class="text-sm font-medium text-gray-400 mb-2">3D Highway — Chord Diagram</h3>
+<div role="group" aria-labelledby="highway_3d_dev-chord-diag-heading" class="mt-6">
+    <h3 id="highway_3d_dev-chord-diag-heading" class="text-sm font-medium text-gray-400 mb-2">3D Highway (dev) — Chord Diagram</h3>
     <p class="text-xs text-gray-500 mb-3">
         Overlay shown when a named chord is hit. Fades out after impact.
     </p>
@@ -850,7 +816,7 @@
     <!-- Visibility toggle -->
     <div class="flex items-center gap-3 mt-1 mb-4">
         <label class="flex items-center gap-2 text-sm text-gray-300">
-            <input type="checkbox" id="h3d-chord-diagram-visible" checked
+            <input type="checkbox" id="highway_3d_dev-chord-diagram-visible" checked
                    onchange="window.h3dDevBgSetChordDiagramVisible && window.h3dDevBgSetChordDiagramVisible(this.checked)"
                    class="accent-accent">
             Show chord diagram
@@ -859,11 +825,11 @@
 
     <!-- Size slider -->
     <div class="mt-3">
-        <label for="h3d-chord-diagram-size" class="text-xs font-medium text-gray-400 mb-1 block">
-            Size: <span id="h3d-chord-diagram-size-label">0.50</span>
+        <label for="highway_3d_dev-chord-diagram-size" class="text-xs font-medium text-gray-400 mb-1 block">
+            Size: <span id="highway_3d_dev-chord-diagram-size-label">0.50</span>
         </label>
-        <input type="range" id="h3d-chord-diagram-size" min="0" max="1" step="0.05" value="0.5"
-            oninput="document.getElementById('h3d-chord-diagram-size-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetChordDiagramSize && window.h3dDevBgSetChordDiagramSize(this.value)"
+        <input type="range" id="highway_3d_dev-chord-diagram-size" min="0" max="1" step="0.05" value="0.5"
+            oninput="document.getElementById('highway_3d_dev-chord-diagram-size-label').textContent = parseFloat(this.value).toFixed(2); window.h3dDevBgSetChordDiagramSize && window.h3dDevBgSetChordDiagramSize(this.value)"
             onchange="window.h3dDevBgSetChordDiagramSize && window.h3dDevBgSetChordDiagramSize(this.value)"
             class="w-full accent-accent">
         <div class="flex justify-between text-[10px] text-gray-500 mt-1"><span>Small</span><span>Large</span></div>
@@ -871,8 +837,8 @@
 
     <!-- Position dropdown -->
     <div class="mt-3">
-        <label for="h3d-chord-diagram-position" class="text-xs font-medium text-gray-400 mb-1 block">Position</label>
-        <select id="h3d-chord-diagram-position"
+        <label for="highway_3d_dev-chord-diagram-position" class="text-xs font-medium text-gray-400 mb-1 block">Position</label>
+        <select id="highway_3d_dev-chord-diagram-position"
             onchange="window.h3dDevBgSetChordDiagramPosition && window.h3dDevBgSetChordDiagramPosition(this.value)"
             class="w-full bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
             <option value="tl" selected>Top-left</option>
@@ -882,10 +848,10 @@
 
     <!-- Fret-column reference markers cadence -->
     <div class="mt-6 pt-4 border-t border-gray-800">
-        <label for="h3d-fret-column-marker-cadence" class="text-xs font-medium text-gray-400 mb-1 block">
+        <label for="highway_3d_dev-fret-column-marker-cadence" class="text-xs font-medium text-gray-400 mb-1 block">
             Fret-column marker cadence (measures)
         </label>
-        <input type="number" id="h3d-fret-column-marker-cadence" min="0" max="16" step="1" value="1"
+        <input type="number" id="highway_3d_dev-fret-column-marker-cadence" min="0" max="16" step="1" value="1"
             onchange="window.h3dDevBgSetFretColumnMarkerCadence && window.h3dDevBgSetFretColumnMarkerCadence(this.value)"
             class="w-24 bg-dark-700 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300 outline-none">
         <p class="text-[10px] text-gray-500 mt-1">
@@ -904,7 +870,7 @@
          Storage `projectionVisible` (true = shown), natural polarity. -->
     <div class="mt-4">
         <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
-            <input type="checkbox" id="h3d-projection-visible"
+            <input type="checkbox" id="highway_3d_dev-projection-visible"
                    onchange="window.h3dDevBgSetProjectionVisible && window.h3dDevBgSetProjectionVisible(this.checked)"
                    class="accent-accent">
             Show note preview on the fretboard
@@ -922,7 +888,7 @@
          so the renderer reads the natural-direction flag. -->
     <div class="mt-4">
         <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
-            <input type="checkbox" id="h3d-inlay-labels-visible"
+            <input type="checkbox" id="highway_3d_dev-inlay-labels-visible"
                    onchange="window.h3dDevBgSetInlayLabelsVisible && window.h3dDevBgSetInlayLabelsVisible(!this.checked)"
                    class="accent-accent">
             Hide static fret-inlay number labels
@@ -938,7 +904,7 @@
     <!-- Fret boundary divider lines -->
     <div class="mt-4">
         <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
-            <input type="checkbox" id="h3d-fret-dividers-visible" checked
+            <input type="checkbox" id="highway_3d_dev-fret-dividers-visible" checked
                    onchange="window.h3dDevBgSetFretDividersVisible && window.h3dDevBgSetFretDividersVisible(this.checked)"
                    class="accent-accent">
             Show fret boundary divider lines
@@ -1032,7 +998,7 @@
             // candidate name before testing.
             const VIDEO_FILENAME_RE = /^current\.(mp4|webm)$/;
             const VIDEO_UPLOAD_URL = '/api/plugins/highway_3d_dev/files';
-            const VIDEO_STORAGE_KEY = 'h3d_dev_bg_customVideoName';
+            const VIDEO_STORAGE_KEY = 'highway_3d_dev.background.customVideoName';
 
             function coerceStyle(v) { return VALID_STYLES.has(v) ? v : DEFAULTS.style; }
             function coerceBgTheme(v) { return VALID_BG_THEMES.has(v) ? v : DEFAULTS.bgTheme; }
@@ -1114,46 +1080,46 @@
             let storedSlideArrowNeckVisible = null;
             let storedSlideArrowChainPreviewVisible = null;
             try {
-                storedStyle = localStorage.getItem('h3d_bg_style');
-                storedBgTheme = localStorage.getItem('h3d_bg_bgTheme');
-                storedHwTheme = localStorage.getItem('h3d_bg_hwTheme');
-                storedI = localStorage.getItem('h3d_bg_intensity');
-                storedR = localStorage.getItem('h3d_bg_reactive');
-                storedFretOnNote = localStorage.getItem('h3d_bg_showFretOnNote');
-                storedFretNumberGhostScope = localStorage.getItem('h3d_bg_fretNumberGhostScope');
-                storedCameraSmoothing = localStorage.getItem('h3d_bg_cameraSmoothing');
-                storedCameraMode = localStorage.getItem('h3d_bg_cameraMode');
-                storedZoomSmoothing = localStorage.getItem('h3d_bg_zoomSmoothing');
-                storedTiltSmoothing = localStorage.getItem('h3d_bg_tiltSmoothing');
-                storedCameraLockLow = localStorage.getItem('h3d_bg_cameraLockLow');
-                storedCameraLockZoom = localStorage.getItem('h3d_bg_cameraLockZoom');
-                storedTextSize = localStorage.getItem('h3d_bg_textSize');
-                storedVibrancy = localStorage.getItem('h3d_bg_vibrancy');
-                storedGlow = localStorage.getItem('h3d_bg_glow');
-                storedChordDiagramVisible = localStorage.getItem('h3d_bg_chordDiagramVisible');
-                storedChordDiagramSize = localStorage.getItem('h3d_bg_chordDiagramSize');
-                storedChordDiagramPosition = localStorage.getItem('h3d_bg_chordDiagramPosition');
-                storedFretColumnMarkerCadence = localStorage.getItem('h3d_bg_fretColumnMarkerCadence');
-                storedInlayLabelsVisible = localStorage.getItem('h3d_bg_inlayLabelsVisible');
-                storedSectionLabelsOnHighway = localStorage.getItem('h3d_bg_sectionLabelsOnHighway');
-                storedSectionHudVisible = localStorage.getItem('h3d_bg_sectionHudVisible');
-                storedSectionHudPosition = localStorage.getItem('h3d_bg_sectionHudPosition');
-                storedSectionHudSize = localStorage.getItem('h3d_bg_sectionHudSize');
-                storedToneHudVisible = localStorage.getItem('h3d_bg_toneHudVisible');
-                storedToneHudPosition = localStorage.getItem('h3d_bg_toneHudPosition');
-                storedToneHudSize = localStorage.getItem('h3d_bg_toneHudSize');
-                storedNutHeadstockVisible = localStorage.getItem('h3d_bg_nutHeadstockVisible');
-                storedTuningLabelsVisible = localStorage.getItem('h3d_bg_tuningLabelsVisible');
-                storedNutColor = localStorage.getItem('h3d_bg_nutColor');
-                storedHeadstockColor = localStorage.getItem('h3d_bg_headstockColor');
-                storedFpsVisible = localStorage.getItem('h3d_bg_fpsVisible');
-                storedProjectionVisible = localStorage.getItem('h3d_bg_projectionVisible');
-                storedFretDividersVisible = localStorage.getItem('h3d_bg_fretDividersVisible');
-                storedSlideArrowApproachVisible = localStorage.getItem('h3d_bg_slideArrowApproachVisible');
-                storedSlideArrowNeckVisible = localStorage.getItem('h3d_bg_slideArrowNeckVisible');
-                storedSlideArrowChainPreviewVisible = localStorage.getItem('h3d_bg_slideArrowChainPreviewVisible');
-                storedCustomImageDataUrl = localStorage.getItem('h3d_bg_customImageDataUrl');
-                storedCustomImageName = localStorage.getItem('h3d_bg_customImageName');
+                storedStyle = localStorage.getItem('highway_3d_dev.background.style');
+                storedBgTheme = localStorage.getItem('highway_3d_dev.background.bgTheme');
+                storedHwTheme = localStorage.getItem('highway_3d_dev.background.hwTheme');
+                storedI = localStorage.getItem('highway_3d_dev.background.intensity');
+                storedR = localStorage.getItem('highway_3d_dev.background.reactive');
+                storedFretOnNote = localStorage.getItem('highway_3d_dev.background.showFretOnNote');
+                storedFretNumberGhostScope = localStorage.getItem('highway_3d_dev.background.fretNumberGhostScope');
+                storedCameraSmoothing = localStorage.getItem('highway_3d_dev.background.cameraSmoothing');
+                storedCameraMode = localStorage.getItem('highway_3d_dev.background.cameraMode');
+                storedZoomSmoothing = localStorage.getItem('highway_3d_dev.background.zoomSmoothing');
+                storedTiltSmoothing = localStorage.getItem('highway_3d_dev.background.tiltSmoothing');
+                storedCameraLockLow = localStorage.getItem('highway_3d_dev.background.cameraLockLow');
+                storedCameraLockZoom = localStorage.getItem('highway_3d_dev.background.cameraLockZoom');
+                storedTextSize = localStorage.getItem('highway_3d_dev.background.textSize');
+                storedVibrancy = localStorage.getItem('highway_3d_dev.background.vibrancy');
+                storedGlow = localStorage.getItem('highway_3d_dev.background.glow');
+                storedChordDiagramVisible = localStorage.getItem('highway_3d_dev.background.chordDiagramVisible');
+                storedChordDiagramSize = localStorage.getItem('highway_3d_dev.background.chordDiagramSize');
+                storedChordDiagramPosition = localStorage.getItem('highway_3d_dev.background.chordDiagramPosition');
+                storedFretColumnMarkerCadence = localStorage.getItem('highway_3d_dev.background.fretColumnMarkerCadence');
+                storedInlayLabelsVisible = localStorage.getItem('highway_3d_dev.background.inlayLabelsVisible');
+                storedSectionLabelsOnHighway = localStorage.getItem('highway_3d_dev.background.sectionLabelsOnHighway');
+                storedSectionHudVisible = localStorage.getItem('highway_3d_dev.background.sectionHudVisible');
+                storedSectionHudPosition = localStorage.getItem('highway_3d_dev.background.sectionHudPosition');
+                storedSectionHudSize = localStorage.getItem('highway_3d_dev.background.sectionHudSize');
+                storedToneHudVisible = localStorage.getItem('highway_3d_dev.background.toneHudVisible');
+                storedToneHudPosition = localStorage.getItem('highway_3d_dev.background.toneHudPosition');
+                storedToneHudSize = localStorage.getItem('highway_3d_dev.background.toneHudSize');
+                storedNutHeadstockVisible = localStorage.getItem('highway_3d_dev.background.nutHeadstockVisible');
+                storedTuningLabelsVisible = localStorage.getItem('highway_3d_dev.background.tuningLabelsVisible');
+                storedNutColor = localStorage.getItem('highway_3d_dev.background.nutColor');
+                storedHeadstockColor = localStorage.getItem('highway_3d_dev.background.headstockColor');
+                storedFpsVisible = localStorage.getItem('highway_3d_dev.background.fpsVisible');
+                storedProjectionVisible = localStorage.getItem('highway_3d_dev.background.projectionVisible');
+                storedFretDividersVisible = localStorage.getItem('highway_3d_dev.background.fretDividersVisible');
+                storedSlideArrowApproachVisible = localStorage.getItem('highway_3d_dev.background.slideArrowApproachVisible');
+                storedSlideArrowNeckVisible = localStorage.getItem('highway_3d_dev.background.slideArrowNeckVisible');
+                storedSlideArrowChainPreviewVisible = localStorage.getItem('highway_3d_dev.background.slideArrowChainPreviewVisible');
+                storedCustomImageDataUrl = localStorage.getItem('highway_3d_dev.background.customImageDataUrl');
+                storedCustomImageName = localStorage.getItem('highway_3d_dev.background.customImageName');
                 storedCustomVideoName = localStorage.getItem(VIDEO_STORAGE_KEY);
             } catch (_) { /* storage blocked */ }
 
@@ -1236,9 +1202,9 @@
             const customImageName    = (typeof storedCustomImageName === 'string')    ? storedCustomImageName    : DEFAULTS.customImageName;
             const customVideoName    = (typeof storedCustomVideoName === 'string')    ? storedCustomVideoName    : DEFAULTS.customVideoName;
 
-            const sel = document.getElementById('h3d-bg-style');
-            const bgThemeSel = document.getElementById('h3d-bg-theme');
-            const hwThemeSel = document.getElementById('h3d-hw-theme');
+            const sel = document.getElementById('highway_3d_dev-bg-style');
+            const bgThemeSel = document.getElementById('highway_3d_dev-bg-theme');
+            const hwThemeSel = document.getElementById('highway_3d_dev-hw-theme');
             // Populate both scene-theme dropdowns from the single SCENE_THEMES
             // source so they can't drift. (Values are selected further below.)
             for (const selEl of [bgThemeSel, hwThemeSel]) {
@@ -1251,72 +1217,72 @@
                     selEl.appendChild(opt);
                 }
             }
-            const sli = document.getElementById('h3d-bg-intensity');
-            const lbl = document.getElementById('h3d-bg-intensity-label');
-            const rea = document.getElementById('h3d-bg-reactive');
-            const fon = document.getElementById('h3d-show-fret-on-note');
-            const csli = document.getElementById('h3d-camera-smoothing');
-            const clbl = document.getElementById('h3d-camera-smoothing-label');
-            const zsli = document.getElementById('h3d-zoom-smoothing');
-            const zlbl = document.getElementById('h3d-zoom-smoothing-label');
-            const tsli = document.getElementById('h3d-tilt-smoothing');
-            const tlbl = document.getElementById('h3d-tilt-smoothing-label');
-            const cll  = document.getElementById('h3d-camera-lock-low');
-            const cmod = document.getElementById('h3d-camera-mode');
-            const lzli = document.getElementById('h3d-camera-lock-zoom');
-            const lzlbl = document.getElementById('h3d-camera-lock-zoom-label');
-            const tsi  = document.getElementById('h3d-text-size');
-            const tslbl = document.getElementById('h3d-text-size-label');
-            const vsli = document.getElementById('h3d-vibrancy');
-            const vlbl = document.getElementById('h3d-vibrancy-label');
-            const gsli  = document.getElementById('h3d-glow');
-            const glbl  = document.getElementById('h3d-glow-label');
-            const cdvis = document.getElementById('h3d-chord-diagram-visible');
-            const cdsli = document.getElementById('h3d-chord-diagram-size');
-            const cdslbl= document.getElementById('h3d-chord-diagram-size-label');
-            const cdpos = document.getElementById('h3d-chord-diagram-position');
-            const fcmc  = document.getElementById('h3d-fret-column-marker-cadence');
-            const ilv   = document.getElementById('h3d-inlay-labels-visible');
-            const slhi  = document.getElementById('h3d-section-labels-on-highway');
-            const shvi  = document.getElementById('h3d-section-hud-visible');
-            const shpos = document.getElementById('h3d-section-hud-position');
-            const shsi  = document.getElementById('h3d-section-hud-size');
-            const shslbl= document.getElementById('h3d-section-hud-size-label');
-            const thvi  = document.getElementById('h3d-tone-hud-visible');
-            const thpos = document.getElementById('h3d-tone-hud-position');
-            const thsi  = document.getElementById('h3d-tone-hud-size');
-            const thslbl= document.getElementById('h3d-tone-hud-size-label');
-            const nhv   = document.getElementById('h3d-nut-headstock-visible');
-            const tlv   = document.getElementById('h3d-tuning-labels-visible');
-            const nco   = document.getElementById('h3d-nut-color');
-            const hco   = document.getElementById('h3d-headstock-color');
-            const fpv   = document.getElementById('h3d-fps-visible');
-            const pgh   = document.getElementById('h3d-projection-visible');
-            const saav  = document.getElementById('h3d-slide-arrow-approach-visible');
-            const sanv  = document.getElementById('h3d-slide-arrow-neck-visible');
-            const sacpv = document.getElementById('h3d-slide-arrow-chain-preview-visible');
-            const fileInput = document.getElementById('h3d-bg-custom-image-file');
-            const clearBtn  = document.getElementById('h3d-bg-custom-image-clear');
-            const nameP     = document.getElementById('h3d-bg-custom-image-name');
-            const errorP    = document.getElementById('h3d-bg-custom-image-error');
-            const videoFileInput = document.getElementById('h3d-bg-custom-video-file');
-            const videoClearBtn  = document.getElementById('h3d-bg-custom-video-clear');
-            const videoNameP     = document.getElementById('h3d-bg-custom-video-name');
-            const videoErrorP    = document.getElementById('h3d-bg-custom-video-error');
+            const sli = document.getElementById('highway_3d_dev-bg-intensity');
+            const lbl = document.getElementById('highway_3d_dev-bg-intensity-label');
+            const rea = document.getElementById('highway_3d_dev-bg-reactive');
+            const fon = document.getElementById('highway_3d_dev-show-fret-on-note');
+            const csli = document.getElementById('highway_3d_dev-camera-smoothing');
+            const clbl = document.getElementById('highway_3d_dev-camera-smoothing-label');
+            const zsli = document.getElementById('highway_3d_dev-zoom-smoothing');
+            const zlbl = document.getElementById('highway_3d_dev-zoom-smoothing-label');
+            const tsli = document.getElementById('highway_3d_dev-tilt-smoothing');
+            const tlbl = document.getElementById('highway_3d_dev-tilt-smoothing-label');
+            const cll  = document.getElementById('highway_3d_dev-camera-lock-low');
+            const cmod = document.getElementById('highway_3d_dev-camera-mode');
+            const lzli = document.getElementById('highway_3d_dev-camera-lock-zoom');
+            const lzlbl = document.getElementById('highway_3d_dev-camera-lock-zoom-label');
+            const tsi  = document.getElementById('highway_3d_dev-text-size');
+            const tslbl = document.getElementById('highway_3d_dev-text-size-label');
+            const vsli = document.getElementById('highway_3d_dev-vibrancy');
+            const vlbl = document.getElementById('highway_3d_dev-vibrancy-label');
+            const gsli  = document.getElementById('highway_3d_dev-glow');
+            const glbl  = document.getElementById('highway_3d_dev-glow-label');
+            const cdvis = document.getElementById('highway_3d_dev-chord-diagram-visible');
+            const cdsli = document.getElementById('highway_3d_dev-chord-diagram-size');
+            const cdslbl= document.getElementById('highway_3d_dev-chord-diagram-size-label');
+            const cdpos = document.getElementById('highway_3d_dev-chord-diagram-position');
+            const fcmc  = document.getElementById('highway_3d_dev-fret-column-marker-cadence');
+            const ilv   = document.getElementById('highway_3d_dev-inlay-labels-visible');
+            const slhi  = document.getElementById('highway_3d_dev-section-labels-on-highway');
+            const shvi  = document.getElementById('highway_3d_dev-section-hud-visible');
+            const shpos = document.getElementById('highway_3d_dev-section-hud-position');
+            const shsi  = document.getElementById('highway_3d_dev-section-hud-size');
+            const shslbl= document.getElementById('highway_3d_dev-section-hud-size-label');
+            const thvi  = document.getElementById('highway_3d_dev-tone-hud-visible');
+            const thpos = document.getElementById('highway_3d_dev-tone-hud-position');
+            const thsi  = document.getElementById('highway_3d_dev-tone-hud-size');
+            const thslbl= document.getElementById('highway_3d_dev-tone-hud-size-label');
+            const nhv   = document.getElementById('highway_3d_dev-nut-headstock-visible');
+            const tlv   = document.getElementById('highway_3d_dev-tuning-labels-visible');
+            const nco   = document.getElementById('highway_3d_dev-nut-color');
+            const hco   = document.getElementById('highway_3d_dev-headstock-color');
+            const fpv   = document.getElementById('highway_3d_dev-fps-visible');
+            const pgh   = document.getElementById('highway_3d_dev-projection-visible');
+            const saav  = document.getElementById('highway_3d_dev-slide-arrow-approach-visible');
+            const sanv  = document.getElementById('highway_3d_dev-slide-arrow-neck-visible');
+            const sacpv = document.getElementById('highway_3d_dev-slide-arrow-chain-preview-visible');
+            const fileInput = document.getElementById('highway_3d_dev-bg-custom-image-file');
+            const clearBtn  = document.getElementById('highway_3d_dev-bg-custom-image-clear');
+            const nameP     = document.getElementById('highway_3d_dev-bg-custom-image-name');
+            const errorP    = document.getElementById('highway_3d_dev-bg-custom-image-error');
+            const videoFileInput = document.getElementById('highway_3d_dev-bg-custom-video-file');
+            const videoClearBtn  = document.getElementById('highway_3d_dev-bg-custom-video-clear');
+            const videoNameP     = document.getElementById('highway_3d_dev-bg-custom-video-name');
+            const videoErrorP    = document.getElementById('highway_3d_dev-bg-custom-video-error');
             if (sli) sli.value = String(intensity);
             if (lbl) lbl.textContent = intensity.toFixed(2);
             if (rea) rea.checked = reactive;
             if (fon) fon.checked = showFretOnNote;
-            const fgsRock = document.getElementById('h3d-fret-ghost-scope-chords');
-            const fgsAll = document.getElementById('h3d-fret-ghost-scope-all');
-            const fgsWrap = document.getElementById('h3d-fret-ghost-scope-wrap');
+            const fgsRock = document.getElementById('highway_3d_dev-fret-ghost-scope-chords');
+            const fgsAll = document.getElementById('highway_3d_dev-fret-ghost-scope-all');
+            const fgsWrap = document.getElementById('highway_3d_dev-fret-ghost-scope-wrap');
             if (fretNumberGhostScope === 'all') { if (fgsAll) fgsAll.checked = true; }
             else { if (fgsRock) fgsRock.checked = true; }
             if (fgsWrap) fgsWrap.classList.toggle('hidden', !showFretOnNote);
 
             function syncH3dFretGhostScopeUi() {
-                const c = document.getElementById('h3d-show-fret-on-note');
-                const w = document.getElementById('h3d-fret-ghost-scope-wrap');
+                const c = document.getElementById('highway_3d_dev-show-fret-on-note');
+                const w = document.getElementById('highway_3d_dev-fret-ghost-scope-wrap');
                 if (w && c) w.classList.toggle('hidden', !c.checked);
             }
             if (fon) {
@@ -1325,7 +1291,7 @@
                     syncH3dFretGhostScopeUi();
                 });
             }
-            document.querySelectorAll('input[name="h3d-fret-ghost-scope"]').forEach(function (r) {
+            document.querySelectorAll('input[name="highway_3d_dev-fret-ghost-scope"]').forEach(function (r) {
                 r.addEventListener('change', function () {
                     if (this.checked && window.h3dDevBgSetFretNumberGhostScope)
                         window.h3dDevBgSetFretNumberGhostScope(this.value);
@@ -1359,7 +1325,7 @@
             if (ilv)   ilv.checked  = !inlayLabelsVisible;
             if (fpv)   fpv.checked  = fpsVisible;
             if (pgh)   pgh.checked  = projectionVisible;
-            const fdv = document.getElementById('h3d-fret-dividers-visible');
+            const fdv = document.getElementById('highway_3d_dev-fret-dividers-visible');
             if (fdv)   fdv.checked  = fretDividersVisible;
             if (saav)  saav.checked = slideArrowApproachVisible;
             if (sanv)  sanv.checked = slideArrowNeckVisible;
@@ -1378,35 +1344,33 @@
             // panel reflects persistence on reopen (the renderer already reads
             // these via readSetting; without this the controls always showed
             // their default markup, misrepresenting a saved non-default). Reads
-            // h3d_bg_* directly; defaults mirror SETTING_DEFAULTS (all bools on,
+            // highway_3d_dev.background.* directly; defaults mirror SETTING_DEFAULTS (all bools on,
             // hitFx 0.70) and the coerceBoolSetting 'true'/'1' vs 'false'/'0' rules.
             try {
                 const _bgBool = (k, def) => {
-                    const v = localStorage.getItem('h3d_bg_' + k);
+                    const v = localStorage.getItem('highway_3d_dev.background.' + k);
                     return v == null ? def : !(v === 'false' || v === '0');
                 };
                 const _setChk = (id, on) => { const el = document.getElementById(id); if (el) el.checked = on; };
-                _setChk('h3d-sparks',       _bgBool('sparks', true));
-                _setChk('h3d-cinematic',    _bgBool('cinematic', true));
-                _setChk('h3d-streakfx',     _bgBool('streakFx', true));
-                _setChk('h3d-verdictmarks', _bgBool('verdictMarks', true));
-                _setChk('h3d-bloom',        _bgBool('bloom', true));
-                _setChk('h3d-timingfx',     _bgBool('timingFx', true));
-                const _hf = document.getElementById('h3d-hitfx');
+                _setChk('highway_3d_dev-sparks',       _bgBool('sparks', true));
+                _setChk('highway_3d_dev-cinematic',    _bgBool('cinematic', true));
+                _setChk('highway_3d_dev-streakfx',     _bgBool('streakFx', true));
+                _setChk('highway_3d_dev-verdictmarks', _bgBool('verdictMarks', true));
+                _setChk('highway_3d_dev-bloom',        _bgBool('bloom', true));
+                _setChk('highway_3d_dev-timingfx',     _bgBool('timingFx', true));
+                const _hf = document.getElementById('highway_3d_dev-hitfx');
                 if (_hf) {
-                    let v = parseFloat(localStorage.getItem('h3d_bg_hitFx'));
+                    let v = parseFloat(localStorage.getItem('highway_3d_dev.background.hitFx'));
                     if (!isFinite(v)) v = 0.70;
                     v = Math.max(0, Math.min(1, v));
                     _hf.value = String(v);
-                    const _hfl = document.getElementById('h3d-hitfx-label');
+                    const _hfl = document.getElementById('highway_3d_dev-hitfx-label');
                     if (_hfl) _hfl.textContent = v.toFixed(2);
                 }
             } catch (_) { /* storage blocked — controls keep their default markup */ }
 
-            // (3D Highway palette picker removed — string colors are now set
-            // via the core "Highway String Colors" UI above, which drives both
-            // the 2D and 3D highways. The bg-settings 'palette' key still exists
-            // internally: 'default' (stock) or 'custom' (driven by the pickers).)
+            // The dev-owned string-color manager above writes only this plugin's
+            // namespaced custom palette. The bundled 3D and 2D highways are untouched.
 
             function imageOption() {
                 if (!sel) return null;
@@ -1515,7 +1479,7 @@
             if (sel) {
                 if ((style === 'image' && !hasAsset) || (style === 'video' && !hasVideo)) {
                     sel.value = DEFAULTS.style;
-                    try { localStorage.setItem('h3d_bg_style', DEFAULTS.style); } catch (_) { /* storage blocked */ }
+                    try { localStorage.setItem('highway_3d_dev.background.style', DEFAULTS.style); } catch (_) { /* storage blocked */ }
                     if (window.h3dDevBgSetStyle) window.h3dDevBgSetStyle(DEFAULTS.style);
                 } else {
                     sel.value = style;
@@ -1612,7 +1576,7 @@
                             refreshImageOptionState(true, file.name);
                             fileInput.value = '';
                             let persisted = false;
-                            try { persisted = localStorage.getItem('h3d_bg_customImageDataUrl') === dataUrl; } catch (_) { /* storage blocked */ }
+                            try { persisted = localStorage.getItem('highway_3d_dev.background.customImageDataUrl') === dataUrl; } catch (_) { /* storage blocked */ }
                             if (!persisted) {
                                 showError('Image applied for this session, but could not be saved (storage may be full or blocked). It will be lost on refresh.');
                             }

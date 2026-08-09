@@ -3,7 +3,7 @@ import {
   ACCENT_HALO_OP_FAR, ACCENT_HALO_OP_MID, ACCENT_HALO_OP_NEAR, ACCENT_RIM_BASE_EMISSIVE, NH,
 } from '../../core/constants.js';
 import {
-  DEFAULT_GEM_GRADIENTS, PALETTES, _customPalette, _darkenInt, _lightenInt,
+  DEFAULT_GEM_GRADIENTS, PALETTES, _darkenInt, _lightenInt,
 } from '../../core/palette.js';
 import { venueGemEmissiveMul } from '../../background/venue.js';
 
@@ -100,7 +100,7 @@ export function createMaterialRetint({
   function recolorGemGradients() {
     const gNoteGrad = getGNoteGrad();
     if (!T || !gNoteGrad || !gNoteGrad.length) return;
-    const isCustom = (ctx.settings.activePalette === _customPalette);
+    const isCustom = ctx.settings.paletteIsCustom;
     const topCol = new T.Color(); const botCol = new T.Color(); const
       tmp = new T.Color();
     const halfH = NH / 2;

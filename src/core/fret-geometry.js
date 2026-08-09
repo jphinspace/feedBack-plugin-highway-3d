@@ -103,6 +103,6 @@ export function setFretUniform(isUniform) {
  * level, so importing this module stays side-effect-free.
  */
 export function initFretSpacing() {
-  try { _h3dFretUniform = localStorage.getItem('highway_3d.fretSpacing') !== 'logarithmic'; } catch (_) {}
+  try { _h3dFretUniform = localStorage.getItem('highway_3d_dev.fretSpacing') !== 'logarithmic'; } catch (_) {}
   _recomputeFretSpacingDerived();
 }

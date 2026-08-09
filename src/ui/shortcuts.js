@@ -1,7 +1,7 @@
 import { _toggleAspectPanel } from './aspect-panel.js';
 
 /**
- * Shift+A shortcut for the wide-pane framing tuner debug panel. Registered
+ * Shift+D shortcut for the dev plugin's wide-pane framing tuner. Registered
  * once per session via a module-level guard — it drives shared module
  * state, so per-instance registration would stack duplicate handlers.
  * No-ops where the core shortcut API isn't present.
@@ -13,8 +13,8 @@ export function _registerTunerShortcut() {
   _tunerShortcutRegistered = true;
   try {
     window.registerShortcut({
-      key: 'A',
-      description: '3D Highway: open/close wide-pane framing tuner (Shift+A)',
+      key: 'D',
+      description: '3D Highway (dev): open/close wide-pane framing tuner (Shift+D)',
       scope: 'player',
       handler: () => {
         _toggleAspectPanel();

@@ -1,4 +1,7 @@
-const SETTINGS_LS_KEY = 'viz3d_settings';
+const SETTINGS_LS_KEY = 'highway_3d_dev.butterchurn.settings';
+const FAVORITES_LS_KEY = 'highway_3d_dev.butterchurn.favorites';
+const BANNED_LS_KEY = 'highway_3d_dev.butterchurn.banned';
+const SEEDED_LS_KEY = 'highway_3d_dev.butterchurn.seeded';
 const BUTTERCHURN_DEFAULTS = {
   enabled: true, opacity: 1.0, laneDim: true, laneDimStrength: 0.45, chartAccents: true, colorTint: true, chartStrength: 1.0, tintStrength: 0.65, guitarGain: 6, songGain: 1.8, cyclePool: 'all', hold: false,
 };
@@ -48,20 +51,20 @@ let presetListsLoaded = false;
 /** Loads favorite/banned preset lists from localStorage, seeding the defaults on first run. */
 export function loadPresetLists() {
   if (presetListsLoaded) return; presetListsLoaded = true;
-  try { (JSON.parse(localStorage.getItem('viz3d_favorites') || '[]') || []).forEach((n) => favoritePresets.add(n)); } catch (e) {}
-  try { (JSON.parse(localStorage.getItem('viz3d_banned') || '[]') || []).forEach((n) => bannedPresets.add(n)); } catch (e) {}
+  try { (JSON.parse(localStorage.getItem(FAVORITES_LS_KEY) || '[]') || []).forEach((n) => favoritePresets.add(n)); } catch (e) {}
+  try { (JSON.parse(localStorage.getItem(BANNED_LS_KEY) || '[]') || []).forEach((n) => bannedPresets.add(n)); } catch (e) {}
   let seeded = false;
-  try { seeded = !!localStorage.getItem('viz3d_seeded'); } catch (e) {}
+  try { seeded = !!localStorage.getItem(SEEDED_LS_KEY); } catch (e) {}
   if (!seeded) {
     DEFAULT_FAVORITE_PRESETS.forEach((n) => favoritePresets.add(n));
     DEFAULT_BANNED_PRESETS.forEach((n) => bannedPresets.add(n));
-    try { localStorage.setItem('viz3d_seeded', '1'); } catch (e) {}
+    try { localStorage.setItem(SEEDED_LS_KEY, '1'); } catch (e) {}
     savePresetLists();
   }
 }
 export function savePresetLists() {
-  try { localStorage.setItem('viz3d_favorites', JSON.stringify([...favoritePresets])); } catch (e) {}
-  try { localStorage.setItem('viz3d_banned', JSON.stringify([...bannedPresets])); } catch (e) {}
+  try { localStorage.setItem(FAVORITES_LS_KEY, JSON.stringify([...favoritePresets])); } catch (e) {}
+  try { localStorage.setItem(BANNED_LS_KEY, JSON.stringify([...bannedPresets])); } catch (e) {}
 }
 
 /** Drops the cached settings blob so the next {@link loadButterchurnSettings} re-reads localStorage. */

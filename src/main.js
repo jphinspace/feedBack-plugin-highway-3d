@@ -9,7 +9,7 @@ import {
   AHEAD, BASE_VFOV, BEHIND, CAM_DIST_BASE, CAM_DIST_HYST_C, CAM_DIST_HYST_T, CAM_LOCK_CENTER_FRET, CAM_TGT_AHEAD_C, CAM_TGT_AHEAD_T, CAM_TGT_BEHIND, CAM_TGT_HYST_C, CAM_TGT_HYST_T, CAM_TGT_TAU_C, CAM_TGT_TAU_T, CHORD_FRAME_RIM_FRAC_H, CHORD_FRAME_RIM_MIN, DEFAULT_LOOKAHEAD_FRET_SPAN, DIAG_ENTRANCE_S, DIAG_LINGER_S, FRET_COOLDOWN, FRET_LABEL_GOLD_HEX, FRET_LABEL_IDLE_HEX, INLAY_LABEL_FRETS, K, MAX_RENDER_STRINGS, NFRETS, NH, NOTEDETECT_GEM_VERDICT_WINDOW, NSTR, STR_THICK, S_BASE, S_GAP, TS,
 } from './core/constants.js';
 import {
-  PALETTES, S_COL, _customPalette, _darkenInt, _h3dHexToInt, _lightenInt,
+  PALETTES, S_COL, _darkenInt, _h3dHexToInt, _lightenInt,
 } from './core/palette.js';
 import { renderOrderForLayerAtZ } from './core/render-order.js';
 import { _makeGaussTex } from './core/texture.js';
@@ -30,7 +30,7 @@ import {
   emitSettingChange, globalSettingStorageKey, hasStoredSetting, settingsMemFallback, settingsPanelKey, readSetting, subscribeToSettings, unsubscribeFromSettings,
 } from './settings/store.js';
 import {
-  _venueCrowdVideos, _venueEffectiveMotionMode, _venueSceneOverride, _venueSwapPlateIfNeeded,
+  _venueCrowdVideos, _venueEffectiveMotionMode, HIGHWAY_3D_DEV_VENUE_API,
 } from './background/venue.js';
 import { acquireBackgroundControl, releaseBackgroundControl } from './ui/player-chrome.js';
 import {
@@ -92,10 +92,16 @@ import { applyButterchurnSettingsToAll, loadButterchurnSettings, resetButterchur
 import { updatePanelPreset } from './butterchurn/panel.js';
 
 import { installGlobals } from './globals.js';
+import {
+  effectiveStringColors, initDevStringColors, installDevStringColorFacade,
+  NAMED_STRING_COLOR_FORMAT,
+} from './settings/string-colors.js';
 
 // Restore the persisted fret-spacing mode before anything renders — must run before the factory is ever used.
 initFretSpacing();
 installGlobals();
+installDevStringColorFacade();
+initDevStringColors();
 
 /**
  * Live-apply hook for settings.html: persists into the settings blob, then
@@ -113,8 +119,8 @@ window.h3dDevBcApplySettings = function h3dDevBcApplySettings() {
 window.h3dDevSetFretSpacing = (mode) => {
   const m = mode === 'logarithmic' ? 'logarithmic' : 'uniform';
   try {
-    if (localStorage.getItem('highway_3d.fretSpacing') === m) return;
-    localStorage.setItem('highway_3d.fretSpacing', m);
+    if (localStorage.getItem('highway_3d_dev.fretSpacing') === m) return;
+    localStorage.setItem('highway_3d_dev.fretSpacing', m);
   } catch (_) {}
   // Apply live rather than reloading the page — a full reload reboots the SPA to the home
   // screen, ejecting the user from Settings.
@@ -128,6 +134,8 @@ function createFactory() {
   const _instanceId = nextInstanceId();
   /** Per-instance shared state — see instance/ctx.js. */
   const ctx = createCtx(_instanceId);
+  const instanceCustomPalette = PALETTES.default.slice();
+  let arrangementName = '';
   /** Whether this instance holds a refcount on the shared player-chrome control, guarding init->init (no destroy) from taking two references. */
   let backgroundControlAcquired = false;
 
@@ -357,7 +365,7 @@ function createFactory() {
 
   /** Background animation state (issue #13). bgGroup is the parent container for all bg meshes, one remove + dispose pass in teardown. bgState/bgStage/bgMountedStyleId live privately inside instance/background-mount.js. */
   let bgGroup = null;
-  /** Per-render opt-out for plugins borrowing the highway as a viz: when the mount bundle sets bgReactive === false, suppress the audio-reactive background for this instance only (no shared h3d_bg_* write). Captured in init(); re-applied in loadSettings() so it survives reloads. */
+  /** Per-render opt-out for plugins borrowing the highway as a viz: when the mount bundle sets bgReactive === false, suppress the audio-reactive background for this instance only (without changing this plugin's persisted setting). Captured in init(); re-applied in loadSettings() so it survives reloads. */
   let backgroundReactiveOptOut = false;
   let _textSizeMul = 1.0;
   let _textSizeMulApplied = -1;
@@ -1377,18 +1385,33 @@ function createFactory() {
     const newPaletteId = readSetting(panelKey, 'palette');
     let newPalette;
     if (newPaletteId === 'custom') {
-      // Mutated in place so the _customPalette reference identity is preserved.
       let stored = null;
       const raw = readSetting(panelKey, 'customColors');
       if (typeof raw === 'string') { try { stored = JSON.parse(raw); } catch (_) { /* corrupt */ } }
-      for (let i = 0; i < _customPalette.length; i++) {
-        const v = Array.isArray(stored) ? _h3dHexToInt(stored[i]) : null;
-        _customPalette[i] = (v != null) ? v : PALETTES.default[i];
+      const named = stored && !Array.isArray(stored)
+        && stored.format === NAMED_STRING_COLOR_FORMAT
+        && stored.colors && typeof stored.colors === 'object'
+        && !Array.isArray(stored.colors);
+      const isBass = /bass/i.test(arrangementName);
+      const naturalOrder = isBass ? nStr <= 4 : nStr <= 6;
+      const namedOverrides = named ? stored.colors : null;
+      const useStockDefault = named && naturalOrder && Object.keys(namedOverrides).length === 0;
+      if (useStockDefault) {
+        newPalette = PALETTES.default;
+      } else {
+        const values = named
+          ? effectiveStringColors(namedOverrides, nStr, isBass)
+          : stored;
+        for (let i = 0; i < instanceCustomPalette.length; i++) {
+          const v = Array.isArray(values) ? _h3dHexToInt(values[i]) : null;
+          instanceCustomPalette[i] = (v != null) ? v : PALETTES.default[i];
+        }
+        newPalette = instanceCustomPalette;
       }
-      newPalette = _customPalette;
     } else {
       newPalette = PALETTES[newPaletteId] || PALETTES.default;
     }
+    ctx.settings.paletteIsCustom = newPalette === instanceCustomPalette;
     // Signature guards the in-place custom case: editing a color keeps the reference ===
     // activePalette, so contents must be compared too to force a retint.
     const newSig = newPalette.join(',');
@@ -1406,7 +1429,7 @@ function createFactory() {
     } else {
       ctx.settings.hwThemeId = ctx.settings.bgThemeId;
       settingsMemFallback.hwTheme = String(ctx.settings.bgThemeId);
-      try { localStorage.setItem('h3d_bg_hwTheme', String(ctx.settings.bgThemeId)); } catch (_) { /* storage blocked — mem fallback still seeds the read */ }
+      try { localStorage.setItem(globalSettingStorageKey('hwTheme'), String(ctx.settings.bgThemeId)); } catch (_) { /* storage blocked — mem fallback still seeds the read */ }
     }
     // Mirror-at-first-read: zoom + tilt inherit cameraSmoothing until the user explicitly
     // writes one, at which point hasStoredSetting() flips true and it becomes independent.
@@ -1428,8 +1451,8 @@ function createFactory() {
     const memDataUrl = settingsMemFallback.customImageDataUrl;
     const memName = settingsMemFallback.customImageName;
     try {
-      const gDataUrl = (memDataUrl !== undefined) ? memDataUrl : localStorage.getItem('h3d_bg_customImageDataUrl');
-      const gName = (memName !== undefined) ? memName : localStorage.getItem('h3d_bg_customImageName');
+      const gDataUrl = (memDataUrl !== undefined) ? memDataUrl : localStorage.getItem(globalSettingStorageKey('customImageDataUrl'));
+      const gName = (memName !== undefined) ? memName : localStorage.getItem(globalSettingStorageKey('customImageName'));
       ctx.settings.bgCustomImageDataUrl = (gDataUrl != null) ? gDataUrl : SETTING_DEFAULTS.customImageDataUrl;
       ctx.settings.bgCustomImageName = (gName != null) ? gName : SETTING_DEFAULTS.customImageName;
     } catch (_) {
@@ -1740,7 +1763,7 @@ function createFactory() {
     // effect live (within a second).
     if ((_leanSusPollCounter++ % 60) === 0) {
       try {
-        _leanSus = localStorage.getItem('h3d_full_sus') !== '1';
+        _leanSus = localStorage.getItem('highway_3d_dev.fullSustain') !== '1';
       } catch (_) { _leanSus = true; }
     }
     // Materialize the text-size multiplier from the user's slider.
@@ -2142,8 +2165,12 @@ function createFactory() {
     if (_fxOnFx) { window.removeEventListener('notedetect:fx', _fxOnFx); _fxOnFx = null; }
     if (window.feedBack && typeof window.feedBack.off === 'function') {
       if (_fxOnSkin) { try { window.feedBack.off('notedetect:skin', _fxOnSkin); } catch (e) {} _fxOnSkin = null; }
-      if (noteDetectOnBusHit) window.feedBack.off('note:hit', noteDetectOnBusHit);
-      if (noteDetectOnBusMiss) window.feedBack.off('note:miss', noteDetectOnBusMiss);
+      if (noteDetectOnBusHit) {
+        try { window.feedBack.off('note:hit', noteDetectOnBusHit); } catch (e) { /* continue teardown */ }
+      }
+      if (noteDetectOnBusMiss) {
+        try { window.feedBack.off('note:miss', noteDetectOnBusMiss); } catch (e) { /* continue teardown */ }
+      }
       if (_visibilityHandler) {
         try { window.feedBack.off('highway:visibility', _visibilityHandler); } catch (e) {}
       }
@@ -2157,11 +2184,13 @@ function createFactory() {
     noteDetectHitMarks = [];
     noteDetectMissMarks = [];
     noteDetectLabels = [];
-    scoreFx.teardownScoreFx();
+    if (scoreFx) scoreFx.teardownScoreFx();
+    scoreFx = null;
     _fxElemSeen = new WeakSet();
     _chordVerdicts = new Map();
     if (bcCtrl) { try { bcCtrl.destroy(); } catch (e) {} bcCtrl = null; }
-    backgroundMount.unmountBackgroundStyle();
+    if (backgroundMount) backgroundMount.unmountBackgroundStyle();
+    backgroundMount = null;
     bgGroup = null; backgroundLastT = 0;
     _diagChord = null; _diagPrev = null; _diagPrevOpacity = 0; _diagPrevStartOpacity = 0; _diagPrevStartT = null;
     _diagEntranceT = 1.0; _diagLastKey = null; chordDiagramCache.clearDiagramCache();
@@ -2319,13 +2348,14 @@ function createFactory() {
       _registerTunerShortcut(); // session-global tuner shortcut (self-guarded)
       const myToken = ++_initToken;
       highwayCanvas = canvas;
+      arrangementName = String(bundle?.songInfo?.arrangement || '');
       _invertedCached = !!(bundle && bundle.inverted);
       _leftyCached = !!(bundle && bundle.lefty);
       _renderScale = (bundle && bundle.renderScale) || 1;
       // A plugin borrowing the highway as a visualization can set bundle.bgReactive ===
       // false to suppress the audio-reactive background for this instance only, without
-      // writing the shared h3d_bg_* settings (which would also change the host's own
-      // highway). The reactive bg taps the core <audio> element; when another consumer
+      // writing this plugin's namespaced background setting. The reactive bg taps the
+      // core <audio> element; when another consumer
       // already holds it, setup throws and the cleanup AudioContext.close() is an
       // audible click that a borrower which never taps <audio> would otherwise inherit
       // for no benefit. Default behavior is unchanged when the field is absent.
@@ -2434,9 +2464,13 @@ function createFactory() {
       _invertedCached = !!bundle.inverted;
       _leftyCached = !!bundle.lefty;
       const newNStr = resolveStringCount(bundle);
+      const newArrangementName = bundle?.songInfo?.arrangement == null
+        ? arrangementName
+        : String(bundle.songInfo.arrangement);
       const newScale = bundle.renderScale || 1;
       const leftyChanged = _leftyCached !== _leftyForBoard;
-      if (_invertedCached !== _invertedForBoard || leftyChanged || newNStr !== nStr) {
+      const paletteShapeChanged = newNStr !== nStr || newArrangementName !== arrangementName;
+      if (_invertedCached !== _invertedForBoard || leftyChanged || paletteShapeChanged) {
         if (newNStr !== nStr) {
           resetOobStringWarned();
           // Drop chord caches computed under the old string count so extended-range
@@ -2449,6 +2483,8 @@ function createFactory() {
           ctx.cam._lookaheadCamX = -ctx.cam._lookaheadCamX;
         }
         nStr = newNStr;
+        arrangementName = newArrangementName;
+        if (paletteShapeChanged) loadSettings();
         buildBoard();
         _invertedForBoard = _invertedCached;
         _leftyForBoard = _leftyCached;
@@ -2775,7 +2811,8 @@ function createFactory() {
 }
 
 window.feedBackViz_highway_3d_dev = createFactory;
-/** Per-panel control descriptors (splitscreen). Per-string colors are set via the core "Highway String Colors" UI, which drives both highways by named string, so no palette selector here. */
+window.feedBackViz_highway_3d_dev.venueApi = HIGHWAY_3D_DEV_VENUE_API;
+/** Per-panel control descriptors (splitscreen). Per-string colors use this plugin's dev-owned settings UI, so no palette selector is duplicated here. */
 window.feedBackViz_highway_3d_dev.panelControls = [
   {
     key: 'cameraSmoothing',

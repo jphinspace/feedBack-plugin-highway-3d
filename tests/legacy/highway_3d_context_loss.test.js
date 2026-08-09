@@ -39,7 +39,7 @@ test('the context-lost handler preventDefaults and pauses drawing', () => {
   // is set via the setCtxLost() setter (main.js's real _ctxLost variable
   // is threaded through as a live setter, not a plain deps value -- see
   // dom-and-scene.js's doc comment).
-  const m = domAndSceneSrc.match(/const _onCtxLost\s*=\s*\(e\)\s*=>\s*\{[\s\S]*?\};/);
+  const m = domAndSceneSrc.match(/_onCtxLost\s*=\s*\(e\)\s*=>\s*\{[\s\S]*?\};/);
   assert.ok(m, '_onCtxLost handler must exist');
   assert.match(m[0], /preventDefault\(\)/, 'context-lost handler must call preventDefault()');
   assert.match(m[0], /setCtxLost\(\s*true\s*\)/, 'context-lost handler must call setCtxLost(true)');

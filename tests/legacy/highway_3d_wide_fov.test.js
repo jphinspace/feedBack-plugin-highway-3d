@@ -6,7 +6,7 @@
 // THREE's PerspectiveCamera fov is VERTICAL and was locked at 70°, ballooning
 // the horizontal cone past 130°. The fix lets camUpdate lower the effective
 // vertical fov as the pane widens (holding the horizontal cone ~constant) so the
-// neck fills the pane. It is gated behind window.__h3dAspectTune (default off →
+// neck fills the pane. It is gated behind window.__h3dDevAspectTune (default off →
 // byte-for-byte the prior behaviour) for live A/B comparison.
 //
 // A refactor that re-hardcodes the camera fov, drops the change-guarded cam.fov
@@ -15,8 +15,8 @@
 // framing). These are source-level pins — same strategy as the other
 // tests/js/ files (no DOM / WebGL in CI).
 //
-// The floating tuner panel (window.__h3dAspectTune bridge, _aspect* helpers)
-// moved to src/ui/aspect-panel.js and the Shift+A shortcut to
+// The floating tuner panel (window.__h3dDevAspectTune bridge, _aspect* helpers)
+// moved to src/ui/aspect-panel.js and the dev-only Shift+D shortcut to
 // src/ui/shortcuts.js in the screen.js -> src/ module split (Stage 3a);
 // `_ASPECT_DEFAULTS` checks were upgraded to real imports (cheap, and
 // strictly stronger than regexing an object literal), everything else that
@@ -80,7 +80,7 @@ test('the Hor+ start-aspect and min-vfov defaults exist', async () => {
 
 test('effectiveVfov returns the base fov when the bridge is off/absent', async () => {
   // The disabled / malformed-input guard returns `base` before any Hor+ math,
-  // so normal panes are unaffected when __h3dAspectTune is missing or off.
+  // so normal panes are unaffected when __h3dDevAspectTune is missing or off.
   const { effectiveVfov } = await import('../../src/instance/model/math.js');
   const { BASE_VFOV } = await import('../../src/core/constants.js');
   assert.equal(effectiveVfov(32 / 9, null), BASE_VFOV, 'no tune bridge -> base fov');
@@ -239,7 +239,7 @@ test('a Target select and pane registry drive the per-pane picker', () => {
   );
   assert.match(
     cameraLifecycleSrc,
-    /if\s*\(\s*window\.__h3dAspectPanelOpen\s*\)\s*_aspectRegisterPane\(\s*_paneKey\s*\)/,
+    /if\s*\(\s*window\.__h3dDevAspectPanelOpen\s*\)\s*_aspectRegisterPane\(\s*_paneKey\s*\)/,
     'camUpdate must register its pane only while the tuner panel is open',
   );
 });

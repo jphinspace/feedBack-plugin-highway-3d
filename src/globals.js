@@ -32,8 +32,8 @@ import {
  * Not called at this module's own top level — `main.js` calls
  * `installGlobals()` once, alongside `initFretSpacing()`.
  *
- * Deliberately NOT listed here: `window.__h3dAspectTune`/`__h3dAspectPanes`/
- * `__h3dAspectPanelOpen`/`__h3dAspectReadout` (`ui/aspect-panel.js`) and
+ * Deliberately NOT listed here: `window.__h3dDevAspectTune`/`__h3dDevAspectPanes`/
+ * `__h3dDevAspectPanelOpen`/`__h3dDevAspectReadout` (`ui/aspect-panel.js`) and
  * `window.__feedBackAudioTap` (`audio/analyser.js`) — private, double-
  * underscore-prefixed cross-module-instance/cross-plugin coordination
  * slots, not part of this public contract. See CLAUDE.md's globals.js

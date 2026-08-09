@@ -31,12 +31,12 @@ test('lean sustain rendering is the default (_leanSus starts true)', () => {
   );
 });
 
-test('the full-quality look is an opt-out via localStorage h3d_full_sus', () => {
+test('the full-quality look is an opt-out via dev-namespaced localStorage', () => {
   const src = fs.readFileSync(SCREEN_JS, 'utf8');
   assert.match(
     src,
-    /_leanSus\s*=\s*localStorage\.getItem\(\s*['"]h3d_full_sus['"]\s*\)\s*!==\s*['"]1['"]/,
-    "lean must stay on unless localStorage.h3d_full_sus === '1' opts back into the full look",
+    /_leanSus\s*=\s*localStorage\.getItem\(\s*['"]highway_3d_dev\.fullSustain['"]\s*\)\s*!==\s*['"]1['"]/,
+    "lean must stay on unless the dev plugin's fullSustain key is '1'",
   );
 });
 

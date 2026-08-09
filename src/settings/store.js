@@ -3,6 +3,7 @@ import {
 } from './defaults.js';
 import { PALETTE_IDS } from '../core/palette.js';
 import { CHORD_DIAG_POSITION_IDS } from '../core/constants.js';
+import { backgroundStorageKey, panelBackgroundStorageKey } from '../plugin-identity.js';
 
 /**
  * Per-panel/global localStorage settings read/write, value coercion, and a
@@ -58,12 +59,11 @@ export function freeCamFor(canvas) {
 export const settingsMemFallback = Object.create(null);
 
 /**
- * Storage key for a global setting. Custom video is intentionally dev-only because its
- * bytes live under this plugin's independent `plugin_uploads/highway_3d_dev/` slot; sharing
- * the bundled plugin's filename pointer would make one plugin request the other's file.
+ * Storage key for a global setting. Every key is namespaced to this plugin so installing
+ * it beside the bundled highway cannot change the bundled renderer's persisted settings.
  */
 export function globalSettingStorageKey(key) {
-  return key === 'customVideoName' ? 'h3d_dev_bg_customVideoName' : `h3d_bg_${key}`;
+  return backgroundStorageKey(key);
 }
 
 /** Reads a setting for `panelKey`: per-panel override, else in-memory, else global, else default. */
@@ -73,7 +73,7 @@ export function readSetting(panelKey, key) {
   try {
     // 'palette'/'customColors' are global-only (no per-panel palette UI).
     if (key !== 'palette' && key !== 'customColors') {
-      panelVal = localStorage.getItem(`h3d_bg_${panelKey}_${key}`);
+      panelVal = localStorage.getItem(panelBackgroundStorageKey(panelKey, key));
     }
     globalVal = localStorage.getItem(globalSettingStorageKey(key));
   } catch (_) { /* storage blocked — both stay null */ }
@@ -145,7 +145,7 @@ export function coerceSetting(key, val) {
  */
 export function hasStoredSetting(panelKey, key) {
   try {
-    if (localStorage.getItem(`h3d_bg_${panelKey}_${key}`) != null) return true;
+    if (localStorage.getItem(panelBackgroundStorageKey(panelKey, key)) != null) return true;
   } catch (_) {}
   if (key in settingsMemFallback) return true;
   try {

@@ -26,14 +26,6 @@ export const PALETTES = {
 /** IDs of the built-in {@link PALETTES}. */
 export const PALETTE_IDS = Object.keys(PALETTES);
 
-/**
- * The user-defined per-string palette, active when `activePalette` is
- * `'custom'`. Mutated in place (not reassigned) so its reference identity
- * stays stable — settings-reload compares `newPalette !== activePalette` by
- * reference to decide whether a retint is needed.
- */
-export const _customPalette = PALETTES.default.slice();
-
 /** Parses a `#rgb` or `#rrggbb` hex color string to a 0xRRGGBB integer, or `null`. */
 export function _h3dHexToInt(hex) {
   if (typeof hex !== 'string') return null;

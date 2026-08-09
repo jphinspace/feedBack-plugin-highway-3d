@@ -62,10 +62,8 @@ export const LOAD_SETTINGS_SIMPLE_KEY_TO_FIELD = {
 
 /**
  * User-selectable, persistable background styles; must mirror settings.html's
- * `VALID_STYLES`. `'venue'` is intentionally excluded — it's an internal
- * effective style reached only via the Venue viz-picker flow, never a
- * directly settable value, though `BACKGROUND_STYLES` still has a renderer
- * entry for it.
+ * `VALID_STYLES`. `'venue'` is intentionally excluded — it remains an internal
+ * effective style controlled through this plugin's dev-namespaced Venue API.
  */
 export const BACKGROUND_STYLE_IDS = ['off', 'particles', 'silhouettes', 'lights', 'geometric', 'butterchurn', 'image', 'video'];
 

@@ -1,18 +1,18 @@
 import { BASE_VFOV, HORPLUS_MIN_VFOV } from '../core/constants.js';
 
 /**
- * Wide-pane framing debug tuner (Shift+A). Talks to the renderer only
- * through `window.__h3dAspectTune`/`__h3dAspectPanes`/`__h3dAspectPanelOpen`/
- * `__h3dAspectReadout` — the per-frame camera code in `main.js` reads/writes
+ * Wide-pane framing debug tuner (Shift+D). Talks to the renderer only
+ * through `window.__h3dDevAspectTune`/`__h3dDevAspectPanes`/`__h3dDevAspectPanelOpen`/
+ * `__h3dDevAspectReadout` — the per-frame camera code in `main.js` reads/writes
  * those same globals, not any binding exported from here (except
  * {@link _aspectPaneKey}/{@link _aspectRegisterPane}/{@link _resolveTuneFor},
  * called once per frame per pane, and {@link _toggleAspectPanel}, called
- * from `ui/shortcuts.js`'s Shift+A handler). Disabled by default — none of
+ * from `ui/shortcuts.js`'s Shift+D handler). Disabled by default — none of
  * this runs unless the user opts in.
  */
 
 /** Versioned localStorage key — bumped once to invalidate a broken early default that may have persisted. */
-export const _ASPECT_LS = 'h3d_aspect_tune2';
+export const _ASPECT_LS = 'highway_3d_dev.aspectTune2';
 
 /**
  * Default OFF: every pane renders identically to before this feature
@@ -93,14 +93,14 @@ export function _aspectPaneLabel(paneKey) {
 
 /** Gets or creates the shared bridge object, seeded from defaults + localStorage; may carry a sparse `__panels` per-pane override map. */
 export function _aspectTune() {
-  let t = window.__h3dAspectTune;
+  let t = window.__h3dDevAspectTune;
   if (!t || typeof t !== 'object') {
     t = { ..._ASPECT_DEFAULTS };
     try {
       const raw = localStorage.getItem(_ASPECT_LS);
       if (raw) Object.assign(t, JSON.parse(raw));
     } catch (e) {}
-    window.__h3dAspectTune = t;
+    window.__h3dDevAspectTune = t;
   }
   return t;
 }
@@ -140,7 +140,7 @@ export function _resolveTuneFor(paneKey) {
 }
 /** Records a live pane for the Target dropdown; called every frame per renderer. */
 export function _aspectRegisterPane(paneKey) {
-  const reg = window.__h3dAspectPanes || (window.__h3dAspectPanes = {});
+  const reg = window.__h3dDevAspectPanes || (window.__h3dDevAspectPanes = {});
   const label = _aspectPaneLabel(paneKey);
   let e = reg[paneKey];
   if (!e) { e = reg[paneKey] = { label, seen: 0 }; _aspectPanesDirty = true; } else if (e.label !== label) { e.label = label; _aspectPanesDirty = true; }
@@ -148,10 +148,10 @@ export function _aspectRegisterPane(paneKey) {
 }
 /** Drops panes not reported recently (song change, split teardown, pane close). */
 export function _aspectPrunePanes() {
-  const reg = window.__h3dAspectPanes;
+  const reg = window.__h3dDevAspectPanes;
   if (!reg) return;
   const now = _aspectNowMs();
-  const ro = window.__h3dAspectReadout;
+  const ro = window.__h3dDevAspectReadout;
   Object.keys(reg).forEach((k) => {
     if (now - (reg[k].seen || 0) > 1500) {
       delete reg[k];
@@ -192,7 +192,7 @@ export function _aspectClearVal(k) {
 export function _aspectBuildTargets() {
   if (!_aspectTargetSel) return;
   if (document.activeElement === _aspectTargetSel) return;
-  const reg = window.__h3dAspectPanes || {};
+  const reg = window.__h3dDevAspectPanes || {};
   const keys = Object.keys(reg).sort();
   _aspectTargetSel.innerHTML = '';
   const all = document.createElement('option');
@@ -216,7 +216,7 @@ export function _aspectBuildTargets() {
 export function _ensureAspectPanel() {
   if (_aspectPanelEl || typeof document === 'undefined') return;
   const wrap = document.createElement('div');
-  wrap.id = 'h3d-aspect-tuner';
+  wrap.id = 'highway_3d_dev-aspect-tuner';
   wrap.style.cssText = [
     'position:fixed', 'top:64px', 'right:12px', 'z-index:99999',
     'width:236px', 'padding:10px 12px', 'border-radius:8px',
@@ -234,7 +234,7 @@ export function _ensureAspectPanel() {
   const close = document.createElement('button');
   close.type = 'button';
   close.textContent = '×';
-  close.title = 'Close (Shift+A)';
+  close.title = 'Close (Shift+D)';
   close.setAttribute('aria-label', 'Close');
   close.style.cssText = 'border:none;background:transparent;color:#cfe0f5;font-size:17px;line-height:1;cursor:pointer;padding:0 2px;';
   close.addEventListener('click', () => _setAspectPanelVisible(false));
@@ -382,14 +382,14 @@ export function _setAspectPanelVisible(on) {
   _ensureAspectPanel();
   if (!_aspectPanelEl) return;
   _aspectPanelEl.style.display = on ? 'block' : 'none';
-  window.__h3dAspectPanelOpen = !!on;
+  window.__h3dDevAspectPanelOpen = !!on;
   if (on) { _aspectPrunePanes(); _aspectBuildTargets(); }
   if (on && !_aspectPanelRAF) {
     const tick = () => {
-      if (!window.__h3dAspectPanelOpen) { _aspectPanelRAF = 0; return; }
+      if (!window.__h3dDevAspectPanelOpen) { _aspectPanelRAF = 0; return; }
       _aspectPrunePanes();
       if (_aspectPanesDirty) _aspectBuildTargets();
-      const ro = window.__h3dAspectReadout;
+      const ro = window.__h3dDevAspectReadout;
       if (_aspectPanelRO && ro) {
         const key = _aspectEditTarget || ro.__last;
         const e = key && ro[key];

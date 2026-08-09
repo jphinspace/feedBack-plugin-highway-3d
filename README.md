@@ -1,6 +1,6 @@
-# 3D Highway
+# 3D Highway (dev)
 
-A 3D note highway visualization for [FeedBack](https://github.com/got-feedback/feedBack) — an alternative to the default 2D highway, with a sense of depth and perspective inspired by stage views in modern rhythm games.
+A standalone development fork of the 3D note highway visualization for [FeedBack](https://github.com/got-feedback/feedBack). It installs as `highway_3d_dev` and can run alongside FeedBack's bundled `highway_3d` without sharing the plugin's settings, DOM IDs, globals, or visualization registration.
 
 ## What you get
 
@@ -19,20 +19,23 @@ A 3D note highway visualization for [FeedBack](https://github.com/got-feedback/f
 
 ## Install
 
-3D Highway ships **bundled** with FeedBack — no separate installation needed. Pick **3D Highway** from the visualization picker in the player.
+This repository is a separate FeedBack plugin; it does not replace or modify FeedBack core. Place or symlink the checkout into the host's plugin directory using the plugin ID as the directory name:
 
-> **Note:** The bundled version is preferred over any user-installed copy with the same plugin ID. If you have an old `feedBack-plugin-3dhighway` clone on disk (from before 3D Highway was promoted to core), it will be ignored at startup — a warning in the server log names the path of the discarded copy. You can safely delete the stale clone.
->
-> **Fallback:** In the unlikely event that the bundled copy fails to load its routes (e.g., a broken bundled release), FeedBack will automatically fall back to your user-installed copy and show a yellow "Fallback" badge in the Settings panel. Check the server startup log for the root cause in that case.
+```bash
+cd /path/to/feedBack
+ln -s /path/to/feedBack-plugin-highway-3d plugins/highway_3d_dev
+```
+
+Restart FeedBack, then pick **3D Highway (dev)** from the visualization picker. Both `highway_3d` and `highway_3d_dev` should appear independently. See [docs/dev-loop.md](docs/dev-loop.md) for the full local-development workflow.
 
 ## Settings
 
-Most of the visual controls (background style, intensity, audio reactivity, color palette) live on FeedBack's **Settings** screen under the *3D Highway* section.
+Visual controls (background style, intensity, audio reactivity, and named string colors) live on FeedBack's **Settings** screen under the separate *3D Highway (dev)* section. Their persisted keys use the `highway_3d_dev` namespace and do not change the bundled highway's configuration.
 
 ## Contributing / development
 
-For maintainers and AI assistants working on the codebase, see [`CLAUDE.md`](CLAUDE.md) — it's a navigation guide that maps every visual element to where it lives in `screen.js`, plus the gotchas worth knowing before tweaking.
+For maintainers and AI assistants working on the codebase, see [`CLAUDE.md`](CLAUDE.md) — it maps visual elements to the modules under `src/` and records the important implementation constraints.
 
 ### Perf bench (`?h3dbench=1`)
 
-Append `?h3dbench=1` to the player URL to enable opt-in `console.log` reporting of `update()` self-time, broken into six segments — `frame` (everything between `pbBeg(0)` at the top of `update()` and `pbEnd(0)` at the bottom; excludes the trailing `pbReportTick()` logging that fires after `pbEnd(0)`), `state` (per-frame state-derivation loop), `next` (next-note-by-string lookahead), `mat` (per-string material writes), `noteDraw` (single-note draw loop), `chordDraw` (chord draw loop). Reported every 5 seconds with p50 / p95 / max per segment and frame count, so before/after numbers on a target chart are reproducible (feedBack#226). Off-by-default; the bench helpers (`pbBeg` / `pbEnd` / `pbReportTick`) are bound to a shared empty-function literal when the renderer instance is created (each `createHighway()` panel re-checks the flag), so the hot-path call sites are no-ops with negligible overhead (typically JIT-inlined).
+Append `?h3dbench=1` to the player URL to enable opt-in `console.log` reporting of `update()` self-time, broken into six segments — `frame` (everything between `pbBeg(0)` at the top of `update()` and `pbEnd(0)` at the bottom; excludes the trailing `pbReportTick()` logging that fires after `pbEnd(0)`), `state` (per-frame state-derivation loop), `next` (next-note-by-string lookahead), `mat` (per-string material writes), `noteDraw` (single-note draw loop), `chordDraw` (chord draw loop). Reported every 5 seconds with p50 / p95 / max per segment and frame count, so before/after numbers on a target chart are reproducible (feedBack#226). Off-by-default; the bench helpers (`pbBeg` / `pbEnd` / `pbReportTick`) are bound to a shared empty-function literal when the renderer instance is created (each `createFactory()` panel re-checks the flag), so the hot-path call sites are no-ops with negligible overhead (typically JIT-inlined).

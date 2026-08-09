@@ -18,7 +18,7 @@ import { emitSettingChange } from '../settings/store.js';
  * an `export let`, so an outside writer needs a setter function.
  */
 
-export const VENUE_SCENE_ASSET_BASE = '/static/assets/venue/themes/small-club/';
+export const VENUE_SCENE_ASSET_BASE = '/api/plugins/highway_3d_dev/assets/venue/themes/small-club/';
 export const VENUE_BG_PLATE_PNG = 'bg-plate.png';
 export const VENUE_BG_PLATE_WEBP = 'bg-plate.webp';
 export const VENUE_INSTRUMENT_PLATES = {
@@ -75,10 +75,6 @@ export function venueMoodCoeffs(state) {
 }
 
 export function _venueResolvePovFromInput(input) {
-  if (typeof window !== 'undefined' && window.v3VenueInstrumentPov
-        && typeof window.v3VenueInstrumentPov.resolveVenueInstrumentPov === 'function') {
-    return window.v3VenueInstrumentPov.resolveVenueInstrumentPov(input);
-  }
   const s = String(input == null ? '' : input).trim().toLowerCase();
   if (!s) return 'guitar';
   if (/\b(drums?)\b/.test(s)) return 'drums';
@@ -90,10 +86,6 @@ export function _venueResolvePovFromInput(input) {
 }
 
 export function _venueMotionProfile(mode) {
-  if (typeof window !== 'undefined' && window.v3VenueMoodFx
-        && typeof window.v3VenueMoodFx.venueMotionProfile === 'function') {
-    return window.v3VenueMoodFx.venueMotionProfile(mode);
-  }
   const m = String(mode || 'subtle').toLowerCase();
   if (m === 'off') {
     return {
@@ -111,11 +103,7 @@ export function _venueMotionProfile(mode) {
 }
 
 export function _venuePrefersReducedMotion() {
-  if (typeof window !== 'undefined' && window.v3VenueMoodFx
-        && typeof window.v3VenueMoodFx.prefersReducedMotion === 'function') {
-    return window.v3VenueMoodFx.prefersReducedMotion();
-  }
-  return false;
+  try { return !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches; } catch (_) { return false; }
 }
 
 export function _venueEffectiveMotionMode() {
@@ -257,12 +245,6 @@ export function _venueSwapPlateIfNeeded(s) {
       console.warn(`[venue-scene] failed to load venue bg plate for pov ${pov}`);
       _venueSceneOverride = false;
       emitSettingChange('venueScene');
-      try {
-        if (typeof window !== 'undefined' && window.v3VenueScene3d
-                    && typeof window.v3VenueScene3d.onAssetsFailed === 'function') {
-          window.v3VenueScene3d.onAssetsFailed('failed to load venue bg plate');
-        }
-      } catch (_) { /* visual-only */ }
     },
   );
 }
@@ -320,6 +302,17 @@ export const h3dVenueSceneGetState = () => {
     loadFailed: _venueSceneLoadFailed,
   };
 };
+
+/** Dev-plugin-owned Venue contract; it never delegates to the bundled highway. */
+export const HIGHWAY_3D_DEV_VENUE_API = Object.freeze({
+  setActive: h3dVenueSceneSetActive,
+  setMood: h3dVenueSceneSetMood,
+  setBackdropVideo: h3dVenueBackdropSetVideo,
+  setBackdropMix: h3dVenueBackdropSetMix,
+  setInstrumentPov: h3dVenueSceneSetInstrumentPov,
+  setMotionMode: h3dVenueSceneSetMotionMode,
+  getState: h3dVenueSceneGetState,
+});
 
 export function _venueSetSceneAssetsLoaded(v) { _venueSceneAssetsLoaded = v; }
 export function _venueSetSceneLoadFailed(v) { _venueSceneLoadFailed = v; }

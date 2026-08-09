@@ -135,6 +135,7 @@ export function createCtx(id) {
       // keep already-built materials live-retinted. backgroundPaletteSig is a
       // loadSettings()-internal signature cache, always written alongside it.
       activePalette: PALETTES.default,
+      paletteIsCustom: false,
       backgroundPaletteSig: '',
     },
   };

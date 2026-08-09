@@ -19,7 +19,7 @@ const path = require('node:path');
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
 const SETTINGS_LISTENER_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'settings-listener.js');
 
-test('fret-spacing mode is read from the highway_3d.fretSpacing localStorage key via initFretSpacing()', async () => {
+test('fret-spacing mode is read from the dev-namespaced localStorage key via initFretSpacing()', async () => {
   const { initFretSpacing, fretX } = await import('../../src/core/fret-geometry.js');
   const calls = [];
   const realGetItem = globalThis.localStorage?.getItem;
@@ -31,7 +31,7 @@ test('fret-spacing mode is read from the highway_3d.fretSpacing localStorage key
     const beforeUniform = fretX(12);
     initFretSpacing();
     const afterLogarithmic = fretX(12);
-    assert.deepEqual(calls, ['highway_3d.fretSpacing'], 'initFretSpacing must read the highway_3d.fretSpacing key');
+    assert.deepEqual(calls, ['highway_3d_dev.fretSpacing'], 'initFretSpacing must read the dev plugin key');
     assert.notEqual(afterLogarithmic, beforeUniform, 'a stored "logarithmic" value must actually change fretX');
   } finally {
     // Restore uniform (the default) so later tests/imports of this
@@ -62,7 +62,7 @@ test('h3dDevSetFretSpacing validates the mode against the two supported values',
   const src = fs.readFileSync(SCREEN_JS, 'utf8');
   assert.match(
     src,
-    /window\.h3dDevSetFretSpacing\s*=\s*\(mode\)\s*=>\s*\{[\s\S]*?mode\s*===\s*'logarithmic'\s*\?\s*'logarithmic'\s*:\s*'uniform'[\s\S]*?localStorage\.setItem\(\s*'highway_3d\.fretSpacing'/,
+    /window\.h3dDevSetFretSpacing\s*=\s*\(mode\)\s*=>\s*\{[\s\S]*?mode\s*===\s*'logarithmic'\s*\?\s*'logarithmic'\s*:\s*'uniform'[\s\S]*?localStorage\.setItem\(\s*'highway_3d_dev\.fretSpacing'/,
     'h3dDevSetFretSpacing must coerce mode to a supported value before persisting',
   );
 });

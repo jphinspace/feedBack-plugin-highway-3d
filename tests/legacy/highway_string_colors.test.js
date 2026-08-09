@@ -53,7 +53,7 @@ test('3D adds a custom palette path + h3dBgSetStringColors setter', async () => 
   const storeSrc = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'settings', 'store.js'), 'utf8');
   assert.match(storeSrc, /key === 'palette'\)\s*return\s*\(PALETTE_IDS\.includes\(val\)\s*\|\|\s*val === 'custom'\)/, "palette coercion must accept 'custom'");
 
-  // loadSettings resolves 'custom' into the in-place _customPalette and
+  // loadSettings resolves 'custom' into a per-renderer mutable palette and
   // forces a retint on content change via the signature guard. Still in
   // src/main.js's factory closure -- not extracted yet.
   const src = fs.readFileSync(highway3dJs, 'utf8');

@@ -52,7 +52,7 @@ export function createCameraLifecycle({
     const lerp = CAM_LERP_BASE * Math.max(bpm, 60) / 120;
 
     // ── Horizontal-FOV-hold + optional wide-pane pose nudges ──
-    // Driven by window.__h3dAspectTune (default off → exact no-op). _resolveTuneFor(paneKey)
+    // Driven by window.__h3dDevAspectTune (default off → exact no-op). _resolveTuneFor(paneKey)
     // returns the shared base with this pane's overrides laid on top, so a split pane can be
     // framed independently. When disabled (or splitOnly outside a split) the tune is null,
     // so effectiveVfov returns the base vertical fov and cam.fov is restored to it.
@@ -69,7 +69,7 @@ export function createCameraLifecycle({
     // gate as the readout). Closed → nothing is registered, so the registry
     // can't grow for users who never open the panel; the key is still
     // resolved below so any saved overrides keep applying.
-    if (window.__h3dAspectPanelOpen) _aspectRegisterPane(_paneKey);
+    if (window.__h3dDevAspectPanelOpen) _aspectRegisterPane(_paneKey);
     const _aspTune = _resolveTuneFor(_paneKey);
     const _aspActive = !!(_aspTune && _aspTune.enabled
             && !(_aspTune.splitOnly && !splitscreenActive()));
@@ -82,8 +82,8 @@ export function createCameraLifecycle({
     // Publish a per-pane live readout for the tuner panel (only while it's
     // open, so the steady path stays allocation-free). Keyed by pane so
     // the panel can show the reading for whichever target is selected.
-    if (window.__h3dAspectPanelOpen) {
-      const _ro = window.__h3dAspectReadout || (window.__h3dAspectReadout = {});
+    if (window.__h3dDevAspectPanelOpen) {
+      const _ro = window.__h3dDevAspectReadout || (window.__h3dDevAspectReadout = {});
       const _slot = _ro[_paneKey] || (_ro[_paneKey] = {});
       _slot.aspect = ctx.cam._paneAspect; _slot.vfov = _vfov;
       _ro.__last = _paneKey;
@@ -265,7 +265,7 @@ export function createCameraLifecycle({
     ctx.cam.aspectScale = Math.max(1, REF_ASPECT / Math.max(cam.aspect, 0.5));
     // Cache the pane aspect for the horizontal-FOV-hold in camUpdate.
     // cam.fov itself is owned by camUpdate (not set here) so live
-    // __h3dAspectTune edits apply every frame without a resize.
+    // __h3dDevAspectTune edits apply every frame without a resize.
     ctx.cam._paneAspect = cam.aspect;
     _appliedW = w; _appliedH = h;
   }

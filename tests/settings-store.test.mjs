@@ -14,14 +14,14 @@ test('readGlobalSetting reads the global slot, ignoring per-panel overrides', as
   const realLocalStorage = globalThis.localStorage;
   globalThis.localStorage = { getItem: (k) => (storage.has(k) ? storage.get(k) : null) };
   try {
-    storage.set('h3d_bg_style', 'lights'); // global
-    storage.set('h3d_bg_panel3_style', 'geometric'); // a per-panel override
+    storage.set('highway_3d_dev.background.style', 'lights'); // global
+    storage.set('highway_3d_dev.background.panel3.style', 'geometric'); // a per-panel override
 
     // The renderer, reading with a panel key, honours the per-panel override...
     assert.equal(bgReadSetting('panel3', 'style'), 'geometric');
     // ...but the shared control's global read must NOT see it - this is the
     // whole point of #2 (previously readSetting(null, ...) relied on
-    // 'h3d_bg_null_style' never existing).
+    // a made-up null panel key never existing).
     assert.equal(bgReadGlobal('style'), 'lights');
 
     // In-memory staged value wins over the persisted global (matches
@@ -33,7 +33,7 @@ test('readGlobalSetting reads the global slot, ignoring per-panel overrides', as
 
     // Nothing stored -> SETTING_DEFAULTS.
     assert.equal(bgReadGlobal('style'), 'lights');
-    storage.delete('h3d_bg_style');
+    storage.delete('highway_3d_dev.background.style');
     assert.equal(bgReadGlobal('style'), 'particles');
   } finally {
     globalThis.localStorage = realLocalStorage;
@@ -41,7 +41,7 @@ test('readGlobalSetting reads the global slot, ignoring per-panel overrides', as
   }
 });
 
-test('custom video filename uses the dev plugin storage slot', async () => {
+test('every global setting uses the dev plugin storage namespace', async () => {
   const { globalSettingStorageKey, writeGlobalSetting, settingsMemFallback: bgMemFallback } = await import('../src/settings/store.js');
   const writes = [];
   const realLocalStorage = globalThis.localStorage;
@@ -50,10 +50,10 @@ test('custom video filename uses the dev plugin storage slot', async () => {
     setItem: (key, value) => writes.push([key, value]),
   };
   try {
-    assert.equal(globalSettingStorageKey('customVideoName'), 'h3d_dev_bg_customVideoName');
-    assert.equal(globalSettingStorageKey('style'), 'h3d_bg_style');
+    assert.equal(globalSettingStorageKey('customVideoName'), 'highway_3d_dev.background.customVideoName');
+    assert.equal(globalSettingStorageKey('style'), 'highway_3d_dev.background.style');
     writeGlobalSetting('customVideoName', 'current.mp4');
-    assert.deepEqual(writes, [['h3d_dev_bg_customVideoName', 'current.mp4']]);
+    assert.deepEqual(writes, [['highway_3d_dev.background.customVideoName', 'current.mp4']]);
   } finally {
     globalThis.localStorage = realLocalStorage;
     delete bgMemFallback.customVideoName;

@@ -23,6 +23,7 @@ export const STYLE_LABELS = {
   lights: 'Lights (stage glows)',
   geometric: 'Geometric (rotating shapes)',
   butterchurn: 'Butterchurn (visualizer)',
+  venue: 'Venue (dev)',
   image: 'Custom image',
   video: 'Custom video',
 };
@@ -30,9 +31,9 @@ export const STYLE_LABELS = {
  * Which settings each background style actually consumes, so an
  * inapplicable control is greyed out instead of doing nothing silently.
  * Must stay in step with `BACKGROUND_STYLES` — an id missing here defaults
- * to both-enabled (the safe direction). `venue` isn't in
- * `BACKGROUND_STYLE_IDS` (reached only via the viz-picker), but while
- * active it's the effective style, so both knobs are false for it too.
+ * to both-enabled (the safe direction). `venue` can be selected as this
+ * plugin's persisted style or activated through its provider API; both knobs
+ * are false in either form.
  *
  * `bakesPalette`/`intensityLive` are consumed by `instance/settings-listener.js`
  * (not this file) to decide whether a live setting change needs a full
@@ -133,14 +134,16 @@ export function makeGroupLabel(text) {
 export function syncControls() {
   // The active style is the EFFECTIVE one: while the Venue override is on, it's
   // mounted regardless of the stored `style`, so the whole group goes inert under it.
-  const venue = !!_venueSceneOverride;
+  // A host-driven venue override owns the background picker. The dev plugin's
+  // own persisted `venue` style remains selectable so the user can leave it.
+  const venue = !!_venueSceneOverride && readGlobalSetting('style') !== 'venue';
   const effectiveStyle = venue ? 'venue' : readGlobalSetting('style');
   const uses = STYLE_SETTING_USES[effectiveStyle] || { intensity: true, reactive: true };
   const why = uses.why || 'This background style ignores this setting';
   if (reasonEl) reasonEl.textContent = why;
   const describeIfInert = (el, inert) => {
     if (!el) return;
-    if (inert) el.setAttribute('aria-describedby', 'h3d-pc-reason');
+    if (inert) el.setAttribute('aria-describedby', 'highway_3d_dev-player-control-reason');
     else el.removeAttribute('aria-describedby');
   };
   describeIfInert(styleSelectEl, venue);
@@ -193,14 +196,14 @@ export function syncControls() {
  */
 export function syncSettingsPanelMirror() {
   try {
-    const st = document.getElementById('h3d-bg-style');
+    const st = document.getElementById('highway_3d_dev-bg-style');
     if (st) st.value = readGlobalSetting('style');
-    const re = document.getElementById('h3d-bg-reactive');
+    const re = document.getElementById('highway_3d_dev-bg-reactive');
     if (re) re.checked = !!readGlobalSetting('reactive');
     const inten = readGlobalSetting('intensity');
-    const ie = document.getElementById('h3d-bg-intensity');
+    const ie = document.getElementById('highway_3d_dev-bg-intensity');
     if (ie) ie.value = String(inten);
-    const il = document.getElementById('h3d-bg-intensity-label');
+    const il = document.getElementById('highway_3d_dev-bg-intensity-label');
     if (il) il.textContent = Number(inten).toFixed(2);
   } catch (e) { console.error('[3D-Hwy] settings-panel mirror failed', e); }
 }
@@ -216,7 +219,7 @@ export function mountControl() {
   // Visually-hidden text carrying the "why greyed out" reason to screen readers;
   // one span suffices since every greyed control shares the same effective-style reason.
   reasonEl = document.createElement('span');
-  reasonEl.id = 'h3d-pc-reason';
+  reasonEl.id = 'highway_3d_dev-player-control-reason';
   reasonEl.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;'
         + 'margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;';
   box.appendChild(reasonEl);

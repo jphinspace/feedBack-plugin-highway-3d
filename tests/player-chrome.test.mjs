@@ -408,7 +408,7 @@ test('exposes state and reasons to assistive tech', async () => {
   // literal (a wrong id in code would still equal the literal).
   const { reason } = ctl.api;
   assert.ok(reason, 'the reason span was not created');
-  assert.equal(reason.id, 'h3d-pc-reason');
+  assert.equal(reason.id, 'highway_3d_dev-player-control-reason');
   assert.equal(reason.parentNode, ctl.api.el, 'the reason span must be mounted in the control');
 
   // aria-pressed: a toggle button must expose its state. image greys

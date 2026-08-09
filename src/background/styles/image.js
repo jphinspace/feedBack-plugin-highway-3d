@@ -3,7 +3,7 @@ import { BACKDROP_DISTANCE, coverCropTexture, fitBackdropPlane } from '../backdr
 
 /**
  * Custom image backdrop. Renders the user-uploaded image (persisted as a
- * base64 data URL under `h3d_bg_customImageDataUrl`) as a full-bleed,
+ * base64 data URL in the dev plugin's namespaced background settings) as a full-bleed,
  * cover-cropped plane with slow horizontal drift. `build()` returns `null`
  * (inert style) when no valid asset is present.
  */

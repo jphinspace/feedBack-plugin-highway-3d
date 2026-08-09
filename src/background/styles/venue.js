@@ -32,12 +32,6 @@ export const venue = {
         state.loaded = true;
         _venueSetSceneAssetsLoaded(true);
         _venueSetSceneLoadFailed(false);
-        try {
-          if (typeof window !== 'undefined' && window.v3VenueScene3d
-                        && typeof window.v3VenueScene3d.onAssetsLoaded === 'function') {
-            window.v3VenueScene3d.onAssetsLoaded();
-          }
-        } catch (_) { /* visual-only */ }
       }
     }
     function _venueMarkFailed(msg) {
@@ -48,12 +42,6 @@ export const venue = {
       console.warn(`[venue-scene] ${msg}`);
       _venueSetSceneOverride(false);
       emitSettingChange('venueScene');
-      try {
-        if (typeof window !== 'undefined' && window.v3VenueScene3d
-                    && typeof window.v3VenueScene3d.onAssetsFailed === 'function') {
-          window.v3VenueScene3d.onAssetsFailed(msg);
-        }
-      } catch (_) { /* visual-only */ }
     }
 
     const loader = new T.TextureLoader();

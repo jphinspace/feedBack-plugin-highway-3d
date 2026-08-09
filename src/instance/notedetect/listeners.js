@@ -73,10 +73,25 @@ export function createNotedetectListeners(deps) {
   if (window.feedBack
             && typeof window.feedBack.on === 'function'
             && typeof window.feedBack.off === 'function') {
-    noteDetectOnBusHit = (e) => { noteDetectPushMark(noteDetectHitMarks, e.detail); };
-    noteDetectOnBusMiss = (e) => { noteDetectPushMark(noteDetectMissMarks, e.detail); };
-    window.feedBack.on('note:hit', noteDetectOnBusHit);
-    window.feedBack.on('note:miss', noteDetectOnBusMiss);
+    const bus = window.feedBack;
+    const onBusHit = (e) => { noteDetectPushMark(noteDetectHitMarks, e.detail); };
+    const onBusMiss = (e) => { noteDetectPushMark(noteDetectMissMarks, e.detail); };
+    const attempted = [];
+    try {
+      // Record before calling on(): a host implementation may attach the
+      // handler and then throw, in which case rollback must still try off().
+      attempted.push(['note:hit', onBusHit]);
+      bus.on('note:hit', onBusHit);
+      attempted.push(['note:miss', onBusMiss]);
+      bus.on('note:miss', onBusMiss);
+      noteDetectOnBusHit = onBusHit;
+      noteDetectOnBusMiss = onBusMiss;
+    } catch (error) {
+      for (let i = attempted.length - 1; i >= 0; i--) {
+        try { bus.off(attempted[i][0], attempted[i][1]); } catch (_) { /* best-effort rollback */ }
+      }
+      console.warn('[3D-Hwy] notedetect host bus not ready; using window events', error);
+    }
   }
 
   // Score FX (notedetect >=1.13). notedetect dispatches each fx detail object twice in the
@@ -87,7 +102,9 @@ export function createNotedetectListeners(deps) {
   // duplicate to drop) or never will (detector root not in the DOM), in which case the
   // window copy is the compat fallback. Keeps splitscreen panels from rendering each
   // other's FX even for the first event of a session.
-  _fxResolvePalette();
+  try { _fxResolvePalette(); } catch (error) {
+    console.warn('[3D-Hwy] notedetect palette resolution failed', error);
+  }
   const _fxOnFx = (e) => {
     const d = e && e.detail;
     if (!d) return;
@@ -110,8 +127,16 @@ export function createNotedetectListeners(deps) {
   let _fxOnSkin = null;
   if (window.feedBack && typeof window.feedBack.on === 'function'
             && typeof window.feedBack.off === 'function') {
-    _fxOnSkin = () => _fxResolvePalette();
-    window.feedBack.on('notedetect:skin', _fxOnSkin);
+    const bus = window.feedBack;
+    const onSkin = () => _fxResolvePalette();
+    try {
+      bus.on('notedetect:skin', onSkin);
+      _fxOnSkin = onSkin;
+    } catch (error) {
+      // As above, tolerate an attach-then-throw implementation.
+      try { bus.off('notedetect:skin', onSkin); } catch (_) { /* best-effort rollback */ }
+      console.warn('[3D-Hwy] notedetect skin bus not ready; continuing without it', error);
+    }
   }
 
   return {
