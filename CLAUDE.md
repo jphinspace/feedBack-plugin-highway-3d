@@ -463,7 +463,7 @@ The factory **returns a fresh instance per call**, so splitscreen's per-panel `s
 Four gates, in increasing cost. Run all four before committing anything non-trivial:
 
 1. **`npx eslint .`** (also runs in CI on every push/PR — `.github/workflows/lint.yml`) — the base rule set is the Airbnb JavaScript style guide (`eslint-config-airbnb-base`, loaded via `@eslint/eslintrc`'s `FlatCompat` since Airbnb still ships an eslintrc-shaped config); `eslint.config.js`'s header comment documents every deviation from it and why. `no-undef` is on for `src/**` and is the single most valuable check when moving code between modules: it catches a missing import at lint time instead of at runtime, several times over. `import/no-cycle` and `import/no-unresolved` are errors too.
-2. **`npm run test:js`** (also runs in CI on every push/PR — `.github/workflows/test.yml`) — `node --test` over `tests/*.test.mjs` + `tests/legacy/*`. Current baseline: **182 tests, 182 pass, 0 fail, 0 todo**. Tests real-import the modules under test; that's why import-time purity matters.
+2. **`npm run test:js`** (also runs in CI on every push/PR — `.github/workflows/test.yml`) — bare `node --test` uses Node's recursive test discovery, avoiding unmatched shell globs when a test-file extension is absent from one directory. Current baseline: **203 tests, 203 pass, 0 fail, 0 todo**. Tests real-import the modules under test; that's why import-time purity matters.
 3. **Local core stack** — symlink this fork into a local `feedBack` checkout and boot native uvicorn (Docker's bind-mount of `./plugins` makes a host symlink dangle inside the container, so Docker won't work):
    ```bash
    ln -s /path/to/feedBack-plugin-highway-3d /path/to/feedBack/plugins/highway_3d_dev
