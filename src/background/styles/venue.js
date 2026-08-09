@@ -1,0 +1,247 @@
+import { T } from '../../core/three.js';
+import {
+  FOG_END, K, VENUE_BACKDROP_DISTANCE_MUL, VENUE_HAZE_STEADY,
+} from '../../core/constants.js';
+import { emitSettingChange } from '../../settings/store.js';
+import { BACKDROP_DISTANCE, coverCropTexture, fitBackdropPlane } from '../backdrop.js';
+import {
+  venueMoodCoeffs, _venueApplyFakeDepthMotion, _venueCrowdMix, _venueCrowdRev,
+  _venueCrowdVideos, _venueInstrumentPov, _venueLoadPlateForPov, _venueMoodState,
+  _venueSetSceneAssetsLoaded, _venueSetSceneLoadFailed, _venueSetSceneOverride,
+  _venueSwapPlateIfNeeded, _venueTextureCache,
+} from '../venue.js';
+
+/** Small-club raster backdrop behind the highway. Activated via `h3dVenueSceneSetActive(true)`; not a persisted user bg style. */
+export const venue = {
+  build(scene, settings) {
+    const coeffs = venueMoodCoeffs(_venueMoodState);
+    const state = {
+      backdrop: null,
+      haze: null,
+      loader: null,
+      instrumentPov: _venueInstrumentPov,
+      plateLoading: false,
+      pending: 1,
+      loaded: false,
+      failed: false,
+    };
+
+    function _venueMarkLoaded() {
+      state.pending--;
+      if (state.pending <= 0 && !state.failed) {
+        state.loaded = true;
+        _venueSetSceneAssetsLoaded(true);
+        _venueSetSceneLoadFailed(false);
+      }
+    }
+    function _venueMarkFailed(msg) {
+      if (state.failed) return;
+      state.failed = true;
+      _venueSetSceneLoadFailed(true);
+      _venueSetSceneAssetsLoaded(false);
+      console.warn(`[venue-scene] ${msg}`);
+      _venueSetSceneOverride(false);
+      emitSettingChange('venueScene');
+    }
+
+    const loader = new T.TextureLoader();
+    state.loader = loader;
+    const backdrop = {
+      mesh: null,
+      geo: null,
+      mat: null,
+      tex: null,
+      cam: settings.cam,
+      distance: BACKDROP_DISTANCE * VENUE_BACKDROP_DISTANCE_MUL,
+      lastAspect: 0,
+      lastVisibleHeight: 0,
+      lastVisibleWidth: 0,
+      loaded: false,
+    };
+    backdrop.geo = new T.PlaneGeometry(1, 1);
+    backdrop.mat = new T.MeshBasicMaterial({
+      color: 0xffffff, transparent: false, depthWrite: false, fog: false,
+    });
+    backdrop.mesh = new T.Mesh(backdrop.geo, backdrop.mat);
+    backdrop.mesh.visible = false;
+    scene.add(backdrop.mesh);
+    state.backdrop = backdrop;
+    backdrop.applyCoverCrop = function applyCoverCrop() {
+      if (!backdrop.tex || !backdrop.tex.image) return;
+      coverCropTexture(
+        backdrop.tex,
+        backdrop.tex.image.width || 0,
+        backdrop.tex.image.height || 0,
+        backdrop.cam.aspect,
+      );
+    };
+    _venueLoadPlateForPov(
+      loader,
+      _venueInstrumentPov,
+      backdrop,
+      () => _venueMarkLoaded(),
+      () => _venueMarkFailed('failed to load small-club bg plate'),
+    );
+
+    // Crowd video planes (career mode): two crossfading layers in front of the
+    // static plate, which stays mounted as the no-pack / load-failure fallback.
+    // Textures bind lazily in update() when venue-crowd.js assigns video elements.
+    state.crowd = { layers: [], rev: -1 };
+    for (let i = 0; i < 2; i++) {
+      const geo = new T.PlaneGeometry(1, 1);
+      const mat = new T.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        fog: false,
+      });
+      const mesh = new T.Mesh(geo, mat);
+      mesh.visible = false;
+      // Layer 1 sits nearest so three.js's back-to-front transparent sort draws it after layer 0.
+      const layer = {
+        mesh,
+        geo,
+        mat,
+        tex: null,
+        videoEl: null,
+        cam: settings.cam,
+        distance: BACKDROP_DISTANCE * (i === 0 ? 1.04 : 1.03),
+        lastAspect: 0,
+        lastVisibleHeight: 0,
+      };
+      layer.applyCoverCrop = function applyCoverCrop() {
+        if (!layer.videoEl || !layer.tex) return;
+        coverCropTexture(
+          layer.tex,
+          layer.videoEl.videoWidth || 0,
+          layer.videoEl.videoHeight || 0,
+          layer.cam.aspect,
+        );
+      };
+      scene.add(mesh);
+      state.crowd.layers.push(layer);
+    }
+
+    const hazeGeo = new T.PlaneGeometry(280 * K, 40 * K);
+    const hazeMat = new T.MeshBasicMaterial({
+      color: 0x101820,
+      transparent: true,
+      opacity: coeffs.haze,
+      depthWrite: false,
+      fog: false,
+    });
+    const hazeMesh = new T.Mesh(hazeGeo, hazeMat);
+    hazeMesh.position.set(0, -12 * K, -FOG_END * 0.70);
+    scene.add(hazeMesh);
+    state.haze = {
+      mesh: hazeMesh,
+      geo: hazeGeo,
+      mat: hazeMat,
+      baseOp: coeffs.haze,
+      baseX: 0,
+      baseY: -12 * K,
+      baseZ: -FOG_END * 0.70,
+    };
+
+    return state;
+  },
+  update(s, bands, dt, t) {
+    if (!s || s.failed) return;
+    _venueSwapPlateIfNeeded(s);
+    const coeffs = venueMoodCoeffs(_venueMoodState);
+    if (s.backdrop && s.backdrop.loaded) {
+      fitBackdropPlane(s.backdrop);
+    }
+    const motion = _venueApplyFakeDepthMotion(s, coeffs, t);
+    if (s.backdrop && s.backdrop.loaded && s.backdrop.mat && !motion.breathe && !motion.warmthPulse) {
+      const warm = coeffs.warmth;
+      s.backdrop.mat.color.setRGB(warm, warm * 0.98, warm * 0.95);
+    }
+    if (s.haze && s.haze.mat && !motion.hazeDrift && !motion.shimmer) {
+      s.haze.mat.opacity = (s.haze.baseOp || VENUE_HAZE_STEADY)
+                * (coeffs.haze / VENUE_HAZE_STEADY);
+    }
+    if (s.crowd) {
+      // VideoTexture samples the element every frame, so a src change on the
+      // same element needs no rebind — only rebind when the element itself changes.
+      if (s.crowd.rev !== _venueCrowdRev) {
+        s.crowd.rev = _venueCrowdRev;
+        s.crowd.layers.forEach((layer, i) => {
+          const el = _venueCrowdVideos[i];
+          if (layer.videoEl === el) return;
+          if (layer.tex) { layer.mat.map = null; layer.tex.dispose(); layer.tex = null; }
+          layer.videoEl = el;
+          layer.lastAspect = 0; // force refit + recrop
+          if (el) {
+            const tex = new T.VideoTexture(el);
+            tex.colorSpace = T.SRGBColorSpace;
+            tex.wrapS = T.ClampToEdgeWrapping;
+            tex.wrapT = T.ClampToEdgeWrapping;
+            tex.minFilter = T.LinearFilter;
+            tex.magFilter = T.LinearFilter;
+            tex.generateMipmaps = false;
+            layer.tex = tex;
+            layer.mat.map = tex;
+          }
+          layer.mat.needsUpdate = true;
+        });
+      }
+      const warm = coeffs.warmth;
+      s.crowd.layers.forEach((layer, i) => {
+        const el = layer.videoEl;
+        // videoWidth === 0 until metadata lands — showing the plane before that
+        // paints a black flash over the plate.
+        const ready = !!el && el.videoWidth > 0;
+        if (ready && (layer.lastVidW !== el.videoWidth
+                              || layer.lastVidH !== el.videoHeight)) {
+          layer.lastVidW = el.videoWidth;
+          layer.lastVidH = el.videoHeight;
+          layer.applyCoverCrop();
+        }
+        // Layer 0 (rear) stays fully opaque whenever the fade involves it — two
+        // half-transparent layers would let the static plate bleed through.
+        const opacity = i === 0
+          ? (_venueCrowdMix < 0.999 ? 1 : 0)
+          : _venueCrowdMix;
+        layer.mat.opacity = opacity;
+        layer.mesh.visible = ready && opacity > 0.01;
+        if (layer.mesh.visible) {
+          layer.mat.color.setRGB(warm, warm * 0.98, warm * 0.95);
+          fitBackdropPlane(layer);
+        }
+      });
+    }
+  },
+  teardown(s) {
+    if (!s) return;
+    _venueSetSceneAssetsLoaded(false);
+    for (const key of ['backdrop', 'haze']) {
+      const p = s[key];
+      if (!p) continue;
+      p.mesh?.parent?.remove(p.mesh);
+      p.geo?.dispose?.();
+      if (p.mat) {
+        p.mat.map = null;
+        p.mat.dispose?.();
+      }
+    }
+    // The <video> elements belong to venue-crowd.js and survive; this style owns the VideoTextures.
+    if (s.crowd) {
+      for (const layer of s.crowd.layers) {
+        layer.mesh?.parent?.remove(layer.mesh);
+        layer.geo?.dispose?.();
+        if (layer.mat) {
+          layer.mat.map = null;
+          layer.mat.dispose?.();
+        }
+        layer.tex?.dispose?.();
+      }
+    }
+    // The module-level plate cache otherwise keeps every loaded POV texture GPU-resident for the page lifetime.
+    try {
+      _venueTextureCache.forEach((tex) => { tex?.dispose?.(); });
+    } catch (_) { /* visual-only */ }
+    _venueTextureCache.clear();
+  },
+};

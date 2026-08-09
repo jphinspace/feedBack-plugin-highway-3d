@@ -12,38 +12,42 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
+const SUSTAIN_RAIL_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'geometry', 'sustain-rail.js');
+const CHORDS_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'chords.js');
 
 test('sustain rails are gated on multi-note chords with a known box width within AHEAD', () => {
-    // Each chord in a sequence (including repeats) draws a rail from its onset
-    // to the next chord's onset, chaining together to cover the full handshape
-    // duration visually. Single notes have no chord frame to anchor a rail to.
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
-    assert.match(
-        src,
-        /if\s*\(\s*chShape\.size\s*>\s*1\s*&&\s*chordOpenBoxW\s*!=\s*null\s*&&\s*chDt\s*<\s*AHEAD\s*\)/,
-        'sustain-rail block must stay gated on chShape.size > 1, chordOpenBoxW and chDt < AHEAD',
-    );
+  // Each chord in a sequence (including repeats) draws a rail from its onset
+  // to the next chord's onset, chaining together to cover the full handshape
+  // duration visually. Single notes have no chord frame to anchor a rail to.
+  // The chord loop (including this gate) moved to instance/render/chords.js
+  // in Stage 7 Track B (3-ctx-2).
+  const src = fs.readFileSync(CHORDS_JS, 'utf8');
+  assert.match(
+    src,
+    /if\s*\(\s*chShape\.size\s*>\s*1\s*&&\s*chordOpenBoxW\s*!=\s*null\s*&&\s*chDt\s*<\s*AHEAD\s*\)/,
+    'sustain-rail block must stay gated on chShape.size > 1, chordOpenBoxW and chDt < AHEAD',
+  );
 });
 
 test('sustain rails pick arpeggio color for arpeggio frames, teal otherwise', () => {
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
-    assert.match(
-        src,
-        /chordHighwayLavenderArpVisual\s*\?\s*ARPEGGIO_RIM_BLUE_HEX\s*:\s*CHORD_BOX_TEAL_HEX/,
-        'rail color must select ARPEGGIO_RIM_BLUE_HEX for arpeggio frames and CHORD_BOX_TEAL_HEX for chords',
-    );
+  const src = fs.readFileSync(CHORDS_JS, 'utf8');
+  assert.match(
+    src,
+    /chordHighwayLavenderArpVisual\s*\?\s*ARPEGGIO_RIM_BLUE_HEX\s*:\s*CHORD_BOX_TEAL_HEX/,
+    'rail color must select ARPEGGIO_RIM_BLUE_HEX for arpeggio frames and CHORD_BOX_TEAL_HEX for chords',
+  );
 });
 
 test('sustain-rail pool meshes keep renderOrder 5 so strings (7) stay on top', () => {
-    // renderOrder 5 sits below string-line glows (7) so strings render on top
-    // of the rail. Chord frame edges are Z-proportional [48,698] and note gems
-    // are Z-proportional [50,700], so the flat seed value does not conflict —
-    // emitSusStrip() assigns its own Z-proportional RO per segment at draw time.
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
-    assert.match(
-        src,
-        /pSusRail\s*=\s*pool\([^)]*,\s*\(\)\s*=>\s*\{[\s\S]*?m\.renderOrder\s*=\s*5\s*;[\s\S]*?\}\s*\)/,
-        'pSusRail pool must seed meshes with renderOrder = 5',
-    );
+  // renderOrder 5 sits below string-line glows (7) so strings render on top
+  // of the rail. Chord frame edges are Z-proportional [48,698] and note gems
+  // are Z-proportional [50,700], so the flat seed value does not conflict —
+  // emitSusStrip() assigns its own Z-proportional RO per segment at draw time.
+  // pSusRail moved to instance/geometry/sustain-rail.js in Stage 7 Track A.
+  const src = fs.readFileSync(SUSTAIN_RAIL_JS, 'utf8');
+  assert.match(
+    src,
+    /pSusRail\s*=\s*pool\([^)]*,\s*\(\)\s*=>\s*\{[\s\S]*?m\.renderOrder\s*=\s*5\s*;[\s\S]*?\}\s*\)/,
+    'pSusRail pool must seed meshes with renderOrder = 5',
+  );
 });

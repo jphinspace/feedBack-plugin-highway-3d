@@ -1,36 +1,222 @@
 # 3D Highway Plugin — AI Maintainer Guide
 
-This guide tells future AI assistants where each visual element lives in `screen.js`, what controls it, and the gotchas to watch for. The goal is for small polishes (color tweaks, sizing, animation timing, add/remove a label) to land in the right place on the first try without grep spelunking.
+This guide tells future AI assistants where each visual element lives, what controls it, and the gotchas to watch for. The goal is for small polishes (color tweaks, sizing, animation timing, add/remove a label) to land in the right place on the first try without grep spelunking.
 
-The whole renderer is **one file** — `screen.js`, wrapped in an IIFE, registered as `window.feedBackViz_highway_3d` (a feedBack#36 setRenderer factory). No imports beyond Three.js loaded from the vendored `/static/vendor/three/three.module.min.js` (pinned r170; swapped from CDN when bundled into core).
+The renderer is an **ES module graph** under `src/`, registered as `window.feedBackViz_highway_3d_dev` (a feedBack#36 setRenderer factory). This fork ships under the distinct plugin id `highway_3d_dev` (display name "3D Highway (dev)") specifically so it can install alongside the real bundled `highway_3d` plugin rather than replacing it — see "Plugin id vs. the bundled plugin" below. `screen.js` is now a single line — `import './src/main.js';` — and `plugin.json` declares `"scriptType": "module"` (needs `minHost` 0.3.0, which serves any `.js` under `<plugin>/src` via `GET /api/plugins/{id}/src/{path}`). No dependencies beyond Three.js, loaded from the vendored `/static/vendor/three/three.module.min.js` (pinned r170).
 
-**Styling (feedBack `styles` capability).** This plugin owns its Tailwind CSS: it ships `assets/plugin.css` and declares `"styles": "assets/plugin.css"` in `plugin.json`, so core's prebuilt `static/tailwind.min.css` no longer scans it (it's excluded from core's content globs). The frontend injects `assets/plugin.css` as a `<link>` when the renderer activates. This is the one maintainer-time build step: after you add/change a Tailwind class in `screen.js` or `settings.html`, run `bash build-tailwind.sh` (pinned `tailwindcss@3.4.19`, `corePlugins.preflight=false` — utilities only) and **bump the `version` in `plugin.json`** so the injected `<link>`'s `?v=` cache-buster fetches the fresh file. The generated `assets/plugin.css` is committed; end users never build. See [docs/plugin-styles.md](../../docs/plugin-styles.md).
+**Module rules** (from core's `docs/plugin-modules.md`):
+- **Layering points downward**: `core → settings → bg/bc/audio/ui → globals → main`. `import/no-cycle` is an ESLint error.
+- **`src/globals.js` is the ONLY writer of the plugin's *public* `window.*` contract** — every binding spelled out longhand, one line each, so `settings.html` and external callers stay greppable. Don't loop over an object to assign them. **Exception, deliberately outside this rule**: a handful of double-underscore-prefixed globals are private cross-module-instance coordination channels, not part of the public contract, and are written directly by their owning module: `window.__h3dDevAspectTune`/`__h3dDevAspectPanes`/`__h3dDevAspectPanelOpen`/`__h3dDevAspectReadout` (owned by `ui/aspect-panel.js`, read by `instance/render/camera-lifecycle.js`) and `window.__feedBackAudioTap` (owned by `audio/analyser.js`) exist specifically because `window.*` is the only channel that survives the reload-cache-buster's per-generation module-instance multiplication or crosses plugin boundaries; neither case can be expressed as an `installGlobals()` one-time binding since the values are lazily created and mutated throughout the session.
+- **No import-time side effects** — no `document` / `window` / `localStorage` reads at module top level, so `node --test` can real-import any module. The one lift is `initFretSpacing()`, called once from `main.js`.
+- **Relative specifiers only** between `src/` files (`./`, `../`). The reload cache-buster is a *path* token (`/api/plugins/<id>/g/<n>/…`) that relative imports inherit and query strings do not.
+- **Two naming worlds, and the boundary is load-bearing.** Module internals are named plainly (`readSetting`, `mountBackgroundStyle`, `createButterchurnController`). Public browser APIs retain their historical `Bg`/`Bc` spelling after the dev prefix, while all mutable state is isolated from the bundled plugin:
+  - **`window.h3dDevBgSet*` / `h3dDevVenue*` / `h3dDevBcApplySettings`.** The `Dev` namespace is required because this fork and bundled `highway_3d` load together but own independent module-scope subscriber buses. Never bind this fork onto bundled `window.h3dBgSet*`/`h3dVenue*` names.
+  - **`localStorage` keys** use the `highway_3d_dev.` prefix. Background settings use `highway_3d_dev.background.*`; fret spacing, aspect tuning, sustain mode, Butterchurn preferences, and string-color themes are namespaced too. Never read or write the bundled plugin's historical keys.
+  - **DOM ids and private aspect globals** use `highway_3d_dev-` and `__h3dDevAspect*` respectively. CSS classes may stay structural where no globally unique identity is implied.
 
-> **Navigation note:** This guide references functions by name and uses the existing banner comments (`/* ── Scene initialisation ─ */`, etc.) as section anchors. Line numbers are deliberately avoided so this stays correct as the file evolves. Use `Grep` for the function name or banner text to jump to a section.
+  So `settings/setters.js` exporting internal `h3dBgSetStyle` while `src/globals.js` binds it as public `window.h3dDevBgSetStyle` is *deliberate*, not drift: module imports need no plugin namespace, browser globals do.
+- **Plugin id vs. the bundled plugin.** `plugin.json`'s `id` is `highway_3d_dev` (name `"3D Highway (dev)"`) — deliberately *not* `highway_3d`, the id of the plugin bundled in-tree with feedBack core. Core's plugin loader silently discards a user-installed plugin whose `id` collides with a bundled one's (see `README.md`), so a same-id fork would never actually load. The distinct id lets this fork install side-by-side with the real bundled plugin, with a namespaced factory, mutable browser API, persistence, DOM identity, routes, upload slot, string-color themes, and Venue assets.
+- **Only the declaring module may write an `export let`.** Importers get a live binding they can *read* reactively but not reassign. Where an outside caller needs to write, export a setter function instead — that's why `setFretUniform`, `nextInstanceId`, `nextPaneCounter`, `_venueSetScene*`, `setPrimaryController`, `teardownPresetPanel`, `resetButterchurnSettingsCache`, and `_resetAnalyserBridgeForTest` exist. ESLint's `no-undef` reliably catches the missing-import half of this; it does *not* catch a live-binding write, so watch for it by hand when moving code.
+
+**Styling (feedBack `styles` capability).** This plugin owns its Tailwind CSS: it ships `assets/plugin.css` and declares `"styles": "assets/plugin.css"` in `plugin.json`, so core's prebuilt `static/tailwind.min.css` no longer scans it (it's excluded from core's content globs). The frontend injects `assets/plugin.css` as a `<link>` when the renderer activates. This is the one maintainer-time build step: after you add/change a Tailwind class under `src/` or in `settings.html`, run `bash build-tailwind.sh` (pinned `tailwindcss@3.4.19`, `corePlugins.preflight=false` — utilities only) and **bump the `version` in `plugin.json`** so the injected `<link>`'s `?v=` cache-buster fetches the fresh file. The generated `assets/plugin.css` is committed; end users never build. See [docs/plugin-styles.md](../../docs/plugin-styles.md).
+
+> **Navigation note:** This guide references functions by name and uses the existing banner comments (`/* ── Scene initialisation ─ */`, etc.) as section anchors. Line numbers are deliberately avoided so this stays correct as the file evolves. Use `Grep` for the function name or banner text to jump to a section. Below, "in `main.js`" means `src/main.js`.
 
 ## File structure at a glance
 
-The file is laid out top-to-bottom as:
+```
+screen.js                    1 line: import './src/main.js';
+src/
+  main.js                    boot + the still-monolithic createFactory() closure
+  globals.js                 THE ONLY writer of window.* (59 names, longhand)
+  core/
+    three.js                 export let T (live binding); loadThree(); __setThreeForTest()
+    constants.js             SCALE/K/NFRETS/geometry/camera/fog/notedetect/lane constants
+    palette.js               PALETTES, S_COL, hex helpers, gem gradients
+    render-order.js          RENDER_ORDER_LAYER_STACK, renderOrderForLayerAtZ
+    fret-geometry.js         fretX/fretMid/dZ + spacing state + initFretSpacing()
+    chart-util.js            resolveStringCount, tuning/pitch, anchors, computeBPM
+    slide-ribbon.js          SLIDE_RIBBON_SAMPLES / _INDICES_ARR
+    texture.js               _makeGaussTex
+    splitscreen.js           splitscreenActive, splitscreenCanvasFocused
+    instance-id.js           nextInstanceId()
+  settings/
+    defaults.js              CAMERA_MODE_IDS, SETTING_DEFAULTS, BACKGROUND_STYLE_IDS,
+                             SCENE_THEMES + per-axis accessors
+    store.js                 settingsPanelKey, freeCamFor, read/coerce/write, pub-sub bus
+    setters.js               the 49 h3dBgSet* setters (named exports)
+  audio/analyser.js          shared AudioContext/AnalyserNode tap, readAudioBands
+  background/
+    venue.js                 venue STATE + the 7 h3dVenue* setters
+    backdrop.js              silhouette canvas + full-bleed backdrop-plane helpers
+    styles/                  index.js + one file per BACKGROUND_STYLES entry (off/particles/
+                             silhouettes/lights/geometric/venue/image/video)
+  butterchurn/
+    engine.js                lib load, desktop guitar PCM feed, WebGL ctx release
+    prefs.js                 namespaced Butterchurn settings + favorites/bans curation lists
+    panel.js                 in-canvas preset browser panel + list pane
+    controller.js            createButterchurnController (per-wrap controller)
+  ui/
+    aspect-panel.js          the __h3dDevAspect* debug panel
+    shortcuts.js             _registerTunerShortcut
+    player-chrome.js         the Background picker in the player's Plugin Controls popover
+  instance/                  Stage 7 Track B/C/3e: per-instance createFactory() clusters, moved
+                             out one feature at a time behind createX(deps)/{deps,frame,accum}
+                             (see "Splitting `createFactory()`" below for the pattern)
+    ctx.js                   createCtx(id) -- the shared per-instance object; grows group-by-
+                             group, never speculatively. Groups: `cam` (camera pose, many
+                             co-equal writers), `board` (fretboard/nut/headstock geometry +
+                             materials, one writer/several readers), `settings` (all 52
+                             loadSettings()-assigned values -- single writer per field, readers
+                             independent per field, so this group landed as many small
+                             batches rather than one ctx.cam-shaped commit; see CLAUDE's
+                             "Settings" section below)
+    settings-listener.js      createSettingsListener -- the live settings-bus subscriber;
+                             outlives initScene(), reads ctx.settings.x / ctx.board.* directly
+                             (a stable ctx reference), a few remaining live getters for genuine
+                             main.js closure `let`s (fretG, _tuningLabelSprites) plus
+                             background-mount.js's getBgState()
+    background-mount.js       createBackgroundMount -- background-style mount/unmount/rebuild +
+                             the two-axis scene-color theme applier (_applyBgTheme). bgState/
+                             bgStage/bgMountedStyleId are private (own-it-outright); everything
+                             else genuinely written elsewhere (scene/cam/ren/wrap/ambLight/
+                             bgGroup/mLaneOdd/mLaneEven/bcCtrl/backgroundLastT) is live
+                             getters/setters
+    helpers.js                small helpers shared by 2+ createX(deps) factories, found by
+                             scanning every construction call for repeated dep names:
+                             camBaseDistU/camLowFretPullbackU/setLabelMap (zero deps, plain
+                             exports) and createHelpers() -- validString/filterValidNotes
+                             (getNStr() live getter; own _oobStringWarned + a WeakMap cache,
+                             each with an exposed reset), xFret/xFretMid/boardSpanX
+                             (getLeftyCached()), sY (getInvertedCached()/getNStr()),
+                             firstEventTimeGreaterThan, drawArpBrackets (getPArpBracket() --
+                             this factory is built once per createFactory() call, same
+                             lifetime as chordInference which needs validString/
+                             filterValidNotes immediately, well before pArpBracket exists)
+    model/
+      chord-inference.js     hand-shape/arpeggio inference, chord shape signatures
+      math.js                pure helpers (effectiveVfov, vibratoSemisAtTime, darkenHex, ...)
+      chord-diagram-tracking.js  chord-diagram entrance/crossfade state machine (7 fields
+                             returned each call, main.js still owns the bare `let`s)
+      arp-and-slide-prepasses.js  arpeggio-persist-key + slide-target-set pre-passes, the
+                             arpeggio lane-rail authored-marker/bounds memoization cache, and
+                             update()'s chord-merge (mergeHandShapeSynthChords) + arp-ghost-
+                             infer (fillArpeggioGhostInferFlags) memoization caches -- all five
+                             are the same chart-static-input-identity-memoization shape, bundled
+                             into one file since none is big enough to warrant its own
+      lookahead-math.js        5-fn lookahead-camera-mode pure math (lookaheadEndTime/
+                             BootstrapTime/ComputeFretBounds/TargetWorldX/SmoothCamStep)
+    render/
+      text-sprites.js        txtMat() + TXT_STYLES + per-instance createTxtCache()
+      tech-materials.js      technique-marker sprite materials (PM-X/FH-X icon textures)
+      note.js                createNoteRenderer -- drawNote(), the single-note renderer
+      chords.js               createChordRenderer -- the whole chord-body render loop
+      single-notes.js          standalone-note render loop (chords.js's twin)
+      arpeggio-lane-rail.js   arpeggio note-bracket lane rail rendering
+      beat-and-section-labels.js  drawBeatLines / drawSectionLabels
+      finalize-instanced-meshes.js  the "commit IM batches" step, must run last
+      highway-lane.js          anchor/active-frets highway lane + fret-boundary ext lines
+      fret-column-markers.js   periodic fret-number-wave reference markers
+      camera-target.js         classic/lookahead camera-target resolution (writes ctx.cam)
+      fret-number-row.js       heat-coloured fret-number row under the board
+      fret-wire-hit-flash.js   fret-wire anchor highlight (baseline) + hit-flash (lerp on top)
+      camera-bootstrap.js      song-change detection + first-chart-data camera bootstrap
+      note-state.js            per-frame noteState (sustain/anticipation/fretHeat/strGlow)
+                             build + updateStringHighlights()
+      lookahead-prepasses.js   next-note/recent-event-by-string lookahead, sorted event-time
+                             union, ghost-preview gap prepass, strGlow ramp + accent glow
+      hit-sparks.js            hit-spark (#3) particle system: construction + sparkBurst()/
+                             sparkUpdate()
+      bloom-composer.js        #4 bloom EffectComposer -- lazy async postprocessing import +
+                             per-frame resize check
+      note-camera-targets.js   steady-mode camera-distance/X-target resolver
+                             (applyNoteCamTargets, writes ctx.cam)
+      score-fx.js              Score FX (notedetect game-scoring layer) -- "+N" pops, milestone
+                             bursts, multiplier ring-pulses; drawNotedetectLabels too
+      material-retint.js       live palette/vibrancy/glow material-retint passes
+                             (applyPaletteToMaterials/recolorGemGradients/applyVibrancy/
+                             applyGlow) plus the per-frame applyVerdictGlow() (note-state
+                             provider verdict brightness apply + noteVerdictState reset) --
+                             every material-array dep is a live getter, since
+                             this factory is constructed before createNoteGemVisuals() (which
+                             takes recolorGemGradients as its own construction-time dep) runs
+      camera-lifecycle.js      camUpdate() (smooth camera lerp + self-correcting NDC look-at +
+                             the Hor+ wide-pane FOV hold + the fret-row fit guard) and
+                             applySize() (DPR + canvas size + aspect clamping + the .h3d-wrap
+                             overlay pin), called as cameraLifecycle.x() -- cam/_probe/wrap/ren/
+                             lyricsCanvas are plain deps (createDomAndScene-owned, stable per
+                             initScene() call); highwayCanvas/nStr/_leftyCached/_renderScale are
+                             live getters (change between initScene() calls without a full
+                             re-init). getAppliedSize() exposes the private _appliedW/_appliedH/
+                             _wrapPinned state draw()'s resize-detection fallback reads.
+    geometry/                 initScene() feature clusters -- construction-time only,
+                              verified via whole-file bare-reassignment grep, no `ctx` needed
+      note-gem-visuals.js      note/gem geometry + every gem/outline/sustain material
+      note-gem-pools.js        note/sustain/slide-ribbon object pools (pairs with the above)
+      technique-instanced-meshes.js  IM scratch objects + PM-X/FH-X technique-marker IMs
+      sustain-rail.js           sustain rail (core+bloom) + technique-marker plane pool
+      lane-and-labels.js        lane dividers, fret-column marker pool, highway lane plane
+      tap-chevron-and-label-pools.js  tap-chevron material + label/beat/section pools
+      chord-accent-visuals.js   chord-frame gradient textures + PM/FH strum X-mark visuals
+      dom-and-scene.js          highwayCanvas/_ctxLost live getter-setter pair (long-lived
+                             visibility/canvas-replaced listeners, outlive initScene())
+      nut-headstock.js          guitar nut + headstock geometry, called from buildBoard() on
+                             every rebuild (palette/theme/lefty/nStr changes), not just init
+      fret-markers.js           fret wires (shared TubeGeometry) + fret dots + fret inlay
+                             number labels, also called from buildBoard() on every rebuild
+    overlay/                  2D-canvas overlay renderers, each `(ctx, opts)`
+      chord-diagram.js         drawChordDiagram() -- top-left chord fingering diagram, plus
+                             createChordDiagramCache() -- the OffscreenCanvas render-cache
+                             wrapper around it (module-instance singleton, no per-init deps)
+      lyrics.js                 drawLyrics() -- top-centre syllable-highlighted lyrics
+      huds.js                   drawSectionHud() / drawToneHud()
+    notedetect/
+      listeners.js              createNotedetectListeners -- hit/miss + Score FX event binding
+      verdict-prune.js          per-frame notedetect housekeeping: pruneChordVerdicts()
+                             (_chordVerdicts/_susVerdictLatch Map GC + backward-seek wipe) and
+                             pruneNotedetectMarks() (expired hit/miss-mark splice prune) -- both
+                             run unconditionally every frame, not chart-static memoization
+```
 
-1. **Constants block** — palette (`S_COL`), scale (`SCALE`, `K`), fret/string counts, geometry sizes, camera, fog
-2. **Pure helpers** — `fretX`, `fretMid`, `dZ`, `computeBPM`
-3. **Three.js loader** — `loadThree()` (loads vendored `/static/vendor/three/three.module.min.js`, memoized)
-4. **Splitscreen helpers** — `_ssActive`, `_ssIsCanvasFocused` (read `window.feedBackSplitscreen`)
-5. **`createFactory()`** — the rest of the file is one big closure
-   - Per-instance state (Three.js refs, pools, camera state, lifecycle flags)
-   - `txtMat()` text-sprite cache, `pool()` factory
-   - `drawChordDiagram()` — 2D canvas chord diagram (top-left overlay)
-   - `drawLyrics()` — 2D canvas lyrics renderer (top centre)
-   - `initScene()` — one-time WebGL setup: scene, camera, lights, materials, pools
-   - `buildBoard()` — static fretboard geometry: strings, fret wires, fret dots, board plane
-   - `updateStringHighlights()` — per-frame string emissive glow + opacity
-   - `update(bundle)` — the big per-frame function: notes, chords, beats, lane, fret labels
-   - `drawNote()` — single note: outline, body, sustain, drop line, technique labels, projection
-   - `camUpdate()` — smooth camera lerp + self-correcting NDC look-at
-   - `applySize()` — DPR + canvas size + aspect clamping
-   - `teardown()` — dispose all GPU resources + reset state
-   - `canvasSize()` — resilient canvas-dimension lookup
-   - **Returned API** — `init / draw / resize / destroy` (setRenderer contract)
+`src/main.js` is down to ~3,318 lines (from an original 12,388 -- 73% reduction): a boot preamble (imports, `initFretSpacing()`, `installGlobals()`, the `h3dBcApplySettings` / `h3dSetFretSpacing` window hooks) followed by `createFactory()` — the per-instance renderer, still mid-decomposition and carrying a documented `max-lines` exemption until it drops under 1,500 lines. Its internals are laid out as:
+
+- Per-instance state (Three.js refs, pools, camera state, lifecycle flags)
+- `initScene()` — one-time WebGL setup: scene, camera, lights, materials, pools, the ~21
+  `createX(deps)` construction calls for the modules above
+- `loadSettings()` — reads all 52 settings into `ctx.settings.x` (see "Settings" below)
+- `buildBoard()` — static fretboard geometry: fretboard plane + string meshes inline, delegates
+  nut/headstock to `nutHeadstockBuilder` and fret wires/dots/inlay labels to `fretMarkersBuilder`
+- `_applyCinematic()` — live cinematic-mode toggle fired by the settings listener; the four
+  palette/vibrancy/glow retint passes it used to sit alongside now live in `materialRetint`
+  (`instance/render/material-retint.js`, called as `materialRetint.applyX()` — `_applyBgTheme()`
+  is the same "live retint, not full rebuild" idea but lives in `backgroundMount`)
+- `update(bundle)` — the big per-frame function: ~450 lines of per-frame notedetect housekeeping
+  (delegated to `verdictPrune`), chart-static memoization (delegated to `arpAndSlidePrepasses`),
+  camera-target wiring, `_noteFrame` snapshot assembly, and the ~15 `moduleX.drawY(...)` call
+  sites that replaced what used to be inline code (each call site names the module it delegates to)
+- `drawArpBrackets()` — now `instance/helpers.js`'s export of the same name (called from both
+  chords.js and single-notes.js), alongside `validString`/`filterValidNotes`/`xFret`/`xFretMid`/
+  `boardSpanX`/`sY`/`firstEventTimeGreaterThan` (all moved out of this factory the same way)
+- `camUpdate()` / `applySize()` — now `cameraLifecycle.camUpdate()` / `cameraLifecycle.applySize()`
+  (`instance/render/camera-lifecycle.js`): smooth camera lerp + self-correcting NDC look-at
+  (writes `ctx.cam`) / DPR + canvas size + aspect clamping (writes `ctx.cam`)
+- `teardown()` — dispose all GPU resources + reset state
+- `canvasSize()` — resilient canvas-dimension lookup
+- **Returned API** — `init / draw / resize / destroy` (setRenderer contract)
+
+### Settings (`ctx.settings`)
+
+Every setting `loadSettings()` reads (via `readSetting(panelKey, 'key')`) is assigned to a
+property on `ctx.settings` — e.g. `ctx.settings.glowMul`, `ctx.settings.cameraMode`,
+`ctx.settings.activePalette` — not a bare closure `let`. This is Stage 7 Track 3e, landed as 7
+independently-verified batches (see the plan file's "3e" section for the full batch table and
+commit SHAs) rather than one big commit, because each setting's consumer function(s) are
+independent of every other setting's — unlike `ctx.cam`, there was no mutual-coupling forcing a
+single atomic migration. When adding a NEW setting: add it to `SETTING_DEFAULTS`
+([settings/defaults.js](src/settings/defaults.js)) as always, then add a matching field to
+`ctx.js`'s `settings` group (default value from `SETTING_DEFAULTS`), write it in `loadSettings()`
+as `ctx.settings.x = readSetting(panelKey, 'x')`, and read it as `ctx.settings.x` everywhere —
+never reintroduce a bare closure `let` for a settings-driven value.
 
 ## Coordinate system
 
@@ -45,7 +231,7 @@ The file is laid out top-to-bottom as:
 
 `SCALE = 2.25`, `K = SCALE / 300 ≈ 0.0075`. **Almost every world-space dimension is expressed as `N * K`** so the whole scene scales as one unit. Tweaking `SCALE` alone resizes the entire highway. If you change a literal world dimension, write it as `N * K` to keep it consistent — naked numeric literals in Three.js geometry creation calls (e.g. inside `BoxGeometry`) are an obvious smell.
 
-Concrete sizes (search the constants block for the names):
+Concrete sizes (all live in [core/constants.js](src/core/constants.js)):
 
 | Const | Value (world units) | Meaning |
 |---|---|---|
@@ -62,19 +248,19 @@ Concrete sizes (search the constants block for the names):
 Each entry names the function or banner you should grep for, plus key sub-blocks (also marked with banner comments inside the function).
 
 ### Strings
-- **String colors** → `S_COL` array in the top-level constants block. Eight-element vibrant palette; index `s` is the string (0 = high E for guitar). `MAX_RENDER_STRINGS` keys off `S_COL.length`.
-- **String count for the active arrangement** → `resolveStringCount(bundle)` (top-level helper). Reads `bundle.stringCount` (feedBack#93) with a `bass`-name fallback. Don't reintroduce `tuning.length` — see Pitfall #4.
-- **String thickness / gap / base Y** → `STR_THICK`, `S_BASE`, `S_GAP` constants.
+- **String colors** → `S_COL` array in [core/palette.js](src/core/palette.js). Eight-element vibrant palette; index `s` is the string (0 = high E for guitar). `MAX_RENDER_STRINGS` keys off `S_COL.length`.
+- **String count for the active arrangement** → `resolveStringCount(bundle)` in [core/chart-util.js](src/core/chart-util.js). Reads `bundle.stringCount` (feedBack#93) with a `bass`-name fallback. Don't reintroduce `tuning.length` — see Pitfall #4.
+- **String thickness / gap / base Y** → `STR_THICK`, `S_BASE`, `S_GAP` in [core/constants.js](src/core/constants.js).
 - **String-to-Y mapping (respects invert)** → the `sY(s)` arrow function inside `createFactory()`. Single source of truth for "where on Y is string s."
 - **Static string mesh creation** → `buildBoard()`, the `// Thin Line strings (glow layer)` and `// BoxGeometry strings — emissive glow ...` comment blocks. Two layers: low-opacity `Line` for soft glow, `BoxGeometry` mesh per string with its own material clone (kept in `stringLines[]` for live emissive updates).
 - **Live string glow / pulse** → `updateStringHighlights(noteState)`. Tunables: `BASE_GLOW`, `MAX_GLOW`, `IDLE_OP`. Driven by `noteState.stringSustain` and `noteState.stringAnticipation`.
 
 ### Fretboard
-- **Fret count** → `NFRETS` constant. Increasing requires nothing else.
-- **Fret X positioning** → `fretX(f)` and `fretMid(f)` (top-level helpers). Logarithmic guitar-fret spacing within `SCALE`.
-- **Fretboard plane / fret wires / fret dots** → `buildBoard()`, separate banner-style comment blocks (`// Fret wires`, `// Fret dots`). The dark background plane is the first thing built; main fret wires use `0xbbbbff` / opacity 0.8, minor wires `0x666688` / opacity 0.4. Single/double dots: `DOTS` array + `DDOTS` set in the constants block.
+- **Fret count** → `NFRETS` in [core/constants.js](src/core/constants.js). Increasing requires nothing else.
+- **Fret X positioning** → `fretX(f)` and `fretMid(f)` in [core/fret-geometry.js](src/core/fret-geometry.js). Logarithmic guitar-fret spacing within `SCALE`.
+- **Fretboard plane / fret wires / fret dots** → `buildBoard()`, separate banner-style comment blocks (`// Fret wires`, `// Fret dots`). The dark background plane is the first thing built; main fret wires use `0xbbbbff` / opacity 0.8, minor wires `0x666688` / opacity 0.4. Single/double dots: `DOTS` array + `DDOTS` set in [core/constants.js](src/core/constants.js).
 - **Fret-row label colors / sizing** (the heat-coloured row of fret numbers below the board) → `update()`, `// ── Dynamic fret number row ──` block. Active = `#ffe84d`, inactive = `#9ab8cc`, opacity / scale driven by `noteState.fretHeat[f]`. Text rendering (font, outline, shadow) is governed by the `'fretRow'` preset in `TXT_STYLES` — see "Tweaking text-sprite styling".
-- **Active-fret cooldown** → `FRET_COOLDOWN` constant. How long after the last note in a fret it stays in the active set.
+- **Active-fret cooldown** → `FRET_COOLDOWN` in [core/constants.js](src/core/constants.js). How long after the last note in a fret it stays in the active set.
 
 ### Notes
 - **Single-note rendering** → `drawNote()`. Handles outline, core body, open-string variant, sustain trail, lane drop line, all technique labels, fret connector label, and the board projection. Each visual block has its own banner comment (`// ── Outline ──`, `// ── Core (filled note body) ──`, `// ── Sustain trail ──`, `// ── Lane drop line ──`, `// ── Technique labels ──`, `// ── Per-note fret connector label ──`, `// ── Board projection ──`).
@@ -86,8 +272,8 @@ Each entry names the function or banner you should grep for, plus key sub-blocks
 - **Per-note fret connector label** → `// ── Per-note fret connector label ──` block in `drawNote()`. Number below the board with a thin line up to the note. Be careful with `replace_all` on the `0.5` and `0.4` floats in the alpha formula — they're separate constants. Uses the `'noteFret'` preset in `TXT_STYLES` (also applied to the on-body fret number when `showFretOnNote` is enabled).
 - **Technique markers** (bend, slide, hammer/pull/tap, accent, tremolo, palm-mute, pinch harmonic) → `// ── Technique labels ──` block in `drawNote()`. Most are small if-blocks using `txtMat(text, color, wide, style)` (cached sprite material; `'technique'` preset in `TXT_STYLES`). Exceptions: a **bend** draws a string-coloured chevron strength stack (`bendChevronMat`, one chevron per half-step), and **hammer-on / pull-off** draw a white ▲/▼ triangle with a string-coloured border (`triMat`) — both pinned to the gem; the bend ribbon's up→hold→down contour is driven by `bendSemisAtTime`.
 - **Open-string note** → special-cased throughout `drawNote()`: `n.f === 0`. Wider/flatter geometry, "0" label sprite, uses `openX` (the chord's open-string centroid) when supplied.
-- **Board projection ("ghost" preview)** → `// ── Board projection ──` block in `drawNote()`. Two meshes per string (`projMeshArr`, `projGlowArr`), one visible per frame for the next note. Linger window `PROJ_WIN`. Gated on the `projectionVisible` setting (BG_DEFAULTS / `h3dBgSetProjectionVisible` / the "Show note preview on the fretboard" checkbox in `settings.html`) — when off, the block is skipped and `update()`'s per-frame `m.visible = false` reset leaves the ghost hidden. **The glow has `renderOrder = -1`** which fights the strings — see Pitfall #6.
-- **Note-hit "sizzle" (feedBack#254)** → `drawNotedetectSizzle()` (called from the `lyricsCtx` block in `draw()`, just before `drawNotedetectLabels()`). For each confirmed hit/active note (`_ndGood` in `drawNote()` pushes `{x, y, z, s, alpha, color}` onto the per-frame `_ndSizzle` array — `alpha` is the provider's clamped fade, `color` an optional palette override), it projects the note's world point through the up-to-date `cam`, sizes the burst from a fretboard-X-axis offset projection (reliable even when the note's rotated flat at the line), and twinkles a few short crackling ellipse-arc segments + tiny dots hugging the note's rectangle — re-randomised every frame, contained to ≲1.4× the note, half white / half the string colour (or the provider's `color` when given). Every dot/arc's `globalAlpha` and `shadowBlur` are scaled by the entry's `alpha`, and the per-element "off-this-frame" probability rises as `alpha` decays, so a struck-note glow visibly thins and fades. Also: `_ndGood` swaps the note's outline to `mGlow[s]` (bright string-tinted, not green). Knobs are inline: arc/dot count, base on-probability, line widths, `shadowBlur`, spread radii. Lives entirely on the 2D overlay layer — no Three.js geometry/disposal.
+- **Board projection ("ghost" preview)** → `// ── Board projection ──` block in `drawNote()`. Two meshes per string (`projMeshArr`, `projGlowArr`), one visible per frame for the next note. Linger window `PROJ_WIN`. Gated on the `projectionVisible` setting (SETTING_DEFAULTS / `h3dBgSetProjectionVisible` / the "Show note preview on the fretboard" checkbox in `settings.html`) — when off, the block is skipped and `update()`'s per-frame `m.visible = false` reset leaves the ghost hidden. **The glow has `renderOrder = -1`** which fights the strings — see Pitfall #6.
+- **Note-hit "sizzle" (feedBack#254)** → `drawNotedetectSizzle()` (called from the `lyricsCtx` block in `draw()`, just before `drawNotedetectLabels()`). For each confirmed hit/active note (`noteDetectGood` in `drawNote()` pushes `{x, y, z, s, alpha, color}` onto the per-frame `noteDetectSizzle` array — `alpha` is the provider's clamped fade, `color` an optional palette override), it projects the note's world point through the up-to-date `cam`, sizes the burst from a fretboard-X-axis offset projection (reliable even when the note's rotated flat at the line), and twinkles a few short crackling ellipse-arc segments + tiny dots hugging the note's rectangle — re-randomised every frame, contained to ≲1.4× the note, half white / half the string colour (or the provider's `color` when given). Every dot/arc's `globalAlpha` and `shadowBlur` are scaled by the entry's `alpha`, and the per-element "off-this-frame" probability rises as `alpha` decays, so a struck-note glow visibly thins and fades. Also: `noteDetectGood` swaps the note's outline to `mGlow[s]` (bright string-tinted, not green). Knobs are inline: arc/dot count, base on-probability, line widths, `shadowBlur`, spread radii. Lives entirely on the 2D overlay layer — no Three.js geometry/disposal.
 
 ### Chords
 - **Chord rendering loop** → `update()`, `// ── Chords ──` block. Iterates `bundle.chords`, calls `drawNote()` per chord-note, then draws the frame box, name label, and barre indicator.
@@ -99,28 +285,45 @@ Each entry names the function or banner you should grep for, plus key sub-blocks
 - **Chord diagram (top-left 2D overlay)** → `drawChordDiagram()`, called from the `lyricsCtx` block at the bottom of the returned `draw()`. The chord-to-display is selected in `update()` under `// ── Chord diagram: track most recently hit chord ──` and stashed in `_diagChord` (most recently hit named chord within the 0.55 s linger window).
 
 ### Camera
-- **Reference values** → `CAM_H_BASE`, `CAM_DIST_BASE`, `REF_ASPECT`, `FOCUS_D`, `CAM_LERP_BASE` in the constants block.
-- **Smooth lerp + look-at** → `camUpdate()`. BPM-scaled lerp speed (`CAM_LERP_BASE * bpm/120`).
+- **Reference values** → `CAM_H_BASE`, `CAM_DIST_BASE`, `REF_ASPECT`, `FOCUS_D`, `CAM_LERP_BASE` in [core/constants.js](src/core/constants.js).
+- **Smooth lerp + look-at** → `camUpdate()` in `instance/render/camera-lifecycle.js`. BPM-scaled lerp speed (`CAM_LERP_BASE * bpm/120`).
 - **Self-correcting framing** → bottom half of `camUpdate()`. Projects the fretboard mid-Y to NDC, nudges `tgtLookY` until that point sits at NDC Y ≈ `DESIRED_NDC_Y` (lower third of frame). This is what lets the camera adapt automatically to ultra-wide split-screen panels.
-- **Aspect compensation** → `aspectScale = Math.max(1, REF_ASPECT / Math.max(cam.aspect, 0.5))` in `applySize()`. Clamped to ≥ 1 so wide panels keep baseline depth (don't dolly in flat). Removing the `Math.max(1, …)` is the bug we already fixed; don't reintroduce it.
+- **Aspect compensation** → `aspectScale = Math.max(1, REF_ASPECT / Math.max(cam.aspect, 0.5))` in `applySize()` (same file). Clamped to ≥ 1 so wide panels keep baseline depth (don't dolly in flat). Removing the `Math.max(1, …)` is the bug we already fixed; don't reintroduce it.
 
 ### Beats and sections
 - **Beat lines** (downbeats highlighted) → `update()`, `// ── Beat lines ──` block. `mBeatM` (full opacity 0.25) for measure starts, `mBeatQ` (0.07) for other beats.
 - **Section labels** → `update()`, `// ── Section labels ──` block. Cyan (`#00cccc`) sprite at fret 12, above the highest string.
 
 ### Scene colors (two independent axes: Background + Highway)
-- **Scene-color themes** → `BG_THEMES` table near the top of `createFactory()`. One combined table is the single source of truth, but it drives **two independent axes that share the same id-set**:
-  - **Background axis** — setting key `bgTheme`, setter `window.h3dBgSetBgTheme`, state `bgThemeId`. Owns `clear` (WebGL clear color) + `fog`.
-  - **Highway axis** — setting key `hwTheme`, setter `window.h3dBgSetHwTheme`, state `hwThemeId`. Owns `board` (fretboard/highway-surface plane) + optional `lane`/`laneDim` (the lit lane strip).
-  Any background id can mix with any highway id; picking the same id in both gives the original "matched" look. Per-axis accessors are `_bgBackgroundColors(id)` / `_bgHighwayColors(id)` (both alias `_bgThemeColors`). Both axes default to `'default'` (byte-identical to the original look).
+- **Scene-color themes** → `SCENE_THEMES` table in [settings/defaults.js](src/settings/defaults.js). One combined table is the single source of truth, but it drives **two independent axes that share the same id-set**:
+  - **Background axis** — setting key `bgTheme`, setter `window.h3dDevBgSetBgTheme`, state `bgThemeId`. Owns `clear` (WebGL clear color) + `fog`.
+  - **Highway axis** — setting key `hwTheme`, setter `window.h3dDevBgSetHwTheme`, state `hwThemeId`. Owns `board` (fretboard/highway-surface plane) + optional `lane`/`laneDim` (the lit lane strip).
+  Any background id can mix with any highway id; picking the same id in both gives the original "matched" look. Per-axis accessors are `backgroundAxisColors(id)` / `highwayAxisColors(id)` (both alias `sceneThemeColors`). Both axes default to `'default'` (byte-identical to the original look).
 - **Applying a theme** → `_applyBgTheme()`. Background half sets clear+fog from `bgThemeId` (skipped under the venue scene); highway half sets the board plane + lane materials (`mLaneOdd`/`mLaneEven`) from `hwThemeId`. Re-run on init, `buildBoard()`, and the settings listener (which fires for **both** `bgTheme` and `hwTheme`), so changing either dropdown retints only its half live.
-- **Backward-compat migration** → `_bgLoadSettings()`: the first time it loads with no stored `hwTheme` (`_bgHasStored` false), it seeds `hwThemeId` from `bgThemeId` **and persists `hwTheme` once** (a one-time backfill, written without `_bgEmitChange`). So a pre-split single-`bgTheme` pick is byte-identical right after the upgrade, and from then on the two axes are fully independent — changing the Background dropdown never drags the Highway surface, and the settings UI's Highway value can't disagree with what's rendered. settings.html shows the same first-load value via `storedHwTheme == null ? bgTheme : coerceHwTheme(...)`.
-- **Adding/removing a theme** → edit `BG_THEMES` (the colors) AND `settings.html`'s `SCENE_THEMES` array (the `{id,label}` list — the single source the two dropdowns' `<option>`s and the `VALID_BG_THEMES` validator are both generated from). Keep the two id-sets aligned.
+- **Backward-compat migration** → `loadSettings()`: the first time it loads with no stored `hwTheme` (`hasStoredSetting` false), it seeds `hwThemeId` from `bgThemeId` **and persists `hwTheme` once** (a one-time backfill, written without `emitSettingChange`). So a pre-split single-`bgTheme` pick is byte-identical right after the upgrade, and from then on the two axes are fully independent — changing the Background dropdown never drags the Highway surface, and the settings UI's Highway value can't disagree with what's rendered. settings.html shows the same first-load value via `storedHwTheme == null ? bgTheme : coerceHwTheme(...)`.
+- **Adding/removing a theme** → edit `SCENE_THEMES` (the colors) AND `settings.html`'s `SCENE_THEMES` array (the `{id,label}` list — the single source the two dropdowns' `<option>`s and the `VALID_SCENE_THEMES` validator are both generated from). Keep the two id-sets aligned.
 
 ### Highway lane (the highlighted strip under active frets)
 - **Lane drawing** → `update()`, `// ── Dynamic highway lane ──` block. `pLane` is a single quad on the fretboard plane; `pLaneDivider` is thin vertical lines at each fret inside the lane. Width keys off the active-fret range; min width ≈ 4 frets.
 - **Lane intensity** → `highwayIntensity` accumulated from upcoming notes (further notes dim it, near notes light it).
-- **Lane color** → the lit quad color is `mLaneOdd.color` (stock `HWY_LANE_STRIPE_ODD_HEX = 0x103B5C`), the dimmer alternating row `mLaneEven.color` (`HWY_LANE_STRIPE_EVEN_HEX = 0x08283C`). These are now **theme-aware**: `_applyBgTheme()` recolors them from the active HIGHWAY theme's optional `lane`/`laneDim` fields, falling back to the stock hexes when a highway theme omits them. (`_laneTargetColor`, set in `initScene()`, is kept in sync with the lit color but has no live consumer today.)
+- **Lane color** → the lit quad color is `mLaneOdd.color` (stock `HIGHWAY_LANE_STRIPE_ODD_HEX = 0x103B5C`), the dimmer alternating row `mLaneEven.color` (`HIGHWAY_LANE_STRIPE_EVEN_HEX = 0x08283C`). These are now **theme-aware**: `_applyBgTheme()` recolors them from the active HIGHWAY theme's optional `lane`/`laneDim` fields, falling back to the stock hexes when a highway theme omits them. (`_laneTargetColor`, set in `initScene()`, is kept in sync with the lit color but has no live consumer today.)
+
+### Background scenery (the fog-band ambience behind the highway)
+- **A background style's build/update/teardown** → one file per entry under [background/styles/](src/background/styles/), assembled in [styles/index.js](src/background/styles/index.js). Each is a self-contained `{build(scene, settings), update(s, bands, dt, t), teardown(s)}` triple with no cross-entry references, so a style change touches exactly one file.
+- **Adding a style** → new file in `background/styles/`, register it in `styles/index.js`, add the id to `BACKGROUND_STYLE_IDS` in [settings/defaults.js](src/settings/defaults.js), add a `STYLE_SETTING_USES` row in [ui/player-chrome.js](src/ui/player-chrome.js), and add the `<option>` in `settings.html`. **Don't derive `BACKGROUND_STYLE_IDS` from `Object.keys(BACKGROUND_STYLES)`** — the asymmetry is load-bearing (see Pitfall #12). The `STYLE_SETTING_USES` row does double duty — it's not just UI greying:
+  - `intensity`/`reactive` — which controls the player-chrome background picker greys out (a missing row defaults to both-enabled, the safe direction).
+  - `bakesPalette` — whether this style's `build()` reads `activePalette`/`S_COL` (consumed by `instance/settings-listener.js` to decide whether a palette change needs a full `rebuildBackground()`; missing/unset defaults to `true`, i.e. rebuild — the safe direction, since silently leaving stale baked colors on screen is worse than one redundant rebuild).
+  - `intensityLive` — whether this style reads `intensity` per-frame off `bgState` instead of baking it into mesh count/opacity/size at build time (also consumed by `settings-listener.js`; missing/unset defaults to `false`, i.e. bake-at-build, so an intensity change rebuilds by default).
+  Get either wrong and a new style either eats a needless rebuild on every intensity/palette tweak (safe but wasteful) or, if you explicitly declare `bakesPalette`/`intensityLive` incorrectly, silently keeps stale geometry after a live setting change (not safe) — so when in doubt, leave them at their defaults rather than guessing `false`/`true`.
+- **Audio bands (`bass`/`mid`/`treble`) that drive reactive styles** → `readAudioBands()` in [audio/analyser.js](src/audio/analyser.js). Prefers the stems plugin's side-chain analyser, else the shared `#audio` tap; returns the frozen `ZERO_AUDIO_BANDS` when reactivity is off or no analyser is available. The 5 ms bands cache is what keeps 4-up splitscreen at one FFT read per frame rather than four.
+- **Backdrop-plane helpers** (the full-bleed camera-tracking plane the image/video/venue styles all mount) → `fitBackdropPlane` / `coverCropTexture` / `BACKDROP_DISTANCE` in [bg/backdrop.js](src/background/backdrop.js), along with the shared procedural silhouette bitmap.
+- **Venue mode** is split in two on purpose: [background/venue.js](src/background/venue.js) owns the state + dev-only `h3dDevVenue*` API (and the `_venueSetScene*` writers that let the renderer half write it); [background/styles/venue.js](src/background/styles/venue.js) is the renderer half. `venue` remains an internal effective style reached through that API, not a persisted Background-picker option. Its API and assets are dev-plugin-owned and do not delegate to bundled `highway_3d` globals or files.
+
+### Butterchurn visualizer (`bc/`)
+- **The per-wrap controller** (`createButterchurnController`) → [bc/controller.js](src/butterchurn/controller.js). Builds the layered DOM behind the transparent highway (backdrop → bc canvas → tint → scrim), owns preset cycling, and reuses the highway's shared analyser rather than opening a second `createMediaElementSource` on `#audio`.
+- **Preset browser panel / list pane** → [bc/panel.js](src/butterchurn/panel.js). A module singleton that follows whichever highway is on-screen — per-instance copies would spawn one pane per splitscreen panel. `setPrimaryController` / `teardownPresetPanel` exist so the controller can drive it across the module boundary.
+- **Settings + favorites/bans** → [butterchurn/prefs.js](src/butterchurn/prefs.js) (`highway_3d_dev.butterchurn.settings`, `.favorites`, `.banned`, `.seeded`). `window.h3dDevBcApplySettings` (in main.js) drops the cache via `resetButterchurnSettingsCache()` and re-applies to every live controller.
+- **Library loading + the desktop guitar PCM feed** → [bc/engine.js](src/butterchurn/engine.js). Note `butterchurn` is a *mode*, not a `BACKGROUND_STYLES` entry — only its fog-scenery half falls through to `BACKGROUND_STYLES.off`.
 
 ### Lyrics & overlays
 - **Lyrics overlay** → `drawLyrics()`. 2D canvas, top centre, semi-transparent rounded background, syllable-level highlighting (current syllable in white, played in muted, upcoming in dim).
@@ -129,13 +332,13 @@ Each entry names the function or banner you should grep for, plus key sub-blocks
 
 ### Splitscreen
 - **Focus dim** → `_isFocused` flag, manipulated by `_updateFocusState()`. Fades ambient + directional light intensity in non-focused panels.
-- **Per-panel resize fallback** → search `_lastHwW` in the returned `draw()`. The renderer self-detects when the highway canvas backing-store dimensions change and re-runs `applySize()`. Needed because the splitscreen plugin overrides `hw.resize` and never calls `renderer.resize()`.
-- **Reduced DPR in split** → `applySize()` clamps DPR to 1.25 when splitscreen is active vs 2 otherwise (search `baseDPR`). Keeps four-panel quad layout from melting GPUs.
+- **Per-panel resize fallback** → search `_lastHwW` in the returned `draw()`. The renderer self-detects when the highway canvas backing-store dimensions change and re-runs `cameraLifecycle.applySize()`; the pinned/applied-size state it compares against comes from `cameraLifecycle.getAppliedSize()`. Needed because the splitscreen plugin overrides `hw.resize` and never calls `renderer.resize()`.
+- **Reduced DPR in split** → `applySize()` (`instance/render/camera-lifecycle.js`) clamps DPR to 1.25 when splitscreen is active vs 2 otherwise (search `baseDPR`). Keeps four-panel quad layout from melting GPUs.
 
 ### Splitscreen panel controls/settings
-- Per-panel background overrides use `localStorage` keys shaped as `h3d_bg_panel<N>_<key>`. When present, they override the global `h3d_bg_<key>` value for panel `N`; when absent, the global value still applies.
-- Keep per-panel keys to `BG_DEFAULTS` entries that `_bgLoadSettings()` reads. Do not add panel-only keys outside that load path.
-- `panelControls` is a static, host-readable, curated descriptor list for controls a host can expose per panel. It documents the supported per-panel surface; the renderer still loads values through `_bgLoadSettings()`.
+- Per-panel background overrides use `localStorage` keys shaped as `highway_3d_dev.background.panel<N>.<key>`. When present, they override `highway_3d_dev.background.<key>` for panel `N`; when absent, the dev plugin's global value still applies.
+- Keep per-panel keys to `SETTING_DEFAULTS` entries that `loadSettings()` reads. Do not add panel-only keys outside that load path.
+- `panelControls` is a static, host-readable, curated descriptor list for controls a host can expose per panel. It documents the supported per-panel surface; the renderer still loads values through `loadSettings()`.
 - Asset/background image keys remain global-only. Do not make uploaded or selected asset references panel-scoped unless that contract is explicitly widened.
 - Host refresh nudges that call toggle setters must pass real booleans, not strings such as `'false'`, so setters can distinguish `true` from `false`.
 
@@ -153,7 +356,7 @@ Every per-frame renderer call receives a `bundle` from feedBack core. Fields use
 - `songInfo.arrangement` — only field of `songInfo` this plugin reads, used as the bass-name fallback in `resolveStringCount()`
 - `stringCount` — feedBack#93; always prefer this over deriving from tuning/arrangement
 - `lefty` — display flag consumed by this renderer from `bundle.lefty`. Captured into `_leftyCached` before each frame so `xFret()`, `xFretMid()`, `boardSpanX()`, board geometry, note placement, and the camera shoulder offset mirror the fret axis for left-handed mode. A runtime lefty flip rebuilds board state and mirrors `curX`/`tgtX` plus the lookahead camera X cache so the camera does not drift across the neck.
-- `getNoteState(note, chartTime)` — feedBack#254; per-note judgment from a scorer (note_detect). Captured each frame into `_ndGetNoteState` at the top of `update()` and consulted in `drawNote()` AFTER the event-driven `_ndHitMarks`/`_ndMissMarks` lookup AND over the proximity-based `hit` heuristic, both of which it overrides when it has a verdict: `'hit'`/`'active'` → `mGlow[s]` outline (bright string-tinted, *not* green) + `mGlow[s]` body + `mGlow[s]` sustain trail + a queue entry for `drawNotedetectSizzle` (so a held sustain keeps glowing/sparkling as long as the provider keeps returning `'active'`); `'miss'` → `mMissOutline` and `_showHit = false` (suppresses the bright body even if the note is near the line). Called with the note's chart time (`n.t`), which is how note_detect keys its `noteResults` map — *not* `now`. Returns null on cores without the API or songs with no scorer — then the event path / `hit` heuristic drive feedback for older note_detect builds. **notedetect ≥1.13 object verdicts additionally carry `{ points, mult, popKey }`** (game-scoring layer): `points` is the note's awarded score, `mult` the multiplier tier it landed at, and `popKey` a dedup key — chord members all return the chord-level judgment's key so a chord pops once, not once per gem. Consumed by the score-pop spawn in `drawNote()` (see Score FX below); all three are absent on older notedetect builds, so guard with `!== undefined`.
+- `getNoteState(note, chartTime)` — feedBack#254; per-note judgment from a scorer (note_detect). Captured each frame into `noteDetectGetState` at the top of `update()` and consulted in `drawNote()` AFTER the event-driven `noteDetectHitMarks`/`noteDetectMissMarks` lookup AND over the proximity-based `hit` heuristic, both of which it overrides when it has a verdict: `'hit'`/`'active'` → `mGlow[s]` outline (bright string-tinted, *not* green) + `mGlow[s]` body + `mGlow[s]` sustain trail + a queue entry for `drawNotedetectSizzle` (so a held sustain keeps glowing/sparkling as long as the provider keeps returning `'active'`); `'miss'` → `mMissOutline` and `_showHit = false` (suppresses the bright body even if the note is near the line). Called with the note's chart time (`n.t`), which is how note_detect keys its `noteResults` map — *not* `now`. Returns null on cores without the API or songs with no scorer — then the event path / `hit` heuristic drive feedback for older note_detect builds. **notedetect ≥1.13 object verdicts additionally carry `{ points, mult, popKey }`** (game-scoring layer): `points` is the note's awarded score, `mult` the multiplier tier it landed at, and `popKey` a dedup key — chord members all return the chord-level judgment's key so a chord pops once, not once per gem. Consumed by the score-pop spawn in `drawNote()` (see Score FX below); all three are absent on older notedetect builds, so guard with `!== undefined`.
 
 `tuning` and `capo` feed only the nut's open-string pitch labels. They prefer the bundle's effective values; `songInfo` remains the original metadata fallback. Note placement never reads them.
 
@@ -162,7 +365,7 @@ Core reuses the bundle OBJECT across frames (mutated in place); never cache it o
 ### Score FX (notedetect game-scoring layer)
 
 - **"+N" score pops** → `_fxSpawnPop()` from `drawNote()` (just after the provider verdict-override block), drawn by `drawScoreFx()` (called from the `lyricsCtx` block in `draw()`, right after `drawNotedetectLabels()`). Fixed 24-slot pool (`_fxPops`), deduped per `popKey` via the TTL'd `_fxSeen` map (pruned in `drawScoreFx`). Pops rise/fade over 700 ms; font size scales with the multiplier tier.
-- **Session FX** → `notedetect:fx` events (`{ fxType: 'multiplier'|'milestone'|'streakBreak', ... }`). notedetect dispatches each detail object twice in the same task: on `window` (unscoped, first) and as a bubbling CustomEvent from its per-panel instanceRoot (scoped, second). The listener (`_fxOnFx`, bound with the other notedetect listeners) treats element-targeted copies as authoritative — accepted only when their root lives in this panel's container — and **defers the window copy by a task** (`setTimeout 0`): if the element copy (same detail reference) arrived meanwhile it's dropped as a duplicate, otherwise it's the compat fallback for a detector whose root isn't in the DOM. This keeps splitscreen panels from rendering each other's FX even for the first event of a session. Effects: milestone → particle burst from a 4-slot Float32Array pool (`_fxBursts`), multiplier tier-up → expanding ring pulse at the strike-line centre, streak break → brief red wash.
+- **Session FX** → `notedetect:fx` events (`{ fxType: 'multiplier'|'milestone'|'streakBreak', ... }`). notedetect dispatches each detail object twice in the same task: on `window` (unscoped, first) and as a bubbling CustomEvent from its per-panel instanceRoot (scoped, second). The listener (`_fxOnFx`, bound with the other notedetect listeners) treats element-targeted copies as authoritative — accepted only when their root lives in this panel's container — and **defers the window copy by a task** (`setTimeout 0`): if the element copy (same detail reference) arrived meanwhile it's dropped as a duplicate, otherwise it's the compat fallback for a detector whose root isn't in the DOM. This keeps splitscreen panels from rendering each other's FX even for the first event of a session. Effects: milestone → particle burst from a 4-slot Float32Array pool (`_fxBursts`), multiplier tier-up → expanding ring pulse at the strike-line centre. **`streakBreak` is deliberately unhandled** — it used to paint a translucent red wash over the whole panel for 350 ms, on top of the notes the player was reading; that effect was deleted outright and the event is now ignored. Don't reintroduce a full-panel fill in `drawScoreFx`. The other streak feedback (hit-heat spark escalation, gated on `_streakFx` in `drawNote()`) is unaffected, which is what the `streakFx` setting still controls.
 - **Skin palette** → `_fxResolvePalette()` reads `localStorage['feedBack_notedetect_skin']` (`neon`/`esports`/`metal` → `_FX_PALETTES`) at listener-bind time and on the `notedetect:skin` bus event. The display fonts are document-loaded by notedetect's stylesheet, so the overlay canvas can reference the family names directly.
 - Everything lives on the 2D overlay layer — no Three.js geometry, no `txtMat()` cache traffic, nothing to dispose; `teardown()` deactivates the pools and removes both listeners.
 - **This block is the reference implementation for other renderer plugins** (drum highway, piano, custom highways) that want score pops / session FX: copy the `_fxOnFx` dedup+scoping listener, the `popKey`-keyed seen-map (cleared on backward seek), and the `_FX_PALETTES` skin mapping. The full consumer contract (events, payloads, provider verdict fields, theming variables) is documented in feedBack-plugin-notedetect's `CLAUDE.md`.
@@ -182,7 +385,7 @@ const noteState = {
 };
 ```
 
-Anything that indexes a per-string array MUST be guarded by `validString(s)`. The function checks that `s` is an integer in `[0, nStr)` (returning `false` otherwise so the caller can skip), warns once when an out-of-range index is seen, and keeps the `mStr / mGlow / mSus / projMeshArr` lookups safe. It does NOT clamp — out-of-range strings are dropped, not silently mapped to a valid one. `filterValidNotes(notes)` is the chord-note equivalent (allocates only when something would actually be dropped).
+Anything that indexes a per-string array MUST be guarded by `validString(s)` (`instance/helpers.js`). The function checks that `s` is an integer in `[0, nStr)` (returning `false` otherwise so the caller can skip), warns once when an out-of-range index is seen, and keeps the `mStr / mGlow / mSus / projMeshArr` lookups safe. It does NOT clamp — out-of-range strings are dropped, not silently mapped to a valid one. `filterValidNotes(notes)` (same file) is the chord-note equivalent (allocates only when something would actually be dropped).
 
 ## Object pools
 
@@ -206,6 +409,9 @@ If a pool's mesh has per-instance state (its own material clone, its own texture
 9. **The `aspectScale` clamp (`Math.max(1, …)`).** Without it, ultra-wide split-screen panels (top/bottom layout, ~5:1 aspect) yield aspectScale ≈ 0.33, which dollies the camera way in and kills highway depth. The clamp keeps wide panels at baseline depth and only allows narrow panels to dolly the camera back.
 10. **The `_oobStringWarned` flag is reset on `nStr` change** in the returned `draw()` — switching from guitar (6) to bass (4) re-arms the warning so a malformed bass chart still gets logged.
 11. **`renderOrder` values for the lane and dividers are explicit** in `update()` (`lane.renderOrder = 1`, `div.renderOrder = 2`). The lane plane needs to draw above the static fretboard plane (which has no renderOrder), and dividers need to draw above the lane.
+12. **`BACKGROUND_STYLE_IDS` and `BACKGROUND_STYLES` are deliberately NOT the same id-set.** `venue` is in `BACKGROUND_STYLES` but not `BACKGROUND_STYLE_IDS`, because it is an internal API-controlled effective style. `butterchurn` is the mirror image: selectable but rendered by its own controller rather than a Three background style. Never derive one list from the other.
+13. **Never snapshot a live binding at module scope.** `import { T } from './core/three.js'; const X = T;` captures `null` forever — `T` is assigned inside `loadThree().then()`, long after every module has evaluated. Read it inside a function body (every existing `T.Foo` call site already does). Same hazard applies to `FRET_WIDTH_MID` and `_venueSceneOverride`.
+14. **Keep ownership deliberate.** `settingsMemFallback`, `settingsListeners`, `butterchurnControllers`, `favoritePresets`/`bannedPresets`, the Butterchurn panel state, the aspect panel, `player-chrome`, the analyser bridge, built-in `PALETTES`, and Venue state are module singletons on purpose. The mutable custom palette is per renderer, because simultaneous 6/7-string or guitar/bass panes resolve the same named color slots into different index orders. Conversely, don't promote genuinely per-instance state (`txtCache`, pools, camera state, custom palette) to module scope.
 
 ## Tweaking colors safely
 
@@ -213,11 +419,11 @@ The eight-color palette `S_COL` is the single source of truth for per-string col
 
 If a planned color-palette feature lands (issue #10), expect it to swap the palette source array but keep this single-array indirection. Anything that hardcodes color today will break that swap; flag it during review.
 
-Non-string colors (the stock lane hexes `HWY_LANE_STRIPE_ODD_HEX`/`_EVEN_HEX` — now overridable per Highway theme, see "Scene colors" above; fret-row label colors `#ffe84d` / `#9ab8cc`, fret-dot color `0x556677`, lyrics box rgba, chord-name gold `#e8d080`, etc.) are scattered as literals — that's intentional for now, since they're scene-wide accents rather than per-string. Pulling them into named constants is fine if you're already in that area.
+Non-string colors (the stock lane hexes `HIGHWAY_LANE_STRIPE_ODD_HEX`/`_EVEN_HEX` — now overridable per Highway theme, see "Scene colors" above; fret-row label colors `#ffe84d` / `#9ab8cc`, fret-dot color `0x556677`, lyrics box rgba, chord-name gold `#e8d080`, etc.) are scattered as literals — that's intentional for now, since they're scene-wide accents rather than per-string. Pulling them into named constants is fine if you're already in that area.
 
 ## Tweaking text-sprite styling
 
-Every text label in the 3D scene is rasterised by `txtMat(text, color, wide, style)` and the look (font, outline, drop-shadow, source-canvas resolution) is driven by a preset in the `TXT_STYLES` table at the top of `createFactory()`. **Do not edit the body of `txtMat()` to change a single label class** — change the relevant preset entry instead, so the rest stay unaffected.
+Every text label in the 3D scene is rasterised by `txtMat(text, color, wide, style)` and the look (font, outline, drop-shadow, source-canvas resolution) is driven by a preset in the `TXT_STYLES` table near the top of `createFactory()` in [main.js](src/main.js). **Do not edit the body of `txtMat()` to change a single label class** — change the relevant preset entry instead, so the rest stay unaffected.
 
 Current presets and their callers:
 
@@ -245,22 +451,37 @@ Style fields:
 
 Per feedBack#36, the factory returns `{ init, draw, resize, destroy }`:
 
-- **`init(canvas, bundle)`** tears down any prior state, sets `highwayCanvas`, lazily loads Three.js, runs `initScene()`, calls `applySize()` (with a `retrySize` rAF loop fallback if the canvas isn't laid out yet).
-- **`draw(bundle)`** is gated on `_isReady`. Re-resolves `nStr` / inverted / renderScale, then `update(bundle) → camUpdate(bundle) → ren.render → 2D overlays`. The `_lastHwW/_lastHwH` check at the top auto-resizes when the splitscreen plugin bypasses `resize()`.
-- **`resize(w, h)`** is gated on `_isReady`. Just calls `applySize()`.
+- **`init(canvas, bundle)`** tears down any prior state, sets `highwayCanvas`, lazily loads Three.js, runs `initScene()` (which constructs `cameraLifecycle`), calls `cameraLifecycle.applySize()` (with a `retrySize` rAF loop fallback if the canvas isn't laid out yet).
+- **`draw(bundle)`** is gated on `_isReady`. Re-resolves `nStr` / inverted / renderScale, then `update(bundle) → cameraLifecycle.camUpdate(bundle) → ren.render → 2D overlays`. The `_lastHwW/_lastHwH` check at the top auto-resizes when the splitscreen plugin bypasses `resize()`.
+- **`resize(w, h)`** is gated on `_isReady`. Just calls `cameraLifecycle.applySize()`.
 - **`destroy()`** is idempotent. Sets flags, runs `teardown()`, drops `highwayCanvas`. Tolerates being called on an instance that's been destroyed and re-init'd already (resets `_lastHwW/H`, `_diagChord`, etc.).
 
-The factory **returns a fresh instance per call**, so splitscreen's per-panel `setRenderer(feedBackViz_highway_3d())` gets independent state per panel — important because the chord diagram, projection meshes, etc. are all per-instance.
+The factory **returns a fresh instance per call**, so splitscreen's per-panel `setRenderer(feedBackViz_highway_3d_dev())` gets independent state per panel — important because the chord diagram, projection meshes, etc. are all per-instance.
+
+## Verifying a change
+
+Four gates, in increasing cost. Run all four before committing anything non-trivial:
+
+1. **`npx eslint .`** (also runs in CI on every push/PR — `.github/workflows/lint.yml`) — the base rule set is the Airbnb JavaScript style guide (`eslint-config-airbnb-base`, loaded via `@eslint/eslintrc`'s `FlatCompat` since Airbnb still ships an eslintrc-shaped config); `eslint.config.js`'s header comment documents every deviation from it and why. `no-undef` is on for `src/**` and is the single most valuable check when moving code between modules: it catches a missing import at lint time instead of at runtime, several times over. `import/no-cycle` and `import/no-unresolved` are errors too.
+2. **`npm run test:js`** (also runs in CI on every push/PR — `.github/workflows/test.yml`) — bare `node --test` uses Node's recursive test discovery, avoiding unmatched shell globs when a test-file extension is absent from one directory. Current baseline: **203 tests, 203 pass, 0 fail, 0 todo**. Tests real-import the modules under test; that's why import-time purity matters.
+3. **Local core stack** — symlink this fork into a local `feedBack` checkout and boot native uvicorn (Docker's bind-mount of `./plugins` makes a host symlink dangle inside the container, so Docker won't work):
+   ```bash
+   ln -s /path/to/feedBack-plugin-highway-3d /path/to/feedBack/plugins/highway_3d_dev
+   cd /path/to/feedBack && PYTHONPATH=lib python main.py       # :8000
+   ```
+   Then confirm each new/changed module serves: `curl -o /dev/null -w '%{http_code}' localhost:8000/api/plugins/highway_3d_dev/src/<path>.js` → 200.
+4. **Playwright** (from the core checkout): `npx playwright test tests/browser/highway-3d-lefty.spec.ts tests/browser/check-errors.spec.ts tests/browser/plugin-globals-contract.spec.ts`. Expected baseline is **5/5 passing** (fixed in the core repo, not this one — see `feedBack/tests/browser/`). The two console-error-collecting specs match `msg.text()` against an `allowedErrors` substring list, but Chrome's "Failed to load resource" text never carries the failing URL (only `msg.location().url` does) — both specs now build their error strings from `location().url` too, and both allowlist `/art` alongside `favicon.ico`: a library "recently played" thumbnail 404ing for a song outside the current scan is expected (already handled gracefully by `library.js`'s `<img onerror>`), and only shows up at all when this dev machine's `~/.local/share/feedback/web_library.db` has `song_stats` history for a file the current server boot didn't scan. `highway-3d-lefty` additionally stubs `HTMLMediaElement.prototype.play/pause` in its init script, since its mocked song stream sends `audio_url: null` — a real `.play()` call has nothing to decode and rejects with `NotSupportedError` regardless of environment codec support, so the stub makes the assertion deterministic instead of environment-dependent.
 
 ## Branching / PR conventions
 
 - Feature branches off `main`, descriptive name (e.g. `fix/preview-stacking`, `feat/palette-picker`).
 - PR target: target the contributor's own fork by default unless they ask otherwise; confirm before opening a PR upstream. Run `git remote -v` in this directory to see the remotes that are configured locally.
 - Commit messages: short imperative subject, optional body explaining *why*. Don't summarize the diff — the diff already does that.
-- This plugin is bundled **in-tree** at `plugins/highway_3d/` inside the `got-feedback/feedBack` repository (not a gitlink/submodule). It ships with the default container image. Changes go through the normal feedBack PR process — no separate upstream repo to sync.
+- This repo is an **independent fork** of the `highway_3d` plugin bundled in-tree at `plugins/highway_3d/` in `got-feedback/feedBack`. It has deliberately diverged (the ES-module split above does not exist upstream), so it is not kept byte-compatible with core's copy and its changes are not headed upstream by default.
+- **No behaviour changes in a move commit.** When relocating code between modules, verify the moved text is byte-identical (`diff` against the exact original line range) and land any fix as its own follow-up commit. A large move with a "while I'm here" fix buried in it is unreviewable and unbisectable.
 
 ## When in doubt
 
-- `screen.js` is one file — `Grep` for the function name or banner text before guessing.
-- The constants block at the top is intentionally exhaustive; scan it before introducing a new magic number.
+- Check the file-structure tree above first; if it's renderer internals it's in [main.js](src/main.js), where `Grep` for the function name or banner text still beats guessing.
+- [core/constants.js](src/core/constants.js) is intentionally exhaustive; scan it before introducing a new magic number.
 - If a "polish" feels like it should be one or two lines but stretches into restructuring, double-check whether a per-frame state field, pool reset, or `validString()` guard already covers your case.

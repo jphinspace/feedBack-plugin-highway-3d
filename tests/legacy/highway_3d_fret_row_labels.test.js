@@ -16,65 +16,67 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
+// The fret-number row moved to instance/render/fret-number-row.js in
+// Stage 7 Track C.
+const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'fret-number-row.js');
 
 let _src;
 function src() {
-    if (!_src) _src = fs.readFileSync(SCREEN_JS, 'utf8');
-    return _src;
+  if (!_src) _src = fs.readFileSync(SCREEN_JS, 'utf8');
+  return _src;
 }
 
 test('fret row uses anchorPlayedFretSpanAt to get anchor range [f0, f1]', () => {
-    // anchorPlayedFretSpanAt returns { f0: anchor.fret, f1: anchor.fret+width-1 }.
-    // This is the correct span for note labels (the played zone), distinct from
-    // the wire span used by fret wires (anchorLaneBoundsAt: dMin=fret-1, dMax=fret+width-1).
-    assert.match(
-        src(),
-        /anchorPlayedFretSpanAt\(\s*anchors\s*,\s*now\s*\)/,
-        'fret row must call anchorPlayedFretSpanAt(anchors, now)',
-    );
+  // anchorPlayedFretSpanAt returns { f0: anchor.fret, f1: anchor.fret+width-1 }.
+  // This is the correct span for note labels (the played zone), distinct from
+  // the wire span used by fret wires (anchorLaneBoundsAt: dMin=fret-1, dMax=fret+width-1).
+  assert.match(
+    src(),
+    /anchorPlayedFretSpanAt\(\s*anchors\s*,\s*now\s*\)/,
+    'fret row must call anchorPlayedFretSpanAt(anchors, now)',
+  );
 });
 
 test('non-main frets outside anchor range are skipped (continue)', () => {
-    // The loop must skip frets that are neither in the anchor range nor a
-    // DOTS (main) fret, so non-dot frets never show a gray ghost label.
-    assert.match(
-        src(),
-        /if\s*\(\s*!isInAnchor\s*&&\s*!isMainFret\s*\)\s*continue\s*;/,
-        'fret row loop must skip non-anchor non-dot frets with: if (!isInAnchor && !isMainFret) continue',
-    );
+  // The loop must skip frets that are neither in the anchor range nor a
+  // DOTS (main) fret, so non-dot frets never show a gray ghost label.
+  assert.match(
+    src(),
+    /if\s*\(\s*!isInAnchor\s*&&\s*!isMainFret\s*\)\s*continue\s*;/,
+    'fret row loop must skip non-anchor non-dot frets with: if (!isInAnchor && !isMainFret) continue',
+  );
 });
 
 test('in-anchor frets use FRET_LABEL_GOLD_HEX color', () => {
-    assert.match(
-        src(),
-        /isInAnchor\s*\?\s*FRET_LABEL_GOLD_HEX\s*:\s*FRET_LABEL_IDLE_HEX/,
-        'fret row color must be FRET_LABEL_GOLD_HEX when in anchor, FRET_LABEL_IDLE_HEX otherwise',
-    );
+  assert.match(
+    src(),
+    /isInAnchor\s*\?\s*FRET_LABEL_GOLD_HEX\s*:\s*FRET_LABEL_IDLE_HEX/,
+    'fret row color must be FRET_LABEL_GOLD_HEX when in anchor, FRET_LABEL_IDLE_HEX otherwise',
+  );
 });
 
 test('in-anchor frets use opacity 1.0, idle frets use opacity 0.55', () => {
-    assert.match(
-        src(),
-        /lb\.material\.opacity\s*=\s*isInAnchor\s*\?\s*1\.0\s*:\s*0\.55\s*;/,
-        'fret row opacity must be 1.0 in anchor and 0.55 idle',
-    );
+  assert.match(
+    src(),
+    /lb\.material\.opacity\s*=\s*isInAnchor\s*\?\s*1\.0\s*:\s*0\.55\s*;/,
+    'fret row opacity must be 1.0 in anchor and 0.55 idle',
+  );
 });
 
 test('isMainFret uses DOTS.includes(f) — same dot positions as fret wires and inlays', () => {
-    // Main frets are the dot-inlay positions (3,5,7,9,12,15,17,19,21,24).
-    // Reusing DOTS keeps the visible set consistent across all fret indicators.
-    assert.match(
-        src(),
-        /const\s+isMainFret\s*=\s*DOTS\.includes\(\s*f\s*\)/,
-        'isMainFret must be defined as DOTS.includes(f)',
-    );
+  // Main frets are the dot-inlay positions (3,5,7,9,12,15,17,19,21,24).
+  // Reusing DOTS keeps the visible set consistent across all fret indicators.
+  assert.match(
+    src(),
+    /const\s+isMainFret\s*=\s*DOTS\.includes\(\s*f\s*\)/,
+    'isMainFret must be defined as DOTS.includes(f)',
+  );
 });
 
 test('isInAnchor checks anchorSpan.f0 and anchorSpan.f1 inclusive bounds', () => {
-    assert.match(
-        src(),
-        /f\s*>=\s*anchorSpan\.f0\s*&&\s*f\s*<=\s*anchorSpan\.f1/,
-        'isInAnchor must check f >= anchorSpan.f0 && f <= anchorSpan.f1',
-    );
+  assert.match(
+    src(),
+    /f\s*>=\s*anchorSpan\.f0\s*&&\s*f\s*<=\s*anchorSpan\.f1/,
+    'isInAnchor must check f >= anchorSpan.f0 && f <= anchorSpan.f1',
+  );
 });

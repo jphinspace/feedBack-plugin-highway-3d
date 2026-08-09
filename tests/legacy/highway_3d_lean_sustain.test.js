@@ -19,64 +19,73 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const SCREEN_JS = path.join(__dirname, '..', '..', 'src', 'main.js');
+const NOTE_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'note.js');
+const CHORDS_JS = path.join(__dirname, '..', '..', 'src', 'instance', 'render', 'chords.js');
 
 test('lean sustain rendering is the default (_leanSus starts true)', () => {
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
-    assert.match(
-        src,
-        /let\s+_leanSus\s*=\s*true\s*;/,
-        '_leanSus must default to true so lean rendering is the out-of-the-box behaviour',
-    );
+  const src = fs.readFileSync(SCREEN_JS, 'utf8');
+  assert.match(
+    src,
+    /let\s+_leanSus\s*=\s*true\s*;/,
+    '_leanSus must default to true so lean rendering is the out-of-the-box behaviour',
+  );
 });
 
-test('the full-quality look is an opt-out via localStorage h3d_full_sus', () => {
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
-    assert.match(
-        src,
-        /_leanSus\s*=\s*localStorage\.getItem\(\s*['"]h3d_full_sus['"]\s*\)\s*!==\s*['"]1['"]/,
-        "lean must stay on unless localStorage.h3d_full_sus === '1' opts back into the full look",
-    );
+test('the full-quality look is an opt-out via dev-namespaced localStorage', () => {
+  const src = fs.readFileSync(SCREEN_JS, 'utf8');
+  assert.match(
+    src,
+    /_leanSus\s*=\s*localStorage\.getItem\(\s*['"]highway_3d_dev\.fullSustain['"]\s*\)\s*!==\s*['"]1['"]/,
+    "lean must stay on unless the dev plugin's fullSustain key is '1'",
+  );
 });
 
 test('exactly one element is gated behind the lean flag, and it is the rail bloom', () => {
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
-    // Only the additive rail bloom may hide behind the lean flag. If a future
-    // edit re-gates the trail or ribbon outline behind !_leanSus, this count
-    // climbs above 1 and the test fails — that's the regression guard.
-    const gates = src.match(/if\s*\(\s*!_leanSus\s*\)/g) || [];
-    assert.equal(
-        gates.length,
-        1,
-        'expected exactly one `if (!_leanSus)` gate (the rail bloom); the outline must stay ungated',
-    );
-    assert.match(
-        src,
-        /if\s*\(\s*!_leanSus\s*\)\s*\{[\s\S]{0,200}?pSusRailBloom\.get\(\)/,
-        'the single lean gate must be the one that wraps pSusRailBloom.get()',
-    );
+  // The chord loop (including this gate) moved to
+  // instance/render/chords.js in Stage 7 Track B (3-ctx-2). Check
+  // main.js + chords.js together so the "exactly one across the
+  // renderer" guarantee still holds regardless of which file the gate
+  // lives in.
+  const src = `${fs.readFileSync(SCREEN_JS, 'utf8')}\n${fs.readFileSync(CHORDS_JS, 'utf8')}`;
+  // Only the additive rail bloom may hide behind the lean flag. If a future
+  // edit re-gates the trail or ribbon outline behind !_leanSus, this count
+  // climbs above 1 and the test fails — that's the regression guard.
+  const gates = src.match(/if\s*\(\s*!_leanSus\s*\)/g) || [];
+  assert.equal(
+    gates.length,
+    1,
+    'expected exactly one `if (!_leanSus)` gate (the rail bloom); the outline must stay ungated',
+  );
+  assert.match(
+    src,
+    /if\s*\(\s*!_leanSus\s*\)\s*\{[\s\S]{0,200}?pSusRailBloom\.get\(\)/,
+    'the single lean gate must be the one that wraps pSusRailBloom.get()',
+  );
 });
 
 test('the trail + ribbon outline always draw and use the hit/miss-aware material', () => {
-    const src = fs.readFileSync(SCREEN_JS, 'utf8');
-    // Outline material is hit/miss aware: miss -> mMissOutline, confirmed hit
-    // -> bright, otherwise the default mSusOutline white border.
-    assert.match(
-        src,
-        /_susOlMat\s*=\s*_ndState\s*===\s*'miss'\s*\?\s*mMissOutline[\s\S]*?:\s*mSusOutline\s*;/,
-        '_susOlMat must remain hit/miss aware so the tail border colours track note state',
-    );
-    // Box trail: the outline (trOut, pSusOutline) is drawn and fed _susOlMat,
-    // immediately followed by the coloured core (tr, pSus) — both ungated.
-    assert.match(
-        src,
-        /const\s+trOut\s*=\s*pSusOutline\.get\(\)\s*;[\s\S]*?trOut\.material\s*=\s*_susOlMat\s*;[\s\S]{0,400}?const\s+tr\s*=\s*pSus\.get\(\)/,
-        'the box-trail outline (pSusOutline + _susOlMat) must draw alongside the core trail',
-    );
-    // Ribbon trail (slide / bend / tremolo / vibrato): the outline (olMesh,
-    // pSusRibbonOl) is drawn and fed _susOlMat, then the ribbon body.
-    assert.match(
-        src,
-        /const\s+olMesh\s*=\s*pSusRibbonOl\.get\(\)\s*;[\s\S]*?olMesh\.material\s*=\s*_susOlMat\s*;[\s\S]*?const\s+body\s*=\s*pSusRibbon\.get\(\)/,
-        'the ribbon-trail outline (pSusRibbonOl + _susOlMat) must draw alongside the ribbon body',
-    );
+  // drawNote() moved to note.js in Stage 7 Phase 3b -- the sustain-trail
+  // block this test pins lives there now.
+  const src = fs.readFileSync(NOTE_JS, 'utf8');
+  // Outline material is hit/miss aware: miss -> mMissOutline, confirmed hit
+  // -> bright, otherwise the default mSusOutline white border.
+  assert.match(
+    src,
+    /_susOlMat\s*=\s*noteDetectState\s*===\s*'miss'\s*\?\s*mMissOutline[\s\S]*?:\s*mSusOutline\s*;/,
+    '_susOlMat must remain hit/miss aware so the tail border colours track note state',
+  );
+  // Box trail: the outline (trOut, pSusOutline) is drawn and fed _susOlMat,
+  // immediately followed by the coloured core (tr, pSus) — both ungated.
+  assert.match(
+    src,
+    /const\s+trOut\s*=\s*pSusOutline\.get\(\)\s*;[\s\S]*?trOut\.material\s*=\s*_susOlMat\s*;[\s\S]{0,400}?const\s+tr\s*=\s*pSus\.get\(\)/,
+    'the box-trail outline (pSusOutline + _susOlMat) must draw alongside the core trail',
+  );
+  // Ribbon trail (slide / bend / tremolo / vibrato): the outline (olMesh,
+  // pSusRibbonOl) is drawn and fed _susOlMat, then the ribbon body.
+  assert.match(
+    src,
+    /const\s+olMesh\s*=\s*pSusRibbonOl\.get\(\)\s*;[\s\S]*?olMesh\.material\s*=\s*_susOlMat\s*;[\s\S]*?const\s+body\s*=\s*pSusRibbon\.get\(\)/,
+    'the ribbon-trail outline (pSusRibbonOl + _susOlMat) must draw alongside the ribbon body',
+  );
 });
